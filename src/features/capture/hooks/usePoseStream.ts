@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useRef } from "react";
 import type { PoseFrame } from "../../../domain/mocap/models/PoseFrame";
 
+// ✅ type-only import: TS 2749 fix
+import type { PoseSmoother as PoseSmootherType } from "../../../domain/mocap/pipeline/filter/PoseSmoother";
+
 let PoseEngine: typeof import("../../../domain/mocap/pipeline/pose/PoseEngine.native").PoseEngine;
 try {
   PoseEngine = require("../../../domain/mocap/pipeline/pose/PoseEngine.native").PoseEngine;
@@ -16,13 +19,14 @@ let useCaptureStore: typeof import("../state/captureStore").useCaptureStore;
 try {
   useCaptureStore = require("../state/captureStore").useCaptureStore;
   // eslint-disable-next-line no-console
-  console.log("[Entry] useCaptureStore (hook) loaded");
+  console.log("[Entry] useCaptureStore loaded");
 } catch (e) {
   // eslint-disable-next-line no-console
-  console.error("[Entry] useCaptureStore (hook) failed to load", e);
+  console.error("[Entry] useCaptureStore failed to load", e);
   throw e;
 }
 
+// runtime value
 let PoseSmoother: typeof import("../../../domain/mocap/pipeline/filter/PoseSmoother").PoseSmoother;
 try {
   PoseSmoother = require("../../../domain/mocap/pipeline/filter/PoseSmoother").PoseSmoother;
@@ -61,6 +65,7 @@ function nowMs() {
 }
 
 type StartCaptureOptions = {
+  // native şu an full’a kilitliydi — ama yine de API’de tutuyoruz
   model?: "lite" | "full";
   targetFps?: number;
 };
@@ -85,8 +90,11 @@ export function usePoseStream(onFrame?: (frame: PoseFrame) => void) {
 
   const lastTsRef = useRef<number | null>(null);
   const subCleanupRef = useRef<null | (() => void)>(null);
-  const smootherRef = useRef<PoseSmoother | null>(null);
 
+  // ✅ TS 2749 fix: use type-only for the ref, runtime value for new
+  const smootherRef = useRef<PoseSmootherType | null>(null);
+
+  // Avoid stale closure for recording state
   const isRecordingRef = useRef(false);
   isRecordingRef.current = recorder.state.status === "recording";
 
@@ -139,11 +147,15 @@ export function usePoseStream(onFrame?: (frame: PoseFrame) => void) {
       setStatus("starting");
 
       try {
+        // cleanup old listener
         subCleanupRef.current?.();
         subCleanupRef.current = PoseEngine.addListener(handleIncomingFrame);
 
+        // ✅ native full’a kilitliyse JS de full göndersin
+        const desiredModel = opts?.model ?? "full";
+
         await PoseEngine.start({
-          model: opts?.model ?? "lite",
+          model: desiredModel,
           minConfidence: jointThreshold,
           minPoseConfidence: jointThreshold,
           targetFps: opts?.targetFps ?? 30,
@@ -186,14 +198,14 @@ export function usePoseStream(onFrame?: (frame: PoseFrame) => void) {
   }, [recorder, setStatus, status]);
 
   const startRecording = useCallback(
-    (opts?: StartRecordingOptions) => {
+    async (opts?: StartRecordingOptions) => {
       if (status !== "capturing") {
         setError("Start capture before recording.");
         return;
       }
       if (recorder.state.status !== "idle") return;
 
-      recorder.startRecording({
+      await recorder.startRecording({
         takeName: opts?.takeName ?? `Take ${new Date().toLocaleTimeString()}`,
         projectId: opts?.projectId,
         chunkFrames: opts?.chunkFrames ?? 30,
@@ -210,6 +222,7 @@ export function usePoseStream(onFrame?: (frame: PoseFrame) => void) {
   useEffect(() => {
     return () => {
       subCleanupRef.current?.();
+      subCleanupRef.current = null;
     };
   }, []);
 

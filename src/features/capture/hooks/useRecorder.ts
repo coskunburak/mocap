@@ -2,14 +2,16 @@ import { useCallback, useMemo, useRef, useState } from "react";
 import type { PoseFrame } from "../../../domain/mocap/models/PoseFrame";
 import type { Take } from "../../../domain/mocap/models/Take";
 
-let takeRepo: typeof import("../../../infra/persistence/takeRepo").takeRepo;
+type TakeRepo = typeof import("../../../infra/persistence/TakeRepo.fs").takeRepoFs;
+
+let takeRepo: TakeRepo;
 try {
-  takeRepo = require("../../../infra/persistence/takeRepo").takeRepo;
+  takeRepo = require("../../../infra/persistence/TakeRepo.fs").takeRepoFs;
   // eslint-disable-next-line no-console
-  console.log("[Entry] takeRepo loaded");
+  console.log("[Entry] takeRepoFs loaded");
 } catch (e) {
   // eslint-disable-next-line no-console
-  console.error("[Entry] takeRepo failed to load", e);
+  console.error("[Entry] takeRepoFs failed to load", e);
   throw e;
 }
 
@@ -33,13 +35,16 @@ type NormalizedRecorderOptions = {
 export function useRecorder() {
   const [state, setState] = useState<RecorderState>({ status: "idle" });
 
-  // refs to avoid rerenders per frame
+  // refs (no rerender per frame)
   const takeRef = useRef<Take | null>(null);
   const chunkNoRef = useRef(0);
   const bufferRef = useRef<PoseFrame[]>([]);
   const firstTsRef = useRef<number | null>(null);
   const lastTsRef = useRef<number | null>(null);
+
+  // flush concurrency control
   const flushingRef = useRef(false);
+  const flushAgainRef = useRef(false);
 
   const optsRef = useRef<NormalizedRecorderOptions>({
     takeName: "Take",
@@ -47,27 +52,7 @@ export function useRecorder() {
     chunkFrames: 30,
   });
 
-  const flush = useCallback(async () => {
-    if (flushingRef.current) return;
-
-    const take = takeRef.current;
-    if (!take) return;
-
-    const buffer = bufferRef.current;
-    if (buffer.length === 0) return;
-
-    flushingRef.current = true;
-
-    // move frames out quickly
-    const frames = buffer.splice(0, buffer.length);
-    const chunkNo = chunkNoRef.current;
-
-    // yield to UI so we don't block taps
-    await new Promise<void>((r) => setTimeout(r, 0));
-
-    takeRepo.appendFrames(take.id, chunkNo, frames);
-    chunkNoRef.current = chunkNo + 1;
-
+  const updateCounters = useCallback(() => {
     setState((prev) => {
       if (prev.status === "recording" || prev.status === "stopping") {
         return {
@@ -78,21 +63,69 @@ export function useRecorder() {
       }
       return prev;
     });
-
-    flushingRef.current = false;
   }, []);
 
+  /**
+   * Drain buffer to storage.
+   * Guarantees: if called while flushing, it schedules a follow-up flush.
+   */
+  const flush = useCallback(async () => {
+    if (flushingRef.current) {
+      flushAgainRef.current = true;
+      return;
+    }
+
+    const take = takeRef.current;
+    if (!take) return;
+
+    const hasAnything = bufferRef.current.length > 0;
+    if (!hasAnything) return;
+
+    flushingRef.current = true;
+    try {
+      while (true) {
+        const buffer = bufferRef.current;
+        if (buffer.length === 0) break;
+
+        // Move frames out quickly
+        const frames = buffer.splice(0, buffer.length);
+        const chunkNo = chunkNoRef.current;
+
+        // yield to UI (avoid blocking taps)
+        await new Promise<void>((r) => setTimeout(r, 0));
+
+        // ✅ await persistence (production)
+        await takeRepo.appendFrames(take.id, chunkNo, frames);
+        chunkNoRef.current = chunkNo + 1;
+
+        updateCounters();
+
+        // If someone requested another flush while we were flushing, loop again
+        if (flushAgainRef.current) {
+          flushAgainRef.current = false;
+          continue;
+        }
+
+        // if buffer got new frames during await, loop will continue anyway
+      }
+    } finally {
+      flushingRef.current = false;
+      flushAgainRef.current = false;
+    }
+  }, [updateCounters]);
+
   const startRecording = useCallback(
-    (options?: RecorderOptions) => {
+    async (options?: RecorderOptions) => {
       if (state.status !== "idle") return;
 
       optsRef.current = {
         takeName: options?.takeName ?? "Take",
-        projectId: options?.projectId, // <-- optional (fixed)
+        projectId: options?.projectId,
         chunkFrames: options?.chunkFrames ?? 30,
       };
 
-      const take = takeRepo.createTake(optsRef.current.takeName, optsRef.current.projectId);
+      // ✅ create take async
+      const take = await takeRepo.createTake(optsRef.current.takeName, optsRef.current.projectId);
 
       takeRef.current = take;
       chunkNoRef.current = 0;
@@ -117,23 +150,17 @@ export function useRecorder() {
       if (firstTsRef.current == null) firstTsRef.current = frame.ts;
       lastTsRef.current = frame.ts;
 
-      // update counters occasionally (avoid rerender on every frame)
+      // update UI counters occasionally
       if (bufferRef.current.length % 10 === 0) {
-        setState((prev) => {
-          if (prev.status !== "recording") return prev;
-          return {
-            ...prev,
-            buffered: bufferRef.current.length,
-            flushedChunks: chunkNoRef.current,
-          };
-        });
+        updateCounters();
       }
 
+      // chunk trigger
       if (bufferRef.current.length >= optsRef.current.chunkFrames) {
-        void flush();
+        void flush(); // async
       }
     },
-    [flush, state.status]
+    [flush, state.status, updateCounters]
   );
 
   const stopRecording = useCallback(async () => {
@@ -147,12 +174,14 @@ export function useRecorder() {
       return prev;
     });
 
+    // ✅ ensure everything flushed
     await flush();
 
     const first = firstTsRef.current ?? 0;
     const last = lastTsRef.current ?? first;
 
-    const finalized = takeRepo.finalizeTake(take.id, first, last);
+    // ✅ finalize async
+    const finalized = await takeRepo.finalizeTake(take.id, first, last);
 
     // reset
     takeRef.current = null;
@@ -162,6 +191,7 @@ export function useRecorder() {
     lastTsRef.current = null;
 
     setState({ status: "idle" });
+
     return finalized;
   }, [flush, state.status]);
 
