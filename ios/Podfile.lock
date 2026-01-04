@@ -237,6 +237,9 @@ PODS:
   - hermes-engine (0.81.5):
     - hermes-engine/Pre-built (= 0.81.5)
   - hermes-engine/Pre-built (0.81.5)
+  - MediaPipeTasksCommon (0.10.21)
+  - MediaPipeTasksVision (0.10.21):
+    - MediaPipeTasksCommon (= 0.10.21)
   - MMKVCore (2.2.4)
   - NitroMmkv (4.1.0):
     - hermes-engine
@@ -2292,6 +2295,7 @@ DEPENDENCIES:
   - EXUpdatesInterface (from `../node_modules/expo-updates-interface/ios`)
   - FBLazyVector (from `../node_modules/react-native/Libraries/FBLazyVector`)
   - hermes-engine (from `../node_modules/react-native/sdks/hermes-engine/hermes-engine.podspec`)
+  - MediaPipeTasksVision (~> 0.10.0)
   - NitroMmkv (from `../node_modules/react-native-mmkv`)
   - NitroModules (from `../node_modules/react-native-nitro-modules`)
   - RCTDeprecation (from `../node_modules/react-native/ReactApple/Libraries/RCTFoundation/RCTDeprecation`)
@@ -2371,6 +2375,8 @@ DEPENDENCIES:
 
 SPEC REPOS:
   trunk:
+    - MediaPipeTasksCommon
+    - MediaPipeTasksVision
     - MMKVCore
 
 EXTERNAL SOURCES:
@@ -2575,6 +2581,8 @@ SPEC CHECKSUMS:
   EXUpdatesInterface: 5adf50cb41e079c861da6d9b4b954c3db9a50734
   FBLazyVector: e95a291ad2dadb88e42b06e0c5fb8262de53ec12
   hermes-engine: 9f4dfe93326146a1c99eb535b1cb0b857a3cd172
+  MediaPipeTasksCommon: 6cfa29170d4900f04d250ad95ec058f14a741f38
+  MediaPipeTasksVision: 7b1c0f5a5820e87e9d96926f5e65d8cd3744fac2
   MMKVCore: f2dd4c9befea04277a55e84e7812f930537993df
   NitroMmkv: 4af10c70043b4c3cded3f16547627c7d9d8e3b8b
   NitroModules: 948745c245b2b3c3689dab3faf5a59e6b8903c64
@@ -2652,6 +2660,6 @@ SPEC CHECKSUMS:
   VisionCamera: 7187b3dac1ff3071234ead959ce311875748e14f
   Yoga: 5934998fbeaef7845dbf698f698518695ab4cd1a
 
-PODFILE CHECKSUM: 915d5315496e6a63a6be0052123ca563484ce123
+PODFILE CHECKSUM: c4bf84f1c10fc61f8957cc431b0512ef37e31012
 
 COCOAPODS: 1.16.2

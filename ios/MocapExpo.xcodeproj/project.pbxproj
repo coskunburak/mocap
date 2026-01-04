@@ -8,12 +8,17 @@
 
 /* Begin PBXBuildFile section */
 		13B07FBF1A68108700A75B9A /* Images.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 13B07FB51A68108700A75B9A /* Images.xcassets */; };
-		22104881C18D74FA362FBBF0 /* libPods-MocapExpo.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 7018E70C0DB2707DA0176E89 /* libPods-MocapExpo.a */; };
 		3E461D99554A48A4959DE609 /* SplashScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = AA286B85B6C04FC6940260E9 /* SplashScreen.storyboard */; };
+		5AC82666EE9F10AB2F74158E /* libPods-MocapExpo.a in Frameworks */ = {isa = PBXBuildFile; fileRef = BF5FECE758C17518D5EF7ECE /* libPods-MocapExpo.a */; };
 		5AC83ED24AF8610752BE4FD0 /* ExpoModulesProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0346EDE92B99D5FFFA8CCCBD /* ExpoModulesProvider.swift */; };
 		BB2F792D24A3F905000567C9 /* Expo.plist in Resources */ = {isa = PBXBuildFile; fileRef = BB2F792C24A3F905000567C9 /* Expo.plist */; };
-		CC70842B2F09B14C00E187FC /* PoseEngineModule.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC7084272F09B14C00E187FC /* PoseEngineModule.swift */; };
-		CC70842C2F09B14C00E187FC /* PoseEngineModuleBridge.m in Sources */ = {isa = PBXBuildFile; fileRef = CC7084282F09B14C00E187FC /* PoseEngineModuleBridge.m */; };
+		CC70844D2F09CDB100E187FC /* PoseCameraSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC7084462F09CDB100E187FC /* PoseCameraSession.swift */; };
+		CC70844E2F09CDB100E187FC /* PoseLandmarkerRunner.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC7084492F09CDB100E187FC /* PoseLandmarkerRunner.swift */; };
+		CC70844F2F09CDB100E187FC /* PoseEngineModuleBridge.m in Sources */ = {isa = PBXBuildFile; fileRef = CC7084482F09CDB100E187FC /* PoseEngineModuleBridge.m */; };
+		CC7084502F09CDB100E187FC /* PoseEngineModule.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC7084472F09CDB100E187FC /* PoseEngineModule.swift */; };
+		CC7084512F09CDCA00E187FC /* pose_landmarker_full.task in Sources */ = {isa = PBXBuildFile; fileRef = CC7084442F09CDB100E187FC /* pose_landmarker_full.task */; };
+		CC7084522F0A48B200E187FC /* PoseLandmarkerRunner.swift in Resources */ = {isa = PBXBuildFile; fileRef = CC7084492F09CDB100E187FC /* PoseLandmarkerRunner.swift */; };
+		CC7084532F0A48B800E187FC /* pose_landmarker_full.task in Resources */ = {isa = PBXBuildFile; fileRef = CC7084442F09CDB100E187FC /* pose_landmarker_full.task */; };
 		F11748422D0307B40044C1D9 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = F11748412D0307B40044C1D9 /* AppDelegate.swift */; };
 		F97FFAD39CF0D0FB696A19E4 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 6E0B976FE2890F8C8BD3C5A3 /* PrivacyInfo.xcprivacy */; };
 /* End PBXBuildFile section */
@@ -23,14 +28,17 @@
 		13B07F961A680F5B00A75B9A /* MocapExpo.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = MocapExpo.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		13B07FB51A68108700A75B9A /* Images.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; name = Images.xcassets; path = MocapExpo/Images.xcassets; sourceTree = "<group>"; };
 		13B07FB61A68108700A75B9A /* Info.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; name = Info.plist; path = MocapExpo/Info.plist; sourceTree = "<group>"; };
-		36EA1A3AEBC9828F457CBC16 /* Pods-MocapExpo.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-MocapExpo.release.xcconfig"; path = "Target Support Files/Pods-MocapExpo/Pods-MocapExpo.release.xcconfig"; sourceTree = "<group>"; };
 		6E0B976FE2890F8C8BD3C5A3 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xml; name = PrivacyInfo.xcprivacy; path = MocapExpo/PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
-		7018E70C0DB2707DA0176E89 /* libPods-MocapExpo.a */ = {isa = PBXFileReference; explicitFileType = archive.ar; includeInIndex = 0; path = "libPods-MocapExpo.a"; sourceTree = BUILT_PRODUCTS_DIR; };
-		92CED0C941E78C31967966DD /* Pods-MocapExpo.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-MocapExpo.debug.xcconfig"; path = "Target Support Files/Pods-MocapExpo/Pods-MocapExpo.debug.xcconfig"; sourceTree = "<group>"; };
 		AA286B85B6C04FC6940260E9 /* SplashScreen.storyboard */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = file.storyboard; name = SplashScreen.storyboard; path = MocapExpo/SplashScreen.storyboard; sourceTree = "<group>"; };
+		AC38021F3AA67AC9FE515A54 /* Pods-MocapExpo.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-MocapExpo.release.xcconfig"; path = "Target Support Files/Pods-MocapExpo/Pods-MocapExpo.release.xcconfig"; sourceTree = "<group>"; };
 		BB2F792C24A3F905000567C9 /* Expo.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; path = Expo.plist; sourceTree = "<group>"; };
-		CC7084272F09B14C00E187FC /* PoseEngineModule.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PoseEngineModule.swift; sourceTree = "<group>"; };
-		CC7084282F09B14C00E187FC /* PoseEngineModuleBridge.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = PoseEngineModuleBridge.m; sourceTree = "<group>"; };
+		BF5FECE758C17518D5EF7ECE /* libPods-MocapExpo.a */ = {isa = PBXFileReference; explicitFileType = archive.ar; includeInIndex = 0; path = "libPods-MocapExpo.a"; sourceTree = BUILT_PRODUCTS_DIR; };
+		CC7084442F09CDB100E187FC /* pose_landmarker_full.task */ = {isa = PBXFileReference; lastKnownFileType = file; path = pose_landmarker_full.task; sourceTree = "<group>"; };
+		CC7084462F09CDB100E187FC /* PoseCameraSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PoseCameraSession.swift; sourceTree = "<group>"; };
+		CC7084472F09CDB100E187FC /* PoseEngineModule.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PoseEngineModule.swift; sourceTree = "<group>"; };
+		CC7084482F09CDB100E187FC /* PoseEngineModuleBridge.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = PoseEngineModuleBridge.m; sourceTree = "<group>"; };
+		CC7084492F09CDB100E187FC /* PoseLandmarkerRunner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PoseLandmarkerRunner.swift; sourceTree = "<group>"; };
+		DEE785B8C8619C465091D173 /* Pods-MocapExpo.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-MocapExpo.debug.xcconfig"; path = "Target Support Files/Pods-MocapExpo/Pods-MocapExpo.debug.xcconfig"; sourceTree = "<group>"; };
 		ED297162215061F000B7C4FE /* JavaScriptCore.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = JavaScriptCore.framework; path = System/Library/Frameworks/JavaScriptCore.framework; sourceTree = SDKROOT; };
 		F11748412D0307B40044C1D9 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = AppDelegate.swift; path = MocapExpo/AppDelegate.swift; sourceTree = "<group>"; };
 		F11748442D0722820044C1D9 /* MocapExpo-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = "MocapExpo-Bridging-Header.h"; path = "MocapExpo/MocapExpo-Bridging-Header.h"; sourceTree = "<group>"; };
@@ -41,7 +49,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				22104881C18D74FA362FBBF0 /* libPods-MocapExpo.a in Frameworks */,
+				5AC82666EE9F10AB2F74158E /* libPods-MocapExpo.a in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -51,7 +59,6 @@
 		13B07FAE1A68108700A75B9A /* MocapExpo */ = {
 			isa = PBXGroup;
 			children = (
-				CC70842A2F09B14C00E187FC /* NativeModule 2 */,
 				F11748412D0307B40044C1D9 /* AppDelegate.swift */,
 				F11748442D0722820044C1D9 /* MocapExpo-Bridging-Header.h */,
 				BB2F792B24A3F905000567C9 /* Supporting */,
@@ -67,7 +74,7 @@
 			isa = PBXGroup;
 			children = (
 				ED297162215061F000B7C4FE /* JavaScriptCore.framework */,
-				7018E70C0DB2707DA0176E89 /* libPods-MocapExpo.a */,
+				BF5FECE758C17518D5EF7ECE /* libPods-MocapExpo.a */,
 			);
 			name = Frameworks;
 			sourceTree = "<group>";
@@ -83,8 +90,8 @@
 		668DC1C1E914829E778CE11E /* Pods */ = {
 			isa = PBXGroup;
 			children = (
-				92CED0C941E78C31967966DD /* Pods-MocapExpo.debug.xcconfig */,
-				36EA1A3AEBC9828F457CBC16 /* Pods-MocapExpo.release.xcconfig */,
+				DEE785B8C8619C465091D173 /* Pods-MocapExpo.debug.xcconfig */,
+				AC38021F3AA67AC9FE515A54 /* Pods-MocapExpo.release.xcconfig */,
 			);
 			path = Pods;
 			sourceTree = "<group>";
@@ -99,6 +106,7 @@
 		83CBB9F61A601CBA00E9B192 = {
 			isa = PBXGroup;
 			children = (
+				CC70844B2F09CDB100E187FC /* NativeModule 2 */,
 				13B07FAE1A68108700A75B9A /* MocapExpo */,
 				832341AE1AAA6A7D00B99B32 /* Libraries */,
 				83CBBA001A601CBA00E9B192 /* Products */,
@@ -136,19 +144,30 @@
 			name = MocapExpo;
 			sourceTree = "<group>";
 		};
-		CC7084292F09B14C00E187FC /* PoseEngine */ = {
+		CC7084452F09CDB100E187FC /* Models */ = {
 			isa = PBXGroup;
 			children = (
-				CC7084272F09B14C00E187FC /* PoseEngineModule.swift */,
-				CC7084282F09B14C00E187FC /* PoseEngineModuleBridge.m */,
+				CC7084442F09CDB100E187FC /* pose_landmarker_full.task */,
+			);
+			path = Models;
+			sourceTree = "<group>";
+		};
+		CC70844A2F09CDB100E187FC /* PoseEngine */ = {
+			isa = PBXGroup;
+			children = (
+				CC7084452F09CDB100E187FC /* Models */,
+				CC7084462F09CDB100E187FC /* PoseCameraSession.swift */,
+				CC7084472F09CDB100E187FC /* PoseEngineModule.swift */,
+				CC7084482F09CDB100E187FC /* PoseEngineModuleBridge.m */,
+				CC7084492F09CDB100E187FC /* PoseLandmarkerRunner.swift */,
 			);
 			path = PoseEngine;
 			sourceTree = "<group>";
 		};
-		CC70842A2F09B14C00E187FC /* NativeModule 2 */ = {
+		CC70844B2F09CDB100E187FC /* NativeModule 2 */ = {
 			isa = PBXGroup;
 			children = (
-				CC7084292F09B14C00E187FC /* PoseEngine */,
+				CC70844A2F09CDB100E187FC /* PoseEngine */,
 			);
 			path = "NativeModule 2";
 			sourceTree = "<group>";
@@ -160,14 +179,14 @@
 			isa = PBXNativeTarget;
 			buildConfigurationList = 13B07F931A680F5B00A75B9A /* Build configuration list for PBXNativeTarget "MocapExpo" */;
 			buildPhases = (
-				08A4A3CD28434E44B6B9DE2E /* [CP] Check Pods Manifest.lock */,
+				B5108BD256778C77A7F22557 /* [CP] Check Pods Manifest.lock */,
 				A6FEBEF9409B7DA3AE7E2EF8 /* [Expo] Configure project */,
 				13B07F871A680F5B00A75B9A /* Sources */,
 				13B07F8C1A680F5B00A75B9A /* Frameworks */,
 				13B07F8E1A680F5B00A75B9A /* Resources */,
 				00DD1BFF1BD5951E006B06BC /* Bundle React Native code and images */,
-				800E24972A6A228C8D4807E9 /* [CP] Copy Pods Resources */,
-				77742DF60445F17E40657165 /* [CP] Embed Pods Frameworks */,
+				25154609C1BC92AA7EC4EFE1 /* [CP] Embed Pods Frameworks */,
+				946D974143FC25124BB17D7A /* [CP] Copy Pods Resources */,
 			);
 			buildRules = (
 			);
@@ -200,6 +219,8 @@
 				Base,
 			);
 			mainGroup = 83CBB9F61A601CBA00E9B192;
+			packageReferences = (
+			);
 			productRefGroup = 83CBBA001A601CBA00E9B192 /* Products */;
 			projectDirPath = "";
 			projectRoot = "";
@@ -214,6 +235,8 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				CC7084532F0A48B800E187FC /* pose_landmarker_full.task in Resources */,
+				CC7084522F0A48B200E187FC /* PoseLandmarkerRunner.swift in Resources */,
 				BB2F792D24A3F905000567C9 /* Expo.plist in Resources */,
 				13B07FBF1A68108700A75B9A /* Images.xcassets in Resources */,
 				3E461D99554A48A4959DE609 /* SplashScreen.storyboard in Resources */,
@@ -241,29 +264,7 @@
 			shellPath = /bin/sh;
 			shellScript = "if [[ -f \"$PODS_ROOT/../.xcode.env\" ]]; then\n  source \"$PODS_ROOT/../.xcode.env\"\nfi\nif [[ -f \"$PODS_ROOT/../.xcode.env.local\" ]]; then\n  source \"$PODS_ROOT/../.xcode.env.local\"\nfi\n\n# The project root by default is one level up from the ios directory\nexport PROJECT_ROOT=\"$PROJECT_DIR\"/..\n\nif [[ \"$CONFIGURATION\" = *Debug* ]]; then\n  export SKIP_BUNDLING=1\nfi\nif [[ -z \"$ENTRY_FILE\" ]]; then\n  # Set the entry JS file using the bundler's entry resolution.\n  export ENTRY_FILE=\"$(\"$NODE_BINARY\" -e \"require('expo/scripts/resolveAppEntry')\" \"$PROJECT_ROOT\" ios absolute | tail -n 1)\"\nfi\n\nif [[ -z \"$CLI_PATH\" ]]; then\n  # Use Expo CLI\n  export CLI_PATH=\"$(\"$NODE_BINARY\" --print \"require.resolve('@expo/cli', { paths: [require.resolve('expo/package.json')] })\")\"\nfi\nif [[ -z \"$BUNDLE_COMMAND\" ]]; then\n  # Default Expo CLI command for bundling\n  export BUNDLE_COMMAND=\"export:embed\"\nfi\n\n# Source .xcode.env.updates if it exists to allow\n# SKIP_BUNDLING to be unset if needed\nif [[ -f \"$PODS_ROOT/../.xcode.env.updates\" ]]; then\n  source \"$PODS_ROOT/../.xcode.env.updates\"\nfi\n# Source local changes to allow overrides\n# if needed\nif [[ -f \"$PODS_ROOT/../.xcode.env.local\" ]]; then\n  source \"$PODS_ROOT/../.xcode.env.local\"\nfi\n\n`\"$NODE_BINARY\" --print \"require('path').dirname(require.resolve('react-native/package.json')) + '/scripts/react-native-xcode.sh'\"`\n\n";
 		};
-		08A4A3CD28434E44B6B9DE2E /* [CP] Check Pods Manifest.lock */ = {
-			isa = PBXShellScriptBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			inputFileListPaths = (
-			);
-			inputPaths = (
-				"${PODS_PODFILE_DIR_PATH}/Podfile.lock",
-				"${PODS_ROOT}/Manifest.lock",
-			);
-			name = "[CP] Check Pods Manifest.lock";
-			outputFileListPaths = (
-			);
-			outputPaths = (
-				"$(DERIVED_FILE_DIR)/Pods-MocapExpo-checkManifestLockResult.txt",
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-			shellPath = /bin/sh;
-			shellScript = "diff \"${PODS_PODFILE_DIR_PATH}/Podfile.lock\" \"${PODS_ROOT}/Manifest.lock\" > /dev/null\nif [ $? != 0 ] ; then\n    # print error to STDERR\n    echo \"error: The sandbox is not in sync with the Podfile.lock. Run 'pod install' or update your CocoaPods installation.\" >&2\n    exit 1\nfi\n# This output is used by Xcode 'outputs' to avoid re-running this script phase.\necho \"SUCCESS\" > \"${SCRIPT_OUTPUT_FILE_0}\"\n";
-			showEnvVarsInLog = 0;
-		};
-		77742DF60445F17E40657165 /* [CP] Embed Pods Frameworks */ = {
+		25154609C1BC92AA7EC4EFE1 /* [CP] Embed Pods Frameworks */ = {
 			isa = PBXShellScriptBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -285,7 +286,7 @@
 			shellScript = "\"${PODS_ROOT}/Target Support Files/Pods-MocapExpo/Pods-MocapExpo-frameworks.sh\"\n";
 			showEnvVarsInLog = 0;
 		};
-		800E24972A6A228C8D4807E9 /* [CP] Copy Pods Resources */ = {
+		946D974143FC25124BB17D7A /* [CP] Copy Pods Resources */ = {
 			isa = PBXShellScriptBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -341,6 +342,28 @@
 			shellPath = /bin/sh;
 			shellScript = "# This script configures Expo modules and generates the modules provider file.\nbash -l -c \"./Pods/Target\\ Support\\ Files/Pods-MocapExpo/expo-configure-project.sh\"\n";
 		};
+		B5108BD256778C77A7F22557 /* [CP] Check Pods Manifest.lock */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+				"${PODS_PODFILE_DIR_PATH}/Podfile.lock",
+				"${PODS_ROOT}/Manifest.lock",
+			);
+			name = "[CP] Check Pods Manifest.lock";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+				"$(DERIVED_FILE_DIR)/Pods-MocapExpo-checkManifestLockResult.txt",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "diff \"${PODS_PODFILE_DIR_PATH}/Podfile.lock\" \"${PODS_ROOT}/Manifest.lock\" > /dev/null\nif [ $? != 0 ] ; then\n    # print error to STDERR\n    echo \"error: The sandbox is not in sync with the Podfile.lock. Run 'pod install' or update your CocoaPods installation.\" >&2\n    exit 1\nfi\n# This output is used by Xcode 'outputs' to avoid re-running this script phase.\necho \"SUCCESS\" > \"${SCRIPT_OUTPUT_FILE_0}\"\n";
+			showEnvVarsInLog = 0;
+		};
 /* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
@@ -350,8 +373,11 @@
 			files = (
 				F11748422D0307B40044C1D9 /* AppDelegate.swift in Sources */,
 				5AC83ED24AF8610752BE4FD0 /* ExpoModulesProvider.swift in Sources */,
-				CC70842B2F09B14C00E187FC /* PoseEngineModule.swift in Sources */,
-				CC70842C2F09B14C00E187FC /* PoseEngineModuleBridge.m in Sources */,
+				CC70844D2F09CDB100E187FC /* PoseCameraSession.swift in Sources */,
+				CC70844E2F09CDB100E187FC /* PoseLandmarkerRunner.swift in Sources */,
+				CC70844F2F09CDB100E187FC /* PoseEngineModuleBridge.m in Sources */,
+				CC7084502F09CDB100E187FC /* PoseEngineModule.swift in Sources */,
+				CC7084512F09CDCA00E187FC /* pose_landmarker_full.task in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -360,7 +386,7 @@
 /* Begin XCBuildConfiguration section */
 		13B07F941A680F5B00A75B9A /* Debug */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = 92CED0C941E78C31967966DD /* Pods-MocapExpo.debug.xcconfig */;
+			baseConfigurationReference = DEE785B8C8619C465091D173 /* Pods-MocapExpo.debug.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CLANG_ENABLE_MODULES = YES;
@@ -397,7 +423,7 @@
 		};
 		13B07F951A680F5B00A75B9A /* Release */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = 36EA1A3AEBC9828F457CBC16 /* Pods-MocapExpo.release.xcconfig */;
+			baseConfigurationReference = AC38021F3AA67AC9FE515A54 /* Pods-MocapExpo.release.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CLANG_ENABLE_MODULES = YES;
