@@ -1,4 +1,3 @@
-// src/domain/mocap/pipeline/filter/OneEuroFilter.ts
 type OneEuroParams = {
   freq: number;       // Hz (fps)
   minCutoff: number;  // Hz
@@ -41,6 +40,10 @@ export class OneEuroFilter1D {
 
   setParams(p: Partial<OneEuroParams>) {
     this.params = { ...this.params, ...p };
+  }
+
+  lastValue() {
+    return this.x.last();
   }
 
   filter(value: number, tsMs: number) {

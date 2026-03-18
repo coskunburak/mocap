@@ -1,6 +1,6 @@
 import { useCallback, useMemo, useRef, useState } from "react";
 import type { PoseFrame } from "../../../domain/mocap/models/PoseFrame";
-import type { Take } from "../../../domain/mocap/models/Take";
+import type { Take, TakeCalibration } from "../../../domain/mocap/models/Take";
 
 type TakeRepo = typeof import("../../../infra/persistence/TakeRepo.fs").takeRepoFs;
 
@@ -24,12 +24,16 @@ type RecorderOptions = {
   takeName?: string;
   projectId?: string;
   chunkFrames?: number; // default 30
+  trackingProfile?: "pose" | "holistic";
+  calibration?: TakeCalibration;
 };
 
 type NormalizedRecorderOptions = {
   takeName: string;
   projectId?: string;
   chunkFrames: number;
+  trackingProfile?: "pose" | "holistic";
+  calibration?: TakeCalibration;
 };
 
 export function useRecorder() {
@@ -50,6 +54,8 @@ export function useRecorder() {
     takeName: "Take",
     projectId: undefined,
     chunkFrames: 30,
+    trackingProfile: undefined,
+    calibration: undefined,
   });
 
   const updateCounters = useCallback(() => {
@@ -122,10 +128,22 @@ export function useRecorder() {
         takeName: options?.takeName ?? "Take",
         projectId: options?.projectId,
         chunkFrames: options?.chunkFrames ?? 30,
+        trackingProfile: options?.trackingProfile,
+        calibration: options?.calibration,
       };
 
       // ✅ create take async
-      const take = await takeRepo.createTake(optsRef.current.takeName, optsRef.current.projectId);
+      const take = await takeRepo.createTake(
+        optsRef.current.takeName,
+        optsRef.current.projectId,
+        {
+          trackingProfile: optsRef.current.trackingProfile,
+          calibration: optsRef.current.calibration,
+          qualityScore: optsRef.current.calibration
+            ? Math.round(optsRef.current.calibration.readinessScore * 100)
+            : undefined,
+        },
+      );
 
       takeRef.current = take;
       chunkNoRef.current = 0;

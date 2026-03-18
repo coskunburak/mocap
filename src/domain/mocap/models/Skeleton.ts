@@ -1,4 +1,3 @@
-// src/domain/mocap/models/Skeleton.ts
 import type { JointName, Mp33Index } from "./MediapipePose33";
 
 export type Vec3 = Readonly<{ x: number; y: number; z: number }>;

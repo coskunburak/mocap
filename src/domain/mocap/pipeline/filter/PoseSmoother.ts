@@ -16,9 +16,9 @@ export class PoseSmoother {
 
   constructor(landmarkCount: number, params?: Partial<Params>) {
     this.params = {
-      minCutoff: 1.0,
-      beta: 0.007,
-      dCutoff: 1.0,
+      minCutoff: 0.35,
+      beta: 0.08,
+      dCutoff: 1.5,
       confidenceGate: 0.5,
       ...params,
     };
@@ -39,7 +39,17 @@ export class PoseSmoother {
       const o = i * LANDMARK_STRIDE;
       const x = raw[o], y = raw[o + 1], z = raw[o + 2], c = raw[o + 3];
 
-      if (c < this.params.confidenceGate) continue;
+      if (c < this.params.confidenceGate) {
+        const lastX = this.fx[i].lastValue();
+        const lastY = this.fy[i].lastValue();
+        const lastZ = this.fz[i].lastValue();
+        if (lastX != null && lastY != null && lastZ != null) {
+          out[o] = lastX;
+          out[o + 1] = lastY;
+          out[o + 2] = lastZ;
+        }
+        continue;
+      }
 
       out[o] = this.fx[i].filter(x, ts);
       out[o + 1] = this.fy[i].filter(y, ts);

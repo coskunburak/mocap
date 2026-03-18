@@ -4,7 +4,9 @@ import UIKit
 
 public final class PoseCameraSession: NSObject {
 
-  public struct Config {
+  public static let shared = PoseCameraSession()
+
+  public struct Config: Equatable {
     public let position: AVCaptureDevice.Position
     public let fps: Int
     public let preset: AVCaptureSession.Preset
@@ -46,6 +48,10 @@ public final class PoseCameraSession: NSObject {
     super.init()
   }
 
+  public var captureSession: AVCaptureSession {
+    session
+  }
+
   deinit {
     Task { await stop() }
   }
@@ -57,17 +63,23 @@ public final class PoseCameraSession: NSObject {
     onFrame: @escaping FrameCallback,
     onError: @escaping ErrorCallback
   ) async throws {
-
-    if isRunning { return }
-
-    self.config = config
-    self.onFrame = onFrame
-    self.onError = onError
-
     try await withCheckedThrowingContinuation { cont in
       captureQueue.async { [weak self] in
         guard let self else { return }
         do {
+          let previousConfig = self.config
+          self.config = config
+          self.onFrame = onFrame
+          self.onError = onError
+
+          if self.isRunning {
+            if previousConfig != config {
+              try self.configureSessionLocked(config: config)
+            }
+            cont.resume()
+            return
+          }
+
           try self.configureSessionLocked(config: config)
           self.session.startRunning()
           self.isRunning = true
@@ -96,6 +108,16 @@ public final class PoseCameraSession: NSObject {
         self.cleanupLocked(full: true)
         cont.resume()
       }
+    }
+  }
+
+  public func setCallbacks(
+    onFrame: FrameCallback?,
+    onError: ErrorCallback?
+  ) {
+    captureQueue.async { [weak self] in
+      self?.onFrame = onFrame
+      self?.onError = onError
     }
   }
 

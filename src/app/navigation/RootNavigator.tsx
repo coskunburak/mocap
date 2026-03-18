@@ -1,71 +1,136 @@
 import React from "react";
+import { Text, View } from "react-native";
+import { NavigationContainer, type Theme } from "@react-navigation/native";
+import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
+import { createNativeStackNavigator } from "@react-navigation/native-stack";
+import CaptureScreen from "../../features/capture/screens/CaptureScreen";
+import ExportScreen from "../../features/exports/screens/ExportScreen";
+import ExportsListScreen from "../../features/exports/screens/ExportsListScreen";
+import ProjectDetailScreen from "../../features/projects/screens/ProjectDetailScreen";
+import ProjectsListScreen from "../../features/projects/screens/ProjectsListScreen";
+import ReviewHubScreen from "../../features/review/screens/ReviewHubScreen";
+import TakeReviewScreen from "../../features/review/screens/TakeReviewScreen";
+import { colors, radii, spacing, typography } from "../../ui/theme";
 import { routes } from "./routes";
 
-let createBottomTabNavigator: typeof import("@react-navigation/bottom-tabs").createBottomTabNavigator;
-try {
-  createBottomTabNavigator = require("@react-navigation/bottom-tabs").createBottomTabNavigator;
-  // eslint-disable-next-line no-console
-  console.log("[Entry] bottom-tabs loaded");
-} catch (e) {
-  // eslint-disable-next-line no-console
-  console.error("[Entry] bottom-tabs failed to load", e);
-  throw e;
-}
-
-let NavigationContainer: typeof import("@react-navigation/native").NavigationContainer;
-try {
-  NavigationContainer = require("@react-navigation/native").NavigationContainer;
-  // eslint-disable-next-line no-console
-  console.log("[Entry] navigation native loaded");
-} catch (e) {
-  // eslint-disable-next-line no-console
-  console.error("[Entry] navigation native failed to load", e);
-  throw e;
-}
-
-let CaptureScreen: typeof import("../../features/capture/screens/CaptureScreen").default;
-try {
-  CaptureScreen = require("../../features/capture/screens/CaptureScreen").default;
-  // eslint-disable-next-line no-console
-  console.log("[Entry] CaptureScreen loaded");
-} catch (e) {
-  // eslint-disable-next-line no-console
-  console.error("[Entry] CaptureScreen failed to load", e);
-  throw e;
-}
-
-let ProjectsListScreen: typeof import("../../features/projects/screens/ProjectsListScreen").default;
-try {
-  ProjectsListScreen = require("../../features/projects/screens/ProjectsListScreen").default;
-  // eslint-disable-next-line no-console
-  console.log("[Entry] ProjectsListScreen loaded");
-} catch (e) {
-  // eslint-disable-next-line no-console
-  console.error("[Entry] ProjectsListScreen failed to load", e);
-  throw e;
-}
-
-let ExportsListScreen: typeof import("../../features/exports/screens/ExportsListScreen").default;
-try {
-  ExportsListScreen = require("../../features/exports/screens/ExportsListScreen").default;
-  // eslint-disable-next-line no-console
-  console.log("[Entry] ExportsListScreen loaded");
-} catch (e) {
-  // eslint-disable-next-line no-console
-  console.error("[Entry] ExportsListScreen failed to load", e);
-  throw e;
-}
-
 const Tab = createBottomTabNavigator();
+const Stack = createNativeStackNavigator();
+
+const TAB_LABELS: Record<string, string> = {
+  [routes.Capture]: "Capture",
+  [routes.ReviewHub]: "Review",
+  [routes.Projects]: "Projects",
+  [routes.Exports]: "Exports",
+};
+
+const navigationTheme: Theme = {
+  dark: true,
+  colors: {
+    primary: colors.accent,
+    background: colors.background,
+    card: colors.surface,
+    text: colors.textPrimary,
+    border: colors.border,
+    notification: colors.danger,
+  },
+  fonts: {
+    regular: {
+      fontFamily: typography.families.body ?? "System",
+      fontWeight: "500",
+    },
+    medium: {
+      fontFamily: typography.families.body ?? "System",
+      fontWeight: "600",
+    },
+    bold: {
+      fontFamily: typography.families.display ?? "System",
+      fontWeight: "700",
+    },
+    heavy: {
+      fontFamily: typography.families.display ?? "System",
+      fontWeight: "800",
+    },
+  },
+};
+
+function TabLabel({ label, focused }: { label: string; focused: boolean }) {
+  return (
+    <View style={{ alignItems: "center", gap: 6 }}>
+      <Text
+        style={[
+          typography.label.sm,
+          {
+            color: focused ? colors.textPrimary : colors.textMuted,
+            letterSpacing: 1.2,
+          },
+        ]}
+      >
+        {label}
+      </Text>
+      <View
+        style={{
+          width: focused ? 26 : 10,
+          height: 4,
+          borderRadius: radii.pill,
+          backgroundColor: focused ? colors.accent : colors.line,
+        }}
+      />
+    </View>
+  );
+}
+
+function Tabs() {
+  return (
+    <Tab.Navigator
+      screenOptions={({ route }) => ({
+        headerShown: false,
+        tabBarHideOnKeyboard: true,
+        tabBarStyle: {
+          position: "absolute",
+          left: spacing.md,
+          right: spacing.md,
+          bottom: spacing.md,
+          height: 76,
+          paddingTop: spacing.xs,
+          paddingBottom: spacing.sm,
+          paddingHorizontal: spacing.xs,
+          borderRadius: radii.xl,
+          borderTopWidth: 0,
+          backgroundColor: colors.tabBar,
+          shadowColor: colors.black,
+          shadowOpacity: 0.32,
+          shadowRadius: 20,
+          shadowOffset: { width: 0, height: 12 },
+          elevation: 14,
+        },
+        tabBarItemStyle: {
+          borderRadius: radii.lg,
+        },
+        tabBarLabel: ({ focused }) => (
+          <TabLabel label={TAB_LABELS[route.name] ?? route.name} focused={focused} />
+        ),
+      })}
+    >
+      <Tab.Screen name={routes.Capture} component={CaptureScreen} />
+      <Tab.Screen name={routes.ReviewHub} component={ReviewHubScreen} />
+      <Tab.Screen name={routes.Projects} component={ProjectsListScreen} />
+      <Tab.Screen name={routes.Exports} component={ExportsListScreen} />
+    </Tab.Navigator>
+  );
+}
 
 export default function RootNavigator() {
   return (
-    <NavigationContainer>
-      <Tab.Navigator screenOptions={{ headerShown: true }}>
-        <Tab.Screen name={routes.Capture} component={CaptureScreen} />
-        <Tab.Screen name={routes.Projects} component={ProjectsListScreen} />
-        <Tab.Screen name={routes.Exports} component={ExportsListScreen} />
-      </Tab.Navigator>
+    <NavigationContainer theme={navigationTheme}>
+      <Stack.Navigator screenOptions={{ headerShown: false }}>
+        <Stack.Screen name="Tabs" component={Tabs} />
+        <Stack.Screen
+          name={routes.ProjectDetail}
+          component={ProjectDetailScreen}
+        />
+        <Stack.Screen name={routes.Review} component={TakeReviewScreen} />
+        <Stack.Screen name={routes.Export} component={ExportScreen} />
+      </Stack.Navigator>
     </NavigationContainer>
   );
 }

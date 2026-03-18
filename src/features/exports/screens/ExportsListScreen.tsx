@@ -1,6 +1,29 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { View, Text, StyleSheet, FlatList, TouchableOpacity, Alert, RefreshControl, ActivityIndicator } from "react-native";
+import React, { useCallback, useMemo, useState } from "react";
+import {
+  ActivityIndicator,
+  Alert,
+  FlatList,
+  RefreshControl,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
+import { useFocusEffect, useNavigation } from "@react-navigation/native";
 import type { Take } from "../../../domain/mocap/models/Take";
+import { routes } from "../../../app/navigation/routes";
+import type {
+  ExportFormat,
+  ExportPresetId,
+} from "../../../domain/mocap/pipeline/export/ExportPresets";
+import { Card } from "../../../ui/components/Card";
+import { Screen, ScreenHeader } from "../../../ui/components/Screen";
+import { colors, radii, spacing, typography } from "../../../ui/theme";
+import { TakeRow } from "../../projects/components/TakeRow";
+import {
+  takeBadge,
+  takeHighlight,
+  takeTone,
+} from "../../takes/lib/takeStatus";
 
 let takeRepoFs: typeof import("../../../infra/persistence/TakeRepo.fs").takeRepoFs;
 try {
@@ -18,7 +41,7 @@ try {
   throw e;
 }
 
-type Format = "bvh" | "json" | "both";
+type Nav = any;
 
 function fmtDate(ms: number) {
   try {
@@ -34,6 +57,7 @@ function fmtNum(n: number) {
 }
 
 export default function ExportsListScreen() {
+  const navigation = useNavigation<Nav>();
   const { exporting, lastError, runExport } = useExportTake();
 
   const [takes, setTakes] = useState<Take[]>([]);
@@ -45,16 +69,24 @@ export default function ExportsListScreen() {
     setTakes(list);
   }, []);
 
-  useEffect(() => {
-    (async () => {
-      try {
-        setLoading(true);
-        await load();
-      } finally {
-        setLoading(false);
-      }
-    })();
-  }, [load]);
+  useFocusEffect(
+    useCallback(() => {
+      let active = true;
+      void (async () => {
+        try {
+          setLoading(true);
+          const list = await takeRepoFs.listTakes();
+          if (active) setTakes(list);
+        } finally {
+          if (active) setLoading(false);
+        }
+      })();
+
+      return () => {
+        active = false;
+      };
+    }, []),
+  );
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -81,147 +113,216 @@ export default function ExportsListScreen() {
             },
           },
         ],
-        { cancelable: true }
+        { cancelable: true },
       );
     },
-    [load]
+    [load],
   );
 
   const exportOne = useCallback(
-    async (t: Take, format: Format) => {
-      await runExport(t.id, format);
+    async (t: Take, format: ExportFormat, presetId?: ExportPresetId) => {
+      await runExport(t.id, format, presetId);
     },
-    [runExport]
+    [runExport],
   );
 
   const header = useMemo(() => {
+    const totalFrames = takes.reduce((acc, take) => acc + take.frameCount, 0);
+    const totalDuration = takes.reduce((acc, take) => acc + take.durationMs, 0);
+
     return (
       <View style={styles.header}>
-        <Text style={styles.title}>Exports</Text>
-        <Text style={styles.sub}>
-          Recorded takes are listed here. Export will generate BVH/JSON and open share sheet.
-        </Text>
-        {lastError ? <Text style={styles.err}>Error: {lastError}</Text> : null}
+        <ScreenHeader
+          eyebrow="Export Queue"
+          title="Turn clean takes into shareable assets."
+          subtitle="Review every recorded take, generate FBX, GLB, glTF, USD, BVH, or JSON outputs, and hand off polished files without leaving the mobile workflow."
+        />
+        <View style={styles.statsRow}>
+          <StatCard label="Takes ready" value={String(takes.length)} />
+          <StatCard label="Total frames" value={String(totalFrames)} />
+          <StatCard
+            label="Recorded time"
+            value={formatDuration(totalDuration)}
+          />
+        </View>
+        {lastError ? (
+          <Card tone="danger" style={styles.errorCard}>
+            <Text style={styles.errorTitle}>Last export error</Text>
+            <Text style={styles.errorText}>{lastError}</Text>
+          </Card>
+        ) : null}
       </View>
     );
-  }, [lastError]);
+  }, [lastError, takes]);
 
   if (loading) {
     return (
-      <View style={[styles.container, { justifyContent: "center", alignItems: "center" }]}>
-        <ActivityIndicator />
-        <Text style={{ marginTop: 10, opacity: 0.7 }}>Loading takes…</Text>
-      </View>
+      <Screen background="accent" contentContainerStyle={styles.loaderScreen}>
+        <ActivityIndicator color={colors.accent} size="large" />
+        <Text style={styles.loaderText}>Loading export queue...</Text>
+      </Screen>
     );
   }
 
   return (
-    <View style={styles.container}>
+    <Screen background="accent" contentContainerStyle={styles.container}>
       <FlatList
         ListHeaderComponent={header}
         data={takes}
         keyExtractor={(t) => t.id}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
-        contentContainerStyle={{ paddingBottom: 24 }}
+        style={styles.list}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+        }
+        contentContainerStyle={styles.listContent}
         renderItem={({ item }) => (
-          <View style={styles.card}>
-            <View style={{ gap: 4 }}>
-              <Text style={styles.takeTitle}>{item.name}</Text>
-              <Text style={styles.meta}>
-                {fmtDate(item.createdAt)} • frames={item.frameCount} • dur={Math.round(item.durationMs)}ms • avgFps={fmtNum(item.avgFps)}
-              </Text>
-              {item.projectId ? <Text style={styles.meta}>projectId={item.projectId}</Text> : null}
-            </View>
-
-            <View style={styles.actionsRow}>
-              <ActionButton
-                label="BVH"
-                disabled={exporting}
-                onPress={() => exportOne(item, "bvh")}
-              />
-              <ActionButton
-                label="JSON"
-                disabled={exporting}
-                onPress={() => exportOne(item, "json")}
-              />
-              <ActionButton
-                label="Both"
-                disabled={exporting}
-                onPress={() => exportOne(item, "both")}
-              />
-              <ActionButton
-                label="Delete"
-                danger
-                disabled={exporting}
-                onPress={() => confirmDelete(item)}
-              />
-            </View>
-          </View>
+          <TakeRow
+            title={item.name}
+            timestamp={fmtDate(item.createdAt)}
+            subtitle={`${item.frameCount} frames • ${formatDuration(item.durationMs)} • ${fmtNum(item.avgFps)} fps`}
+            highlight={takeHighlight(item)}
+            badge={takeBadge(item)}
+            tone={takeTone(item)}
+            onPress={() =>
+              navigation.navigate(routes.Review, { takeId: item.id })
+            }
+            actions={[
+              {
+                label: "Review",
+                variant: "secondary",
+                disabled: exporting,
+                onPress: () =>
+                  navigation.navigate(routes.Review, { takeId: item.id }),
+              },
+              {
+                label: "GLB",
+                variant: "secondary",
+                disabled: exporting,
+                onPress: () => exportOne(item, "glb", "web-preview"),
+              },
+              {
+                label: "FBX",
+                variant: "ghost",
+                disabled: exporting,
+                onPress: () => exportOne(item, "fbx", "unity-handoff"),
+              },
+              {
+                label: "Bundle",
+                variant: "primary",
+                disabled: exporting,
+                loading: exporting,
+                onPress: () => exportOne(item, "bundle", "dcc-archive"),
+              },
+              {
+                label: "Delete",
+                variant: "danger",
+                disabled: exporting,
+                onPress: () => confirmDelete(item),
+              },
+            ]}
+          />
         )}
         ListEmptyComponent={
-          <View style={{ padding: 16 }}>
-            <Text style={{ opacity: 0.7 }}>
-              No takes yet. Go to Capture tab and record a take.
+          <Card tone="accent" style={styles.emptyCard}>
+            <Text style={styles.emptyTitle}>No takes available.</Text>
+            <Text style={styles.emptyText}>
+              Record a take in the capture tab to populate the export queue and
+              unlock file generation.
             </Text>
-          </View>
+          </Card>
         }
       />
+    </Screen>
+  );
+}
+
+function StatCard({ label, value }: { label: string; value: string }) {
+  return (
+    <View style={styles.statCard}>
+      <Text style={styles.statLabel}>{label}</Text>
+      <Text style={styles.statValue}>{value}</Text>
     </View>
   );
 }
 
-function ActionButton({
-  label,
-  onPress,
-  disabled,
-  danger,
-}: {
-  label: string;
-  onPress: () => void;
-  disabled?: boolean;
-  danger?: boolean;
-}) {
-  return (
-    <TouchableOpacity
-      onPress={onPress}
-      disabled={disabled}
-      style={[
-        styles.btn,
-        danger ? styles.btnDanger : styles.btnPrimary,
-        disabled ? { opacity: 0.5 } : null,
-      ]}
-    >
-      <Text style={styles.btnText}>{label}</Text>
-    </TouchableOpacity>
-  );
+function formatDuration(ms: number) {
+  const safe = Math.max(0, Math.round(ms));
+  const totalSeconds = Math.floor(safe / 1000);
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+
+  if (hours > 0) return `${hours}h ${minutes}m`;
+  if (minutes > 0) return `${minutes}m ${seconds}s`;
+  return `${seconds}s`;
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1 },
-  header: { padding: 16, gap: 6 },
-  title: { fontSize: 26, fontWeight: "900" },
-  sub: { opacity: 0.7, lineHeight: 18 },
-  err: { marginTop: 6, color: "crimson" },
-
-  card: {
-    marginHorizontal: 16,
-    marginBottom: 12,
-    padding: 14,
-    borderRadius: 14,
-    backgroundColor: "rgba(0,0,0,0.04)",
-    gap: 10,
+  loaderScreen: {
+    justifyContent: "center",
+    alignItems: "center",
+    gap: spacing.md,
   },
-  takeTitle: { fontSize: 16, fontWeight: "800" },
-  meta: { opacity: 0.7 },
-
-  actionsRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
-
-  btn: {
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    borderRadius: 12,
+  loaderText: {
+    ...typography.body.md,
   },
-  btnPrimary: { backgroundColor: "rgba(0,0,0,0.85)" },
-  btnDanger: { backgroundColor: "rgba(220,0,0,0.85)" },
-  btnText: { color: "white", fontWeight: "800" },
+  container: {
+    flex: 1,
+  },
+  list: {
+    flex: 1,
+    marginHorizontal: -spacing.lg,
+  },
+  listContent: {
+    paddingHorizontal: spacing.lg,
+    paddingBottom: 120,
+    gap: spacing.sm,
+  },
+  header: {
+    gap: spacing.lg,
+    paddingBottom: spacing.sm,
+  },
+  statsRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: spacing.sm,
+  },
+  statCard: {
+    minWidth: 140,
+    flexGrow: 1,
+    borderRadius: radii.md,
+    padding: spacing.md,
+    gap: spacing.xs,
+    backgroundColor: "rgba(16, 29, 44, 0.78)",
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  statLabel: {
+    ...typography.label.sm,
+    color: colors.textMuted,
+  },
+  statValue: {
+    ...typography.title.card,
+  },
+  errorCard: {
+    gap: spacing.xs,
+  },
+  errorTitle: {
+    ...typography.label.md,
+    color: colors.textPrimary,
+  },
+  errorText: {
+    ...typography.body.md,
+    color: colors.textPrimary,
+  },
+  emptyCard: {
+    gap: spacing.sm,
+    marginTop: spacing.md,
+  },
+  emptyTitle: {
+    ...typography.title.card,
+  },
+  emptyText: {
+    ...typography.body.md,
+  },
 });

@@ -1,5 +1,5 @@
-import type { PoseFrame } from "../../domain/mocap/models/PoseFrame";
-import type { Take, TakeId } from "../../domain/mocap/models/Take";
+import type { FaceBlendshape, PoseFrame } from "../../domain/mocap/models/PoseFrame";
+import type { NewTakeMeta, Take, TakeId } from "../../domain/mocap/models/Take";
 import { newTake } from "../../domain/mocap/models/Take";
 import { getJson, setJson } from "./storage";
 import { storage, remove } from "./storage";
@@ -17,6 +17,16 @@ type StoredFrame = {
   ts: number;
   // flattened landmarks, but stored as number[] for JSON
   landmarks: number[];
+  worldLandmarks?: number[];
+  faceLandmarks?: number[];
+  leftHandLandmarks?: number[];
+  leftHandWorldLandmarks?: number[];
+  rightHandLandmarks?: number[];
+  rightHandWorldLandmarks?: number[];
+  faceBlendshapes?: FaceBlendshape[];
+  hasPoseSegmentationMask?: boolean;
+  trackingProfile?: "pose" | "holistic";
+  requestedTrackingProfile?: "auto" | "pose" | "holistic";
 };
 
 type StoredChunk = {
@@ -46,8 +56,8 @@ export const takeRepo = {
   /**
    * Create a new take and persist meta + index.
    */
-  createTake(name?: string, projectId?: string): Take {
-    const take = newTake(name ?? "Take", projectId);
+  createTake(name?: string, projectId?: string, meta?: NewTakeMeta): Take {
+    const take = newTake(name ?? "Take", projectId, meta);
     upsertIndex(take.id);
     setJson(K.meta(take.id), take);
     return take;
@@ -88,6 +98,24 @@ export const takeRepo = {
     const storedFrames: StoredFrame[] = frames.map((f) => ({
       ts: f.ts,
       landmarks: Array.from(f.landmarks), // Float32Array -> number[]
+      worldLandmarks: f.worldLandmarks ? Array.from(f.worldLandmarks) : undefined,
+      faceLandmarks: f.faceLandmarks ? Array.from(f.faceLandmarks) : undefined,
+      leftHandLandmarks: f.leftHandLandmarks
+        ? Array.from(f.leftHandLandmarks)
+        : undefined,
+      leftHandWorldLandmarks: f.leftHandWorldLandmarks
+        ? Array.from(f.leftHandWorldLandmarks)
+        : undefined,
+      rightHandLandmarks: f.rightHandLandmarks
+        ? Array.from(f.rightHandLandmarks)
+        : undefined,
+      rightHandWorldLandmarks: f.rightHandWorldLandmarks
+        ? Array.from(f.rightHandWorldLandmarks)
+        : undefined,
+      faceBlendshapes: f.faceBlendshapes ? [...f.faceBlendshapes] : undefined,
+      hasPoseSegmentationMask: f.hasPoseSegmentationMask,
+      trackingProfile: f.trackingProfile,
+      requestedTrackingProfile: f.requestedTrackingProfile,
     }));
 
     const startTs = storedFrames[0].ts;
@@ -132,6 +160,21 @@ export const takeRepo = {
       updatedAt: Date.now(),
       durationMs,
       avgFps,
+    };
+    setJson(K.meta(takeId), next);
+    return next;
+  },
+
+  updateTakeMeta(takeId: TakeId, patch: Partial<Take>): Take {
+    const take = this.getTake(takeId);
+    if (!take) throw new Error(`Take not found: ${takeId}`);
+
+    const next: Take = {
+      ...take,
+      ...patch,
+      id: take.id,
+      createdAt: take.createdAt,
+      updatedAt: Date.now(),
     };
     setJson(K.meta(takeId), next);
     return next;

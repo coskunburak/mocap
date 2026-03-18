@@ -2,7 +2,9 @@
 // Use require() to guarantee a runtime value.
 let createMMKV: typeof import("react-native-mmkv").createMMKV;
 try {
-  ({ createMMKV } = require("react-native-mmkv") as { createMMKV: typeof import("react-native-mmkv").createMMKV });
+  ({ createMMKV } = require("react-native-mmkv") as {
+    createMMKV: typeof import("react-native-mmkv").createMMKV;
+  });
   // eslint-disable-next-line no-console
   console.log("[Entry] MMKV loaded");
 } catch (e) {
@@ -30,7 +32,7 @@ export function getJson<T>(key: string): T | undefined {
 }
 
 export function remove(key: string) {
-  storage.delete(key);
+  storage.remove(key);
 }
 
 export function exists(key: string) {

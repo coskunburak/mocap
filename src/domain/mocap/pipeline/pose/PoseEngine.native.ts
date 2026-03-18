@@ -1,11 +1,22 @@
 import { NativeEventEmitter, NativeModules, Platform } from "react-native";
-import type { IPoseEngine, PoseEngineOptions, PoseFrameListener } from "./IPoseEngine";
-import type { PoseFrame } from "../../models/PoseFrame";
+import type {
+  IPoseEngine,
+  PoseEngineOptions,
+  PoseEngineStatus,
+  PoseEngineStatusListener,
+  PoseFrameListener,
+} from "./IPoseEngine";
+import type {
+  FaceBlendshape,
+  PoseFrame,
+  TrackingProfile,
+  TrackingProfileRequest,
+} from "../../models/PoseFrame";
 import { LANDMARK_STRIDE } from "../../models/Landmark";
 
 const MODULE_NAME = "PoseEngineModule";
 const EVENT_FRAME = "PoseEngineFrame";
-const EVENT_STATUS = "PoseEngineStatus"; // optional (ileride bağlarız)
+const EVENT_STATUS = "PoseEngineStatus";
 
 const NativePoseEngine = NativeModules[MODULE_NAME];
 
@@ -35,7 +46,7 @@ type NativeLandmark = {
   x: number;
   y: number;
   v: number; // visibility/confidence
-  z?: number; // currently not sent by swift mock; we default 0
+  z?: number;
 };
 
 type NativeFramePayload = {
@@ -43,12 +54,45 @@ type NativeFramePayload = {
   ts?: number;
   frameId?: number;
   fps?: number;
+  trackingProfile?: TrackingProfile;
+  requestedTrackingProfile?: TrackingProfileRequest;
   landmarks?: NativeLandmark[];
+  worldLandmarks?: NativeLandmark[];
+  faceLandmarks?: NativeLandmark[];
+  leftHandLandmarks?: NativeLandmark[];
+  leftHandWorldLandmarks?: NativeLandmark[];
+  rightHandLandmarks?: NativeLandmark[];
+  rightHandWorldLandmarks?: NativeLandmark[];
+  faceBlendshapes?: NativeBlendshape[];
+  hasPoseSegmentationMask?: boolean;
 };
 
-const DEFAULT_LM_COUNT = 33;
+type NativeStatusPayload = {
+  status?: string;
+  engineState?: PoseEngineStatus["engineState"];
+  message?: string;
+  model?: string;
+  requestedModel?: string;
+  requestedTrackingProfile?: TrackingProfileRequest;
+  targetFps?: number;
+  emitEveryNthFrame?: number;
+};
 
-function landmarksToBuffer(items: NativeLandmark[] | undefined, count = DEFAULT_LM_COUNT) {
+type NativeBlendshape = {
+  index?: number;
+  name?: string;
+  score?: number;
+  displayName?: string;
+};
+
+const DEFAULT_POSE_LM_COUNT = 33;
+const DEFAULT_FACE_LM_COUNT = 478;
+const DEFAULT_HAND_LM_COUNT = 21;
+
+function landmarksToBuffer(
+  items: NativeLandmark[] | undefined,
+  count = DEFAULT_POSE_LM_COUNT,
+) {
   // Always return fixed size buffer (count*4)
   const buf = new Float32Array(count * LANDMARK_STRIDE);
   // Init confidence = 0 so missing joints won't render
@@ -78,19 +122,104 @@ function landmarksToBuffer(items: NativeLandmark[] | undefined, count = DEFAULT_
   return buf;
 }
 
+function blendshapesFromNative(items: NativeBlendshape[] | undefined): readonly FaceBlendshape[] | undefined {
+  if (!Array.isArray(items) || items.length === 0) return undefined;
+
+  const out: FaceBlendshape[] = [];
+  for (const item of items) {
+    if (typeof item?.name !== "string" || typeof item?.score !== "number") {
+      continue;
+    }
+
+    out.push({
+      index: typeof item.index === "number" ? item.index : out.length,
+      name: item.name,
+      score: item.score,
+      displayName: typeof item.displayName === "string" ? item.displayName : undefined,
+    });
+  }
+
+  return out.length ? out : undefined;
+}
+
 function toPoseFrame(p: NativeFramePayload): PoseFrame {
   const ts =
     (typeof p.timestampMs === "number" && p.timestampMs) ||
     (typeof p.ts === "number" && p.ts) ||
     Date.now();
 
-  const landmarks = landmarksToBuffer(p.landmarks, DEFAULT_LM_COUNT);
+  const landmarks = landmarksToBuffer(p.landmarks, DEFAULT_POSE_LM_COUNT);
+  const worldLandmarks = landmarksToBuffer(p.worldLandmarks, DEFAULT_POSE_LM_COUNT);
+  const faceLandmarks = landmarksToBuffer(p.faceLandmarks, DEFAULT_FACE_LM_COUNT);
+  const leftHandLandmarks = landmarksToBuffer(p.leftHandLandmarks, DEFAULT_HAND_LM_COUNT);
+  const leftHandWorldLandmarks = landmarksToBuffer(
+    p.leftHandWorldLandmarks,
+    DEFAULT_HAND_LM_COUNT,
+  );
+  const rightHandLandmarks = landmarksToBuffer(
+    p.rightHandLandmarks,
+    DEFAULT_HAND_LM_COUNT,
+  );
+  const rightHandWorldLandmarks = landmarksToBuffer(
+    p.rightHandWorldLandmarks,
+    DEFAULT_HAND_LM_COUNT,
+  );
+
+  const hasWorldLandmarks = Array.isArray(p.worldLandmarks) && p.worldLandmarks.length > 0;
+  const hasFaceLandmarks = Array.isArray(p.faceLandmarks) && p.faceLandmarks.length > 0;
+  const hasLeftHandLandmarks =
+    Array.isArray(p.leftHandLandmarks) && p.leftHandLandmarks.length > 0;
+  const hasLeftHandWorldLandmarks =
+    Array.isArray(p.leftHandWorldLandmarks) && p.leftHandWorldLandmarks.length > 0;
+  const hasRightHandLandmarks =
+    Array.isArray(p.rightHandLandmarks) && p.rightHandLandmarks.length > 0;
+  const hasRightHandWorldLandmarks =
+    Array.isArray(p.rightHandWorldLandmarks) && p.rightHandWorldLandmarks.length > 0;
 
   return {
     ts,
     frameId: typeof p.frameId === "number" ? p.frameId : undefined,
     fps: typeof p.fps === "number" ? p.fps : undefined,
+    trackingProfile: p.trackingProfile ?? "pose",
+    requestedTrackingProfile: p.requestedTrackingProfile ?? "auto",
     landmarks,
+    worldLandmarks: hasWorldLandmarks ? worldLandmarks : undefined,
+    faceLandmarks: hasFaceLandmarks ? faceLandmarks : undefined,
+    leftHandLandmarks: hasLeftHandLandmarks ? leftHandLandmarks : undefined,
+    leftHandWorldLandmarks: hasLeftHandWorldLandmarks
+      ? leftHandWorldLandmarks
+      : undefined,
+    rightHandLandmarks: hasRightHandLandmarks ? rightHandLandmarks : undefined,
+    rightHandWorldLandmarks: hasRightHandWorldLandmarks
+      ? rightHandWorldLandmarks
+      : undefined,
+    faceBlendshapes: blendshapesFromNative(p.faceBlendshapes),
+    hasPoseSegmentationMask:
+      typeof p.hasPoseSegmentationMask === "boolean"
+        ? p.hasPoseSegmentationMask
+        : undefined,
+  };
+}
+
+function toPoseEngineStatus(payload: NativeStatusPayload): PoseEngineStatus {
+  return {
+    status: typeof payload.status === "string" ? payload.status : "unknown",
+    engineState: payload.engineState,
+    message: typeof payload.message === "string" ? payload.message : undefined,
+    model: typeof payload.model === "string" ? payload.model : undefined,
+    requestedModel:
+      typeof payload.requestedModel === "string" ? payload.requestedModel : undefined,
+    requestedTrackingProfile:
+      payload.requestedTrackingProfile === "auto" ||
+      payload.requestedTrackingProfile === "pose" ||
+      payload.requestedTrackingProfile === "holistic"
+        ? payload.requestedTrackingProfile
+        : undefined,
+    targetFps: typeof payload.targetFps === "number" ? payload.targetFps : undefined,
+    emitEveryNthFrame:
+      typeof payload.emitEveryNthFrame === "number"
+        ? payload.emitEveryNthFrame
+        : undefined,
   };
 }
 
@@ -111,6 +240,11 @@ export const PoseEngine: IPoseEngine = (() => {
       return { ok: true, version: "unknown" };
     },
 
+    async setPreviewActive(active: boolean) {
+      assertAvailable();
+      await NativePoseEngine.setPreviewActive?.(Boolean(active));
+    },
+
     async start(options: PoseEngineOptions) {
       assertAvailable();
       if (started) return; // idempotent
@@ -118,16 +252,28 @@ export const PoseEngine: IPoseEngine = (() => {
 
       const minConfidence = clamp01(options.minConfidence, 0.5);
       const minPoseConfidence = clamp01(options.minPoseConfidence, minConfidence);
+      const minFaceConfidence = clamp01(options.minFaceConfidence, minConfidence);
+      const minHandConfidence = clamp01(options.minHandConfidence, minConfidence);
 
-      await NativePoseEngine.start({
-        model: options.model ?? "lite",
-        minConfidence,
-        minPoseConfidence,
-        runningMode: options.runningMode ?? "stream",
-        targetFps: options.targetFps ?? 30,
-        emitEveryNthFrame: options.emitEveryNthFrame ?? 1,
-        debug: options.debug ?? false,
-      });
+      try {
+        await NativePoseEngine.start({
+          model: options.model ?? "lite",
+          trackingProfile: options.trackingProfile ?? "auto",
+          minConfidence,
+          minPoseConfidence,
+          minFaceConfidence,
+          minHandConfidence,
+          outputFaceBlendshapes: options.outputFaceBlendshapes ?? true,
+          outputPoseSegmentationMask: options.outputPoseSegmentationMask ?? false,
+          runningMode: options.runningMode ?? "stream",
+          targetFps: options.targetFps ?? 30,
+          emitEveryNthFrame: options.emitEveryNthFrame ?? 1,
+          debug: options.debug ?? false,
+        });
+      } catch (error) {
+        started = false;
+        throw error;
+      }
     },
 
     async stop() {
@@ -145,6 +291,18 @@ export const PoseEngine: IPoseEngine = (() => {
         } catch (e) {
           // frame parse errors should never crash the stream
           console.warn("[PoseEngine] frame parse error", e);
+        }
+      });
+      return () => sub.remove();
+    },
+
+    addStatusListener(cb: PoseEngineStatusListener) {
+      assertAvailable();
+      const sub = getEmitter().addListener(EVENT_STATUS, (payload: NativeStatusPayload) => {
+        try {
+          cb(toPoseEngineStatus(payload));
+        } catch (e) {
+          console.warn("[PoseEngine] status parse error", e);
         }
       });
       return () => sub.remove();

@@ -6,11 +6,14 @@
     "start": "expo start",
     "android": "expo run:android",
     "ios": "expo run:ios",
-    "web": "expo start --web"
+    "web": "expo start --web",
+    "typecheck": "tsc --noEmit",
+    "bundle:check": "expo export --platform ios --platform android --output-dir .expo-export-check"
   },
   "dependencies": {
     "@react-navigation/bottom-tabs": "^7.9.0",
     "@react-navigation/native": "^7.1.26",
+    "@react-navigation/native-stack": "^7.9.0",
     "@shopify/react-native-skia": "2.2.12",
     "expo": "~54.0.30",
     "expo-dev-client": "~6.0.20",

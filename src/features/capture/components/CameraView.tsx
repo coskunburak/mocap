@@ -1,26 +1,28 @@
-import React, { useEffect, useMemo, useState } from "react";
-import { View, Text, Linking, Platform } from "react-native";
-import { Camera, useCameraDevice, useCameraPermission } from "react-native-vision-camera";
+import React, { useEffect, useMemo } from "react";
+import {
+  Linking,
+  StyleSheet,
+  Text,
+  View,
+  requireNativeComponent,
+} from "react-native";
+import { useIsFocused } from "@react-navigation/native";
+import { useCameraPermission } from "react-native-vision-camera";
+import { PoseEngine } from "../../../domain/mocap/pipeline/pose/PoseEngine.native";
+import { colors, radii, spacing, typography } from "../../../ui/theme";
 
 type Props = {
   onLayoutSize?: (w: number, h: number) => void;
+  isActive?: boolean;
 };
 
-export function CameraView({ onLayoutSize }: Props) {
-  const device = useCameraDevice("back");
+const NativePosePreviewView =
+  requireNativeComponent<{ style?: object }>("PosePreviewView");
+
+export function CameraView({ onLayoutSize, isActive = true }: Props) {
+  const isFocused = useIsFocused();
   const { hasPermission, requestPermission } = useCameraPermission();
-  const [layout, setLayout] = useState({ w: 0, h: 0 });
-
-  useEffect(() => {
-    // Quick sanity check for native module/component availability.
-    // eslint-disable-next-line no-console
-    console.log("[CameraView] Camera component:", Camera);
-  }, []);
-
-  useEffect(() => {
-    // eslint-disable-next-line no-console
-    console.log("[CameraView] device:", device?.name ?? null, "hasPermission:", hasPermission);
-  }, [device, hasPermission]);
+  const previewEnabled = hasPermission && isFocused && isActive;
 
   useEffect(() => {
     (async () => {
@@ -28,38 +30,43 @@ export function CameraView({ onLayoutSize }: Props) {
     })();
   }, [hasPermission, requestPermission]);
 
-  const content = useMemo(() => {
-    if (!device) return <Text style={{ padding: 12 }}>Camera device not found.</Text>;
+  useEffect(() => {
+    void PoseEngine.setPreviewActive(previewEnabled).catch((error) => {
+      console.warn("[CameraView] setPreviewActive failed", error);
+    });
 
+    return () => {
+      void PoseEngine.setPreviewActive(false).catch((error) => {
+        console.warn("[CameraView] preview cleanup failed", error);
+      });
+    };
+  }, [previewEnabled]);
+
+  const content = useMemo(() => {
     if (!hasPermission) {
       return (
-        <View style={{ padding: 12 }}>
-          <Text style={{ marginBottom: 8 }}>Camera permission required.</Text>
-          <Text onPress={() => Linking.openSettings()} style={{ textDecorationLine: "underline" }}>
+        <View style={styles.fallback}>
+          <Text style={styles.fallbackEyebrow}>Permission</Text>
+          <Text style={styles.fallbackTitle}>Camera permission required.</Text>
+          <Text style={styles.fallbackText}>
+            Markerless capture preview ve native inference icin kamera erisimi
+            gerekli.
+          </Text>
+          <Text onPress={() => Linking.openSettings()} style={styles.link}>
             Open Settings
           </Text>
         </View>
       );
     }
 
-    return (
-      <Camera
-        style={{ flex: 1 }}
-        device={device}
-        isActive={true}
-        photo={false}
-        video={false}
-        audio={false}
-      />
-    );
-  }, [device, hasPermission]);
+    return <NativePosePreviewView style={StyleSheet.absoluteFill} />;
+  }, [hasPermission]);
 
   return (
     <View
-      style={{ flex: 1, borderRadius: 16, overflow: "hidden" }}
+      style={styles.container}
       onLayout={(e) => {
         const { width, height } = e.nativeEvent.layout;
-        setLayout({ w: width, h: height });
         onLayoutSize?.(width, height);
       }}
     >
@@ -67,3 +74,34 @@ export function CameraView({ onLayoutSize }: Props) {
     </View>
   );
 }
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    borderRadius: radii.lg,
+    overflow: "hidden",
+    backgroundColor: colors.backgroundDeep,
+  },
+  fallback: {
+    flex: 1,
+    justifyContent: "center",
+    padding: spacing.xl,
+    gap: spacing.xs,
+    backgroundColor: "rgba(6, 16, 26, 0.88)",
+  },
+  fallbackEyebrow: {
+    ...typography.eyebrow.sm,
+  },
+  fallbackTitle: {
+    ...typography.title.card,
+  },
+  fallbackText: {
+    ...typography.body.md,
+    maxWidth: 260,
+  },
+  link: {
+    ...typography.label.md,
+    color: colors.accent,
+    marginTop: spacing.sm,
+  },
+});

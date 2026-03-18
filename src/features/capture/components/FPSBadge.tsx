@@ -1,10 +1,12 @@
 import React from "react";
 import { View, Text, StyleSheet } from "react-native";
+import { colors, radii, spacing, typography } from "../../../ui/theme";
 
 export function FPSBadge({ poseFps }: { poseFps: number }) {
   return (
     <View style={styles.badge}>
-      <Text style={styles.text}>{Math.round(poseFps)} fps</Text>
+      <Text style={styles.label}>Pose FPS</Text>
+      <Text style={styles.text}>{Math.round(poseFps)}</Text>
     </View>
   );
 }
@@ -12,12 +14,23 @@ export function FPSBadge({ poseFps }: { poseFps: number }) {
 const styles = StyleSheet.create({
   badge: {
     position: "absolute",
-    right: 12,
-    top: 12,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 12,
-    backgroundColor: "rgba(0,0,0,0.35)",
+    right: spacing.sm,
+    top: spacing.sm,
+    minWidth: 84,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
+    borderRadius: radii.md,
+    backgroundColor: "rgba(8, 16, 26, 0.54)",
+    borderWidth: 1,
+    borderColor: "rgba(255, 255, 255, 0.12)",
   },
-  text: { color: "white", fontWeight: "600" },
+  label: {
+    ...typography.label.sm,
+    color: colors.textMuted,
+  },
+  text: {
+    ...typography.title.card,
+    fontSize: 18,
+    lineHeight: 20,
+  },
 });

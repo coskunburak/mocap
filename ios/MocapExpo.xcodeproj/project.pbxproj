@@ -16,8 +16,8 @@
 		CC70844E2F09CDB100E187FC /* PoseLandmarkerRunner.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC7084492F09CDB100E187FC /* PoseLandmarkerRunner.swift */; };
 		CC70844F2F09CDB100E187FC /* PoseEngineModuleBridge.m in Sources */ = {isa = PBXBuildFile; fileRef = CC7084482F09CDB100E187FC /* PoseEngineModuleBridge.m */; };
 		CC7084502F09CDB100E187FC /* PoseEngineModule.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC7084472F09CDB100E187FC /* PoseEngineModule.swift */; };
-		CC7084512F09CDCA00E187FC /* pose_landmarker_full.task in Sources */ = {isa = PBXBuildFile; fileRef = CC7084442F09CDB100E187FC /* pose_landmarker_full.task */; };
-		CC7084522F0A48B200E187FC /* PoseLandmarkerRunner.swift in Resources */ = {isa = PBXBuildFile; fileRef = CC7084492F09CDB100E187FC /* PoseLandmarkerRunner.swift */; };
+		CC7084542F0B000100E187FC /* PosePreviewView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC7084562F0B000100E187FC /* PosePreviewView.swift */; };
+		CC7084552F0B000100E187FC /* PosePreviewViewManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC7084572F0B000100E187FC /* PosePreviewViewManager.swift */; };
 		CC7084532F0A48B800E187FC /* pose_landmarker_full.task in Resources */ = {isa = PBXBuildFile; fileRef = CC7084442F09CDB100E187FC /* pose_landmarker_full.task */; };
 		F11748422D0307B40044C1D9 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = F11748412D0307B40044C1D9 /* AppDelegate.swift */; };
 		F97FFAD39CF0D0FB696A19E4 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 6E0B976FE2890F8C8BD3C5A3 /* PrivacyInfo.xcprivacy */; };
@@ -38,6 +38,8 @@
 		CC7084472F09CDB100E187FC /* PoseEngineModule.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PoseEngineModule.swift; sourceTree = "<group>"; };
 		CC7084482F09CDB100E187FC /* PoseEngineModuleBridge.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = PoseEngineModuleBridge.m; sourceTree = "<group>"; };
 		CC7084492F09CDB100E187FC /* PoseLandmarkerRunner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PoseLandmarkerRunner.swift; sourceTree = "<group>"; };
+		CC7084562F0B000100E187FC /* PosePreviewView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PosePreviewView.swift; sourceTree = "<group>"; };
+		CC7084572F0B000100E187FC /* PosePreviewViewManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PosePreviewViewManager.swift; sourceTree = "<group>"; };
 		DEE785B8C8619C465091D173 /* Pods-MocapExpo.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-MocapExpo.debug.xcconfig"; path = "Target Support Files/Pods-MocapExpo/Pods-MocapExpo.debug.xcconfig"; sourceTree = "<group>"; };
 		ED297162215061F000B7C4FE /* JavaScriptCore.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = JavaScriptCore.framework; path = System/Library/Frameworks/JavaScriptCore.framework; sourceTree = SDKROOT; };
 		F11748412D0307B40044C1D9 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = AppDelegate.swift; path = MocapExpo/AppDelegate.swift; sourceTree = "<group>"; };
@@ -160,6 +162,8 @@
 				CC7084472F09CDB100E187FC /* PoseEngineModule.swift */,
 				CC7084482F09CDB100E187FC /* PoseEngineModuleBridge.m */,
 				CC7084492F09CDB100E187FC /* PoseLandmarkerRunner.swift */,
+				CC7084562F0B000100E187FC /* PosePreviewView.swift */,
+				CC7084572F0B000100E187FC /* PosePreviewViewManager.swift */,
 			);
 			path = PoseEngine;
 			sourceTree = "<group>";
@@ -234,7 +238,6 @@
 			buildActionMask = 2147483647;
 			files = (
 				CC7084532F0A48B800E187FC /* pose_landmarker_full.task in Resources */,
-				CC7084522F0A48B200E187FC /* PoseLandmarkerRunner.swift in Resources */,
 				BB2F792D24A3F905000567C9 /* Expo.plist in Resources */,
 				13B07FBF1A68108700A75B9A /* Images.xcassets in Resources */,
 				3E461D99554A48A4959DE609 /* SplashScreen.storyboard in Resources */,
@@ -375,7 +378,8 @@
 				CC70844E2F09CDB100E187FC /* PoseLandmarkerRunner.swift in Sources */,
 				CC70844F2F09CDB100E187FC /* PoseEngineModuleBridge.m in Sources */,
 				CC7084502F09CDB100E187FC /* PoseEngineModule.swift in Sources */,
-				CC7084512F09CDCA00E187FC /* pose_landmarker_full.task in Sources */,
+				CC7084542F0B000100E187FC /* PosePreviewView.swift in Sources */,
+				CC7084552F0B000100E187FC /* PosePreviewViewManager.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
