@@ -158,6 +158,11 @@ export function usePoseStream(
     pushFrameRef.current = recorder.pushFrame;
   }, [recorder.pushFrame]);
 
+  const recordQualityFrameRef = useRef<(f: PoseFrame, fps: number, threshold: number) => void>(() => {});
+  useEffect(() => {
+    recordQualityFrameRef.current = recorder.recordQualityFrame;
+  }, [recorder.recordQualityFrame]);
+
   const cleanupListeners = useCallback(() => {
     frameSubCleanupRef.current?.();
     frameSubCleanupRef.current = null;
@@ -321,6 +326,7 @@ export function usePoseStream(
 
       // ✅ record aktifse frame'i yaz
       if (isRecordingRef.current) {
+        recordQualityFrameRef.current(next, poseFps, jointThreshold);
         pushFrameRef.current(overrideFrame || next);
       }
     },

@@ -1,4 +1,5 @@
 import type { StereoCalibrationResult, CaptureMode } from "./MultiViewPoseFrame";
+import type { CaptureMetadata } from "./CaptureMetadata";
 
 export type TakeId = string;
 
@@ -65,6 +66,36 @@ export type TakeMotionArtifact = Readonly<{
   generatedAt: number;
 }>;
 
+export type TakeCaptureVideo = Readonly<{
+  localUri: string;
+  durationMs: number;
+  fps: number;
+  width: number;
+  height: number;
+  fileSizeBytes: number;
+  codec: string;
+  container: "mov" | "mp4";
+  recordedAt: number;
+}>;
+
+export type TakeRemoteProcessing = Readonly<{
+  projectId: string;
+  takeId: string;
+  uploadSessionId?: string;
+  jobId?: string;
+  status:
+    | "pending_upload"
+    | "uploading"
+    | "uploaded"
+    | "processing"
+    | "completed"
+    | "failed"
+    | "canceled";
+  progress: number;
+  errorMessage?: string;
+  updatedAt: number;
+}>;
+
 export type Take = Readonly<{
   id: TakeId;
 
@@ -91,6 +122,9 @@ export type Take = Readonly<{
   review?: TakeReview;
   motion?: TakeMotionArtifact;
   qualityScore?: number;
+  video?: TakeCaptureVideo;
+  captureMetadata?: CaptureMetadata;
+  remote?: TakeRemoteProcessing;
 
   // dual-camera fields
   captureMode?: CaptureMode;
@@ -98,7 +132,7 @@ export type Take = Readonly<{
   viewCount?: number;
 }>;
 
-export const TAKE_SCHEMA_VERSION = 5;
+export const TAKE_SCHEMA_VERSION = 6;
 
 export type NewTakeMeta = Readonly<{
   trackingProfile?: "pose" | "holistic";
@@ -108,6 +142,9 @@ export type NewTakeMeta = Readonly<{
   review?: TakeReview;
   motion?: TakeMotionArtifact;
   qualityScore?: number;
+  video?: TakeCaptureVideo;
+  captureMetadata?: CaptureMetadata;
+  remote?: TakeRemoteProcessing;
   captureMode?: CaptureMode;
   stereoCalibration?: StereoCalibrationResult;
   viewCount?: number;
@@ -133,6 +170,9 @@ export function newTake(name = "Take", projectId?: string, meta?: NewTakeMeta): 
     review: meta?.review,
     motion: meta?.motion,
     qualityScore: meta?.qualityScore,
+    video: meta?.video,
+    captureMetadata: meta?.captureMetadata,
+    remote: meta?.remote,
     captureMode: meta?.captureMode ?? "solo",
     stereoCalibration: meta?.stereoCalibration,
     viewCount: meta?.viewCount ?? 1,

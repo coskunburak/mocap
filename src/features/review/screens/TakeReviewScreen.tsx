@@ -9,6 +9,7 @@ import {
   View,
 } from "react-native";
 import { useNavigation, useRoute } from "@react-navigation/native";
+import { env } from "../../../app/config/env";
 import type { Take, TakeReview } from "../../../domain/mocap/models/Take";
 import type { PoseFrame } from "../../../domain/mocap/models/PoseFrame";
 import { analyzeTakeReview } from "../../../domain/mocap/pipeline/review/TakeReviewAnalyzer";
@@ -238,7 +239,34 @@ export default function TakeReviewScreen() {
         setReviewStatus(review.status);
 
         if (openExport) {
-          navigation.navigate(routes.Export, { takeId: take.id });
+          if (updated.remote?.status === "completed" && updated.remote.takeId) {
+            navigation.navigate(routes.ExportResult, {
+              localTakeId: updated.id,
+              remoteTakeId: updated.remote.takeId,
+              jobId: updated.remote.jobId,
+            });
+            return;
+          }
+          if (updated.remote?.jobId) {
+            navigation.navigate(routes.ProcessingStatus, {
+              localTakeId: updated.id,
+              remoteTakeId: updated.remote.takeId,
+              jobId: updated.remote.jobId,
+            });
+            return;
+          }
+          if (updated.video && updated.captureMetadata) {
+            navigation.navigate(routes.UploadProgress, { takeId: updated.id });
+            return;
+          }
+          if (env.enableLocalDebugExport) {
+            navigation.navigate(routes.Export, { takeId: take.id });
+            return;
+          }
+          Alert.alert(
+            "Export not ready",
+            "This take does not have a backend-ready video capture.",
+          );
           return;
         }
 
@@ -282,16 +310,57 @@ export default function TakeReviewScreen() {
   }
 
   if (!take || !analysis || frames.length === 0) {
+    const canOpenBackend = Boolean(take?.video && take.captureMetadata);
+    const backendLabel =
+      take?.remote?.status === "completed"
+        ? "Open result"
+        : take?.remote?.jobId
+          ? "Open status"
+          : "Upload source";
     return (
       <Screen scroll background="danger" contentContainerStyle={styles.content}>
         <ScreenHeader
           eyebrow="Take Review"
-          title="No take data found."
-          subtitle="This session does not have readable frame data yet."
+          title={canOpenBackend ? "Production source captured." : "No take data found."}
+          subtitle={
+            canOpenBackend
+              ? "This production capture has video and metadata but no local debug frame chunks. Continue through the backend result flow."
+              : "This session does not have readable frame data yet."
+          }
           right={
             <Button label="Back" variant="ghost" size="sm" onPress={() => navigation.goBack()} />
           }
         />
+        {canOpenBackend ? (
+          <Card tone="accent" style={styles.sectionCard}>
+            <Text style={styles.sectionTitle}>{take?.name}</Text>
+            <Text style={styles.emptyFinding}>
+              {Math.round((take?.video?.durationMs ?? 0) / 1000)}s source video · quality {take?.qualityScore ?? 0}%
+            </Text>
+            <Button
+              label={backendLabel}
+              onPress={() => {
+                if (take?.remote?.status === "completed" && take.remote.takeId) {
+                  navigation.navigate(routes.ExportResult, {
+                    localTakeId: take.id,
+                    remoteTakeId: take.remote.takeId,
+                    jobId: take.remote.jobId,
+                  });
+                  return;
+                }
+                if (take?.remote?.jobId) {
+                  navigation.navigate(routes.ProcessingStatus, {
+                    localTakeId: take.id,
+                    remoteTakeId: take.remote.takeId,
+                    jobId: take.remote.jobId,
+                  });
+                  return;
+                }
+                navigation.navigate(routes.UploadProgress, { takeId: take?.id });
+              }}
+            />
+          </Card>
+        ) : null}
       </Screen>
     );
   }
@@ -559,7 +628,7 @@ export default function TakeReviewScreen() {
             onPress={() => void saveReview("needs-work")}
           />
           <Button
-            label="Export"
+            label="Backend export"
             variant="primary"
             disabled={saving}
             onPress={() => void saveReview(reviewStatus, true)}

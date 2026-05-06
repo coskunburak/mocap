@@ -177,12 +177,35 @@ export default function ProjectDetailScreen() {
                     }),
                 },
                 {
-                  label: "Export",
+                  label:
+                    take.remote?.status === "completed"
+                      ? "Result"
+                      : take.remote?.jobId
+                        ? "Status"
+                        : "Upload",
                   variant: "primary",
-                  onPress: () =>
-                    navigation.navigate(routes.Export, {
+                  disabled: !take.remote?.jobId && (!take.video || !take.captureMetadata),
+                  onPress: () => {
+                    if (take.remote?.status === "completed" && take.remote.takeId) {
+                      navigation.navigate(routes.ExportResult, {
+                        localTakeId: take.id,
+                        remoteTakeId: take.remote.takeId,
+                        jobId: take.remote.jobId,
+                      });
+                      return;
+                    }
+                    if (take.remote?.jobId) {
+                      navigation.navigate(routes.ProcessingStatus, {
+                        localTakeId: take.id,
+                        remoteTakeId: take.remote.takeId,
+                        jobId: take.remote.jobId,
+                      });
+                      return;
+                    }
+                    navigation.navigate(routes.UploadProgress, {
                       takeId: take.id,
-                    }),
+                    });
+                  },
                 },
               ]}
             />

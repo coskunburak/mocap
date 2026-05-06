@@ -5,12 +5,15 @@ import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import CaptureScreen from "../../features/capture/screens/CaptureScreen";
 import MultiViewSetupScreen from "../../features/capture/screens/MultiViewSetupScreen";
+import ExportResultScreen from "../../features/exports/screens/ExportResultScreen";
 import ExportScreen from "../../features/exports/screens/ExportScreen";
 import ExportsListScreen from "../../features/exports/screens/ExportsListScreen";
 import ProjectDetailScreen from "../../features/projects/screens/ProjectDetailScreen";
 import ProjectsListScreen from "../../features/projects/screens/ProjectsListScreen";
 import ReviewHubScreen from "../../features/review/screens/ReviewHubScreen";
 import TakeReviewScreen from "../../features/review/screens/TakeReviewScreen";
+import ProcessingStatusScreen from "../../features/upload/screens/ProcessingStatusScreen";
+import UploadProgressScreen from "../../features/upload/screens/UploadProgressScreen";
 import { colors, radii, spacing, typography } from "../../ui/theme";
 import { routes } from "./routes";
 
@@ -133,7 +136,16 @@ export default function RootNavigator() {
           component={ProjectDetailScreen}
         />
         <Stack.Screen name={routes.Review} component={TakeReviewScreen} />
+        <Stack.Screen
+          name={routes.UploadProgress}
+          component={UploadProgressScreen}
+        />
+        <Stack.Screen
+          name={routes.ProcessingStatus}
+          component={ProcessingStatusScreen}
+        />
         <Stack.Screen name={routes.Export} component={ExportScreen} />
+        <Stack.Screen name={routes.ExportResult} component={ExportResultScreen} />
         <Stack.Screen
           name={routes.MultiViewSetup}
           component={MultiViewSetupScreen}

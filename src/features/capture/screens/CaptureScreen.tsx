@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Alert, Pressable, StyleSheet, Text, View } from "react-native";
 import { useNavigation } from "@react-navigation/native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { env } from "../../../app/config/env";
 import { routes } from "../../../app/navigation/routes";
 import { analyzeCalibration } from "../../../domain/mocap/pipeline/calibration/CalibrationAnalyzer";
 import type { PoseFrame } from "../../../domain/mocap/models/PoseFrame";
@@ -340,7 +341,11 @@ export default function CaptureScreen() {
         return;
       }
 
-      navigation.navigate(routes.Review as never, { takeId } as never);
+      if (env.enableBackendCaptureFlow) {
+        navigation.navigate(routes.UploadProgress as never, { takeId } as never);
+      } else {
+        navigation.navigate(routes.Review as never, { takeId } as never);
+      }
     } catch (e: any) {
       console.error("[CaptureScreen] stopRecording error", e);
       Alert.alert("Stop hata", e?.message ?? "Stop recording failed");

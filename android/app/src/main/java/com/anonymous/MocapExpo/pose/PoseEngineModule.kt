@@ -33,6 +33,7 @@ class PoseEngineModule(
     const val ERROR_START = "E_START"
     const val ERROR_STOP = "E_STOP"
     const val ERROR_OPTIONS = "E_OPTIONS"
+    const val ERROR_VIDEO_RECORDING = "E_VIDEO_RECORDING"
   }
 
   private enum class EngineState(val value: String) {
@@ -406,6 +407,74 @@ class PoseEngineModule(
         PoseCameraSession.stop {
           finishStop()
         }
+      }
+    }
+  }
+
+  @ReactMethod
+  fun startVideoRecording(options: ReadableMap, promise: Promise) {
+    moduleExecutor.execute {
+      val takeId = options.getOptionalString("takeId")
+      if (takeId.isNullOrBlank()) {
+        promise.reject(ERROR_OPTIONS, "takeId is required")
+        return@execute
+      }
+
+      val activity = currentActivityOrNull()
+      if (activity == null) {
+        promise.reject(ERROR_START, "Video recording failed: no active activity.")
+        return@execute
+      }
+
+      if (!hasCameraPermission()) {
+        promise.reject(ERROR_CAMERA_PERMISSION, "Camera permission denied")
+        return@execute
+      }
+
+      PoseCameraSession.startRecording(
+        reactApplicationContext,
+        activity,
+        PoseCameraSession.RecordingOptions(
+          takeId = takeId,
+          fps = maxOf(1, options.getOptionalInt("fps") ?: lastTargetFps),
+        ),
+      ) { error ->
+        if (error != null) {
+          sendStatus("video_recording_error", mapOf("message" to (error.message ?: error.toString())))
+          promise.reject(
+            ERROR_VIDEO_RECORDING,
+            "Video recording failed to start: ${error.message}",
+            error,
+          )
+        } else {
+          sendStatus("video_recording_started")
+          promise.resolve(null)
+        }
+      }
+    }
+  }
+
+  @ReactMethod
+  fun stopVideoRecording(promise: Promise) {
+    moduleExecutor.execute {
+      PoseCameraSession.stopRecording { result, error ->
+        if (error != null) {
+          sendStatus("video_recording_error", mapOf("message" to (error.message ?: error.toString())))
+          promise.reject(
+            ERROR_VIDEO_RECORDING,
+            "Video recording failed to stop: ${error.message}",
+            error,
+          )
+          return@stopRecording
+        }
+
+        if (result == null) {
+          promise.reject(ERROR_VIDEO_RECORDING, "Video recording returned no result")
+          return@stopRecording
+        }
+
+        sendStatus("video_recording_stopped")
+        promise.resolve(result.toWritableMap())
       }
     }
   }

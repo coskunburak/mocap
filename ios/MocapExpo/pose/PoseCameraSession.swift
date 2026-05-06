@@ -11,6 +11,7 @@ final class PoseCameraSession: NSObject, AVCaptureVideoDataOutputSampleBufferDel
     private var previewLayer: AVCaptureVideoPreviewLayer?
     private weak var previewView: UIView?
     private var activeDevice: AVCaptureDevice?
+    private let videoRecorder = VideoRecorder()
 
     private var onFrame: ((CMSampleBuffer) -> Void)?
     private var onError: ((String) -> Void)?
@@ -63,6 +64,7 @@ final class PoseCameraSession: NSObject, AVCaptureVideoDataOutputSampleBufferDel
 
     func stop(completion: @escaping () -> Void) {
         sessionQueue.async {
+            self.videoRecorder.cancel()
             if self.isRunning {
                 self.captureSession?.stopRunning()
             }
@@ -93,6 +95,39 @@ final class PoseCameraSession: NSObject, AVCaptureVideoDataOutputSampleBufferDel
             DispatchQueue.main.async {
                 completion?()
             }
+        }
+    }
+
+    func startRecording(
+        takeId: String,
+        fps: Int,
+        orientation: String,
+        completion: @escaping (Error?) -> Void
+    ) {
+        sessionQueue.async {
+            guard self.isRunning else {
+                completion(self.cameraError(code: 11, message: "Camera session must be running before recording."))
+                return
+            }
+
+            do {
+                try self.videoRecorder.start(
+                    options: VideoRecorder.Options(
+                        takeId: takeId,
+                        fps: max(1, fps),
+                        orientation: orientation
+                    )
+                )
+                completion(nil)
+            } catch {
+                completion(error)
+            }
+        }
+    }
+
+    func stopRecording(completion: @escaping (VideoRecorder.Result?, Error?) -> Void) {
+        sessionQueue.async {
+            self.videoRecorder.stop(completion: completion)
         }
     }
 
@@ -206,6 +241,7 @@ final class PoseCameraSession: NSObject, AVCaptureVideoDataOutputSampleBufferDel
         didOutput sampleBuffer: CMSampleBuffer,
         from connection: AVCaptureConnection
     ) {
+        videoRecorder.append(sampleBuffer)
         onFrame?(sampleBuffer)
     }
 

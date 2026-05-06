@@ -10,6 +10,7 @@ import {
 } from "react-native";
 import { useFocusEffect, useNavigation } from "@react-navigation/native";
 import type { Take } from "../../../domain/mocap/models/Take";
+import { env } from "../../../app/config/env";
 import { routes } from "../../../app/navigation/routes";
 import type {
   ExportFormat,
@@ -134,8 +135,8 @@ export default function ExportsListScreen() {
       <View style={styles.header}>
         <ScreenHeader
           eyebrow="Export Queue"
-          title="Turn clean takes into shareable assets."
-          subtitle="Review every recorded take, generate FBX, GLB, glTF, USD, BVH, or JSON outputs, and hand off polished files without leaving the mobile workflow."
+          title="Backend-generated motion results."
+          subtitle="Production captures are uploaded as original video and metadata, processed by backend workers, then returned here as downloadable result files."
         />
         <View style={styles.statsRow}>
           <StatCard label="Takes ready" value={String(takes.length)} />
@@ -194,25 +195,50 @@ export default function ExportsListScreen() {
                 onPress: () =>
                   navigation.navigate(routes.Review, { takeId: item.id }),
               },
-              {
-                label: "GLB",
-                variant: "secondary",
-                disabled: exporting,
-                onPress: () => exportOne(item, "glb", "web-preview"),
-              },
-              {
-                label: "FBX",
-                variant: "ghost",
-                disabled: exporting,
-                onPress: () => exportOne(item, "fbx", "unity-handoff"),
-              },
-              {
-                label: "Bundle",
-                variant: "primary",
-                disabled: exporting,
-                loading: exporting,
-                onPress: () => exportOne(item, "bundle", "dcc-archive"),
-              },
+              item.remote?.status === "completed" && item.remote?.takeId
+                ? {
+                    label: "Result",
+                    variant: "primary",
+                    disabled: exporting,
+                    onPress: () =>
+                      navigation.navigate(routes.ExportResult, {
+                        localTakeId: item.id,
+                        remoteTakeId: item.remote?.takeId,
+                        jobId: item.remote?.jobId,
+                      }),
+                  }
+                : item.remote?.jobId
+                  ? {
+                      label: "Status",
+                      variant: "primary",
+                      disabled: exporting,
+                      onPress: () =>
+                        navigation.navigate(routes.ProcessingStatus, {
+                          localTakeId: item.id,
+                          remoteTakeId: item.remote?.takeId,
+                          jobId: item.remote?.jobId,
+                        }),
+                    }
+                  : {
+                      label: "Upload",
+                      variant: "primary",
+                      disabled: exporting || !item.video || !item.captureMetadata,
+                      onPress: () =>
+                        navigation.navigate(routes.UploadProgress, {
+                          takeId: item.id,
+                        }),
+                    },
+              ...(env.enableLocalDebugExport
+                ? [
+                    {
+                      label: "Debug Bundle",
+                      variant: "ghost" as const,
+                      disabled: exporting,
+                      loading: exporting,
+                      onPress: () => exportOne(item, "bundle", "dcc-archive"),
+                    },
+                  ]
+                : []),
               {
                 label: "Delete",
                 variant: "danger",

@@ -17,6 +17,7 @@ final class PoseEngineModule: RCTEventEmitter {
         static let start = "E_START"
         static let stop = "E_STOP"
         static let options = "E_OPTIONS"
+        static let recording = "E_VIDEO_RECORDING"
     }
 
     private static let eventFrame = "PoseEngineFrame"
@@ -345,6 +346,78 @@ final class PoseEngineModule: RCTEventEmitter {
                 )
             } else {
                 PoseCameraSession.shared.stop(completion: finishStop)
+            }
+        }
+    }
+
+    @objc
+    func startVideoRecording(
+        _ options: NSDictionary,
+        resolver resolve: @escaping RCTPromiseResolveBlock,
+        rejecter reject: @escaping RCTPromiseRejectBlock
+    ) {
+        moduleQueue.async {
+            guard let takeId = options.stringValue("takeId"), !takeId.isEmpty else {
+                reject(ErrorCode.options, "takeId is required", nil)
+                return
+            }
+
+            let fps = max(1, options.intValue("fps") ?? self.lastTargetFps)
+            let orientation = options.stringValue("orientation") ?? "portrait"
+
+            PoseCameraSession.shared.startRecording(
+                takeId: takeId,
+                fps: fps,
+                orientation: orientation
+            ) { [weak self] error in
+                guard let self else { return }
+                if let error {
+                    self.sendStatus(
+                        "video_recording_error",
+                        extra: ["message": error.localizedDescription]
+                    )
+                    reject(
+                        ErrorCode.recording,
+                        "Video recording failed to start: \(error.localizedDescription)",
+                        error
+                    )
+                    return
+                }
+
+                self.sendStatus("video_recording_started")
+                resolve(nil)
+            }
+        }
+    }
+
+    @objc
+    func stopVideoRecording(
+        _ resolve: @escaping RCTPromiseResolveBlock,
+        rejecter reject: @escaping RCTPromiseRejectBlock
+    ) {
+        moduleQueue.async {
+            PoseCameraSession.shared.stopRecording { [weak self] result, error in
+                guard let self else { return }
+                if let error {
+                    self.sendStatus(
+                        "video_recording_error",
+                        extra: ["message": error.localizedDescription]
+                    )
+                    reject(
+                        ErrorCode.recording,
+                        "Video recording failed to stop: \(error.localizedDescription)",
+                        error
+                    )
+                    return
+                }
+
+                guard let result else {
+                    reject(ErrorCode.recording, "Video recording returned no result", nil)
+                    return
+                }
+
+                self.sendStatus("video_recording_stopped")
+                resolve(result.asDictionary())
             }
         }
     }

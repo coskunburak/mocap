@@ -1,9 +1,20 @@
 import { useCallback, useMemo, useRef, useState } from "react";
+import { Platform } from "react-native";
+import { validateCaptureMetadata } from "../../../domain/mocap/models/CaptureMetadata";
 import type { PoseFrame } from "../../../domain/mocap/models/PoseFrame";
 import type { MultiViewPoseFrame } from "../../../domain/mocap/models/MultiViewPoseFrame";
 import type { Take, TakeCalibration } from "../../../domain/mocap/models/Take";
 import { analyzeTakeReview } from "../../../domain/mocap/pipeline/review/TakeReviewAnalyzer";
 import { readTakeFrames } from "../../../infra/persistence/takeRepoFs.reader";
+import { captureFlags } from "../config/captureFlags";
+import { NativeCameraEngine } from "../data/NativeCameraEngine";
+import { buildCaptureMetadata } from "../domain/CaptureMetadataBuilder";
+import {
+  createCaptureQualityAccumulator,
+  finalizeCaptureQuality,
+  observeCaptureQualityFrame,
+} from "../domain/CaptureQuality";
+import type { CaptureQualityAccumulator } from "../domain/CaptureQuality";
 
 type TakeRepo = typeof import("../../../infra/persistence/TakeRepo.fs").takeRepoFs;
 
@@ -39,6 +50,20 @@ type NormalizedRecorderOptions = {
   calibration?: TakeCalibration;
 };
 
+function createCaptureSessionId(takeId: string) {
+  return `cap_${takeId}`;
+}
+
+function localDeviceId() {
+  return `${Platform.OS}_local_device`;
+}
+
+function qualityScore(quality: ReturnType<typeof finalizeCaptureQuality>) {
+  const weighted =
+    quality.averagePoseConfidence * 0.45 + quality.fullBodyVisibleRatio * 0.55;
+  return Math.max(0, Math.min(100, Math.round(weighted * 100)));
+}
+
 export function useRecorder() {
   const [state, setState] = useState<RecorderState>({ status: "idle" });
 
@@ -48,6 +73,10 @@ export function useRecorder() {
   const bufferRef = useRef<(PoseFrame | MultiViewPoseFrame)[]>([]);
   const firstTsRef = useRef<number | null>(null);
   const lastTsRef = useRef<number | null>(null);
+  const captureSessionIdRef = useRef<string | null>(null);
+  const qualityRef = useRef<CaptureQualityAccumulator>(
+    createCaptureQualityAccumulator(),
+  );
 
   // flush concurrency control
   const flushingRef = useRef(false);
@@ -155,11 +184,28 @@ export function useRecorder() {
         },
       );
 
+      const captureSessionId = createCaptureSessionId(take.id);
       takeRef.current = take;
       chunkNoRef.current = 0;
       bufferRef.current = [];
       firstTsRef.current = null;
       lastTsRef.current = null;
+      captureSessionIdRef.current = captureSessionId;
+      qualityRef.current = createCaptureQualityAccumulator();
+
+      try {
+        await NativeCameraEngine.startVideoRecording({
+          takeId: take.id,
+          fps: 30,
+          cameraPosition: "back",
+          orientation: "portrait",
+        });
+      } catch (error) {
+        takeRef.current = null;
+        captureSessionIdRef.current = null;
+        await takeRepo.deleteTake(take.id);
+        throw error;
+      }
 
       setState({ status: "recording", take, buffered: 0, flushedChunks: 0 });
     },
@@ -169,6 +215,7 @@ export function useRecorder() {
   const pushFrame = useCallback(
     (frame: PoseFrame | MultiViewPoseFrame) => {
       if (state.status !== "recording") return;
+      if (!captureFlags.localFrameRecording) return;
 
       const take = takeRef.current;
       if (!take) return;
@@ -191,11 +238,20 @@ export function useRecorder() {
     [queueFlush, state.status, updateCounters]
   );
 
+  const recordQualityFrame = useCallback(
+    (frame: PoseFrame, poseFps: number, threshold: number) => {
+      if (state.status !== "recording") return;
+      observeCaptureQualityFrame(qualityRef.current, frame, poseFps, threshold);
+    },
+    [state.status],
+  );
+
   const stopRecording = useCallback(async () => {
     if (state.status !== "recording") return;
 
     const take = takeRef.current;
     if (!take) return;
+    const captureSessionId = captureSessionIdRef.current ?? createCaptureSessionId(take.id);
 
     setState((prev) => {
       if (prev.status === "recording") return { ...prev, status: "stopping" as const };
@@ -204,30 +260,66 @@ export function useRecorder() {
 
     let enriched: Take;
     try {
-      await flush();
+      const recording = await NativeCameraEngine.stopVideoRecording();
+      const quality = finalizeCaptureQuality(qualityRef.current);
+      const metadata = buildCaptureMetadata({
+        recording,
+        captureSessionId,
+        deviceId: localDeviceId(),
+        quality,
+        appVersion: "1.0.0",
+        buildNumber: "1",
+      });
+      const validation = validateCaptureMetadata(metadata);
+      if (!validation.ok) {
+        throw new Error(`Capture metadata invalid: ${validation.errors.join(", ")}`);
+      }
 
-      const first = firstTsRef.current ?? 0;
-      const last = lastTsRef.current ?? first;
+      const video = {
+        localUri: recording.localUri,
+        durationMs: recording.durationMs,
+        fps: recording.fps,
+        width: recording.width,
+        height: recording.height,
+        fileSizeBytes: recording.fileSizeBytes,
+        codec: recording.codec,
+        container: recording.container,
+        recordedAt: Date.parse(recording.endedAt) || Date.now(),
+      };
 
-      const finalized = await takeRepo.finalizeTake(take.id, first, last);
-      const persistedFrames = await readTakeFrames(take.id);
-      const inferredTrackingProfile =
-        finalized.trackingProfile ?? persistedFrames[0]?.trackingProfile;
-      const analysis =
-        persistedFrames.length > 0 ? analyzeTakeReview(finalized, persistedFrames) : null;
+      if (captureFlags.localFrameRecording) {
+        await flush();
 
-      enriched =
-        analysis || inferredTrackingProfile !== finalized.trackingProfile
-          ? await takeRepo.updateTakeMeta(take.id, {
-              calibration: analysis?.calibration ?? finalized.calibration,
-              postProcess: analysis?.cleanup ?? finalized.postProcess,
-              retarget: analysis?.retarget ?? finalized.retarget,
-              review: analysis?.recommendedReview ?? finalized.review,
-              motion: analysis?.motion ?? finalized.motion,
-              qualityScore: analysis?.qualityScore ?? finalized.qualityScore,
-              trackingProfile: inferredTrackingProfile,
-            })
-          : finalized;
+        const first = firstTsRef.current ?? 0;
+        const last = lastTsRef.current ?? first;
+
+        const finalized = await takeRepo.finalizeTake(take.id, first, last);
+        const persistedFrames = await readTakeFrames(take.id);
+        const inferredTrackingProfile =
+          finalized.trackingProfile ?? persistedFrames[0]?.trackingProfile;
+        const analysis =
+          persistedFrames.length > 0 ? analyzeTakeReview(finalized, persistedFrames) : null;
+
+        enriched = await takeRepo.updateTakeMeta(take.id, {
+          calibration: analysis?.calibration ?? finalized.calibration,
+          postProcess: analysis?.cleanup ?? finalized.postProcess,
+          retarget: analysis?.retarget ?? finalized.retarget,
+          review: analysis?.recommendedReview ?? finalized.review,
+          motion: analysis?.motion ?? finalized.motion,
+          qualityScore: analysis?.qualityScore ?? qualityScore(quality),
+          trackingProfile: inferredTrackingProfile,
+          video,
+          captureMetadata: metadata,
+        });
+      } else {
+        enriched = await takeRepo.updateTakeMeta(take.id, {
+          durationMs: recording.durationMs,
+          avgFps: recording.fps,
+          qualityScore: qualityScore(quality),
+          video,
+          captureMetadata: metadata,
+        });
+      }
     } catch (error) {
       setState({
         status: "recording",
@@ -244,6 +336,8 @@ export function useRecorder() {
     chunkNoRef.current = 0;
     firstTsRef.current = null;
     lastTsRef.current = null;
+    captureSessionIdRef.current = null;
+    qualityRef.current = createCaptureQualityAccumulator();
 
     setState({ status: "idle" });
 
@@ -261,6 +355,7 @@ export function useRecorder() {
     startRecording,
     stopRecording,
     pushFrame,
+    recordQualityFrame,
     flush,
   };
 }

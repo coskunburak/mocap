@@ -18,6 +18,7 @@
 		A1B2C3D40000000000000006 /* PoseEngineModule.m in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D40000000000000016 /* PoseEngineModule.m */; };
 		A1B2C3D40000000000000007 /* PosePreviewViewManager.m in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D40000000000000017 /* PosePreviewViewManager.m */; };
 		A1B2C3D40000000000000008 /* pose_landmarker_full.task in Resources */ = {isa = PBXBuildFile; fileRef = A1B2C3D40000000000000018 /* pose_landmarker_full.task */; };
+		A1B2C3D40000000000000009 /* VideoRecorder.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D40000000000000019 /* VideoRecorder.swift */; };
 		BB2F792D24A3F905000567C9 /* Expo.plist in Resources */ = {isa = PBXBuildFile; fileRef = BB2F792C24A3F905000567C9 /* Expo.plist */; };
 		C22CBDC68371F4948734AC3B /* libPods-MocapExpo.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 5A619865A947FB8D98D32C92 /* libPods-MocapExpo.a */; };
 		F11748422D0307B40044C1D9 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = F11748412D0307B40044C1D9 /* AppDelegate.swift */; };
@@ -39,6 +40,7 @@
 		A1B2C3D40000000000000016 /* PoseEngineModule.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = PoseEngineModule.m; sourceTree = "<group>"; };
 		A1B2C3D40000000000000017 /* PosePreviewViewManager.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = PosePreviewViewManager.m; sourceTree = "<group>"; };
 		A1B2C3D40000000000000018 /* pose_landmarker_full.task */ = {isa = PBXFileReference; lastKnownFileType = file; name = pose_landmarker_full.task; path = MocapExpo/pose_landmarker_full.task; sourceTree = "<group>"; };
+		A1B2C3D40000000000000019 /* VideoRecorder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoRecorder.swift; sourceTree = "<group>"; };
 		AA286B85B6C04FC6940260E9 /* SplashScreen.storyboard */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = file.storyboard; name = SplashScreen.storyboard; path = MocapExpo/SplashScreen.storyboard; sourceTree = "<group>"; };
 		BB2F792C24A3F905000567C9 /* Expo.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; path = Expo.plist; sourceTree = "<group>"; };
 		E4E01B1D584022575D024DCA /* Pods-MocapExpo.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-MocapExpo.release.xcconfig"; path = "Target Support Files/Pods-MocapExpo/Pods-MocapExpo.release.xcconfig"; sourceTree = "<group>"; };
@@ -146,6 +148,7 @@
 				A1B2C3D40000000000000011 /* PoseEngineModule.swift */,
 				A1B2C3D40000000000000012 /* PoseLandmarkerRunner.swift */,
 				A1B2C3D40000000000000013 /* PoseCameraSession.swift */,
+				A1B2C3D40000000000000019 /* VideoRecorder.swift */,
 				A1B2C3D40000000000000014 /* PosePreviewView.swift */,
 				A1B2C3D40000000000000015 /* PosePreviewViewManager.swift */,
 				A1B2C3D40000000000000016 /* PoseEngineModule.m */,
@@ -363,6 +366,7 @@
 				A1B2C3D40000000000000001 /* PoseEngineModule.swift in Sources */,
 				A1B2C3D40000000000000002 /* PoseLandmarkerRunner.swift in Sources */,
 				A1B2C3D40000000000000003 /* PoseCameraSession.swift in Sources */,
+				A1B2C3D40000000000000009 /* VideoRecorder.swift in Sources */,
 				A1B2C3D40000000000000004 /* PosePreviewView.swift in Sources */,
 				A1B2C3D40000000000000005 /* PosePreviewViewManager.swift in Sources */,
 				A1B2C3D40000000000000006 /* PoseEngineModule.m in Sources */,
