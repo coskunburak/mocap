@@ -29,7 +29,7 @@ public final class PoseLandmarkerRunner: NSObject {
     public let minFaceConfidence: Float
     public let minHandConfidence: Float
     public let outputFaceBlendshapes: Bool
-    public let outputPoseSegmentationMasks: Bool
+    public let outputPoseSegmentationMasks: Boolrr
     public let numPoses: Int
     public let usesCPU: Bool
     public let debug: Bool
