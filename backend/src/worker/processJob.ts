@@ -389,7 +389,15 @@ export class WorkerJobProcessor {
         },
       });
 
-      const rawSolved = solveMotion(poseArtifact);
+      const rawSolved = solveMotion(poseArtifact, {
+        presetId: job.preset,
+        source:
+          reconstruction?.schema === "mocap.multi_view_reconstruction.v1"
+            ? "multi_view"
+            : reconstruction?.schema === "mocap.dual_reconstruction.v1"
+              ? "dual_camera"
+              : "single_camera",
+      });
       const rawSolvedValidation = validateSolvedMotion(rawSolved);
       if (!rawSolvedValidation.ok) {
         throw new WorkerProcessingError(

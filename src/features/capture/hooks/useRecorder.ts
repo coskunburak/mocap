@@ -42,10 +42,14 @@ type RecorderOptions = {
   calibration?: TakeCalibration;
   captureMode?: "solo" | "dual-camera" | "pro-4-camera";
   viewCount?: number;
+  deviceId?: string;
   deviceRole?: "primary" | "secondary" | "front" | "back" | "left" | "right" | "calibration";
   deviceIndex?: number;
   captureSessionId?: string;
   clockOffsetMs?: number | null;
+  multiCameraSessionId?: string;
+  approxCameraAngle?: number;
+  calibrationClipId?: string;
 };
 
 type NormalizedRecorderOptions = {
@@ -56,10 +60,14 @@ type NormalizedRecorderOptions = {
   calibration?: TakeCalibration;
   captureMode: "solo" | "dual-camera" | "pro-4-camera";
   viewCount: number;
+  deviceId?: string;
   deviceRole: "primary" | "secondary" | "front" | "back" | "left" | "right" | "calibration";
   deviceIndex: number;
   captureSessionId?: string;
   clockOffsetMs?: number | null;
+  multiCameraSessionId?: string;
+  approxCameraAngle?: number;
+  calibrationClipId?: string;
 };
 
 function createCaptureSessionId(takeId: string) {
@@ -102,10 +110,14 @@ export function useRecorder() {
     calibration: undefined,
     captureMode: "solo",
     viewCount: 1,
+    deviceId: undefined,
     deviceRole: "primary",
     deviceIndex: 0,
     captureSessionId: undefined,
     clockOffsetMs: 0,
+    multiCameraSessionId: undefined,
+    approxCameraAngle: undefined,
+    calibrationClipId: undefined,
   });
 
   const updateCounters = useCallback(() => {
@@ -189,10 +201,14 @@ export function useRecorder() {
         calibration: options?.calibration,
         captureMode: options?.captureMode ?? "solo",
         viewCount: options?.viewCount ?? 1,
+        deviceId: options?.deviceId,
         deviceRole: options?.deviceRole ?? "primary",
         deviceIndex: options?.deviceIndex ?? 0,
         captureSessionId: options?.captureSessionId,
         clockOffsetMs: options?.clockOffsetMs ?? 0,
+        multiCameraSessionId: options?.multiCameraSessionId,
+        approxCameraAngle: options?.approxCameraAngle,
+        calibrationClipId: options?.calibrationClipId,
       };
 
       // ✅ create take async
@@ -292,7 +308,7 @@ export function useRecorder() {
       const metadata = buildCaptureMetadata({
         recording,
         captureSessionId,
-        deviceId: localDeviceId(),
+        deviceId: optsRef.current.deviceId ?? localDeviceId(),
         deviceRole: optsRef.current.deviceRole,
         deviceIndex: optsRef.current.deviceIndex,
         captureMode:
@@ -301,6 +317,9 @@ export function useRecorder() {
             : optsRef.current.captureMode === "dual-camera"
               ? "dual"
               : "solo",
+        multiCameraSessionId: optsRef.current.multiCameraSessionId,
+        approxCameraAngle: optsRef.current.approxCameraAngle,
+        calibrationClipId: optsRef.current.calibrationClipId,
         quality,
         sync: {
           syncMethod:

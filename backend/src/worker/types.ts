@@ -51,6 +51,22 @@ export type SolvedMotionArtifact = {
   schema: "mocap.solved_motion.v1";
   takeId: string;
   jobId: string;
+  preset?: {
+    id: string;
+    label: string;
+    exportFormat: "bvh";
+    targetSkeleton: string;
+    scaleMode: string;
+    rootMotion: "hips";
+    footLocking: string;
+  };
+  ik?: {
+    enabled: boolean;
+    profile: string;
+    appliedConstraintCount: number;
+    adjustedJointRotationCount: number;
+    warnings: string[];
+  };
   skeleton: {
     name: "mocap_humanoid_v1";
     rotationOrder: "XYZ";
@@ -198,6 +214,8 @@ export type MultiViewReconstructionArtifact = {
     deviceId: string | null;
     captureSessionId: string | null;
     approxAngleDeg: number;
+    calibrationClipId?: string | null;
+    intrinsicsSource: "metadata" | "fallback_fov";
     placementScore: number;
     placementFeedback: string[];
     videoStorageKey: string;
@@ -225,7 +243,10 @@ export type MultiViewReconstructionArtifact = {
     averageTimeDeltaMs: number;
   };
   calibration: {
-    method: "metadata_intrinsics_multiview_v1";
+    method: "metadata_intrinsics_multiview_v1" | "metadata_intrinsics_calibration_clip_multiview_v1";
+    calibrationReady: boolean;
+    calibrationQualityScore: number;
+    calibrationClipIds: string[];
     placementQualityScore: number;
     coverageScore: number;
     expectedAnglesDeg: number[];
@@ -294,5 +315,6 @@ export type QualityReport = {
     cameraCount?: number;
     placementQualityScore?: number;
     occlusionRecoveryRatio?: number;
+    calibrationQualityScore?: number;
   };
 };

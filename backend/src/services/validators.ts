@@ -6,6 +6,7 @@ export type CaptureMetadataBody = Record<string, unknown> & {
   deviceId: string;
   deviceRole: string;
   deviceIndex: number;
+  captureMode: "solo" | "dual" | "pro_4_camera";
   durationMs: number;
   sync: Record<string, unknown>;
 };
@@ -72,10 +73,14 @@ export function validateCaptureMetadata(value: unknown): CaptureMetadataBody {
     requireString(obj[field], `captureMetadata.${field}`);
   }
   requireInt(obj.deviceIndex, "captureMetadata.deviceIndex");
+  const captureMode = optionalString(obj.captureMode, "solo");
+  if (!["solo", "dual", "pro_4_camera"].includes(captureMode)) {
+    throw badRequest("captureMetadata.captureMode is invalid", { captureMode });
+  }
   requireNumber(obj.durationMs, "captureMetadata.durationMs");
   asRecord(obj.video, "captureMetadata.video");
   asRecord(obj.quality, "captureMetadata.quality");
   const sync = asRecord(obj.sync, "captureMetadata.sync");
   asRecord(obj.app, "captureMetadata.app");
-  return { ...obj, sync } as CaptureMetadataBody;
+  return { ...obj, captureMode, sync } as CaptureMetadataBody;
 }

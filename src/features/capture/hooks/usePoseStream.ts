@@ -67,10 +67,14 @@ type StartRecordingOptions = {
   calibration?: import("../../../domain/mocap/models/Take").TakeCalibration;
   captureMode?: "solo" | "dual-camera" | "pro-4-camera";
   viewCount?: number;
+  deviceId?: string;
   deviceRole?: "primary" | "secondary" | "front" | "back" | "left" | "right" | "calibration";
   deviceIndex?: number;
   captureSessionId?: string;
   clockOffsetMs?: number | null;
+  multiCameraSessionId?: string;
+  approxCameraAngle?: number;
+  calibrationClipId?: string;
 };
 
 const TRACKING_REQUIRED_JOINTS = [

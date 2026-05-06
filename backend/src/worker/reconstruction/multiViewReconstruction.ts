@@ -28,6 +28,8 @@ type CameraModel = {
   camera: ProcessedCamera;
   angleDeg: number;
   projection: ProjectionMatrix;
+  intrinsicsSource: "metadata" | "fallback_fov";
+  calibrationClipId: string | null;
   placementScore: number;
   placementFeedback: string[];
 };
@@ -61,6 +63,11 @@ function asRecord(value: unknown): Record<string, unknown> | null {
 
 function finite(value: unknown, fallback = 0) {
   return typeof value === "number" && Number.isFinite(value) ? value : fallback;
+}
+
+function optionalMetadataString(metadata: unknown, key: string) {
+  const value = asRecord(metadata)?.[key];
+  return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
 }
 
 function clamp(value: number, min: number, max: number) {
@@ -109,7 +116,10 @@ function fovIntrinsic(fovDeg: number) {
   return [f, 0, 0.5, 0, f, 0.5, 0, 0, 1];
 }
 
-function metadataIntrinsic(metadata: unknown, probe: VideoProbe) {
+function metadataIntrinsic(metadata: unknown, probe: VideoProbe): {
+  k: number[];
+  source: "metadata" | "fallback_fov";
+} {
   const camera = asRecord(asRecord(metadata)?.camera);
   const intrinsics = asRecord(camera?.intrinsics);
   const fx = finite(intrinsics?.fx, NaN);
@@ -119,19 +129,22 @@ function metadataIntrinsic(metadata: unknown, probe: VideoProbe) {
   const width = finite(intrinsics?.width, probe.width || 1) || 1;
   const height = finite(intrinsics?.height, probe.height || 1) || 1;
   if ([fx, fy, cx, cy].every(Number.isFinite) && fx > 0 && fy > 0) {
-    return [
-      fx > 4 ? fx / width : fx,
-      0,
-      cx > 2 ? cx / width : cx,
-      0,
-      fy > 4 ? fy / height : fy,
-      cy > 2 ? cy / height : cy,
-      0,
-      0,
-      1,
-    ];
+    return {
+      source: "metadata",
+      k: [
+        fx > 4 ? fx / width : fx,
+        0,
+        cx > 2 ? cx / width : cx,
+        0,
+        fy > 4 ? fy / height : fy,
+        cy > 2 ? cy / height : cy,
+        0,
+        0,
+        1,
+      ],
+    };
   }
-  return fovIntrinsic(DEFAULT_FOV_DEG);
+  return { k: fovIntrinsic(DEFAULT_FOV_DEG), source: "fallback_fov" };
 }
 
 function yawRotation(degrees: number) {
@@ -282,6 +295,8 @@ function angleDistance(a: number, b: number) {
 function buildCameraModels(cameras: readonly ProcessedCamera[]) {
   return cameras.map((camera, index): CameraModel => {
     const angleDeg = metadataAngle(camera);
+    const intrinsics = metadataIntrinsic(camera.video.captureMetadata, camera.probe);
+    const calibrationClipId = optionalMetadataString(camera.video.captureMetadata, "calibrationClipId");
     const nearestExpected = EXPECTED_PRO_ANGLES.reduce((best, expected) =>
       angleDistance(angleDeg, expected) < angleDistance(angleDeg, best) ? expected : best,
     );
@@ -291,7 +306,7 @@ function buildCameraModels(cameras: readonly ProcessedCamera[]) {
     const radius = 1.3;
     const translation = [Math.sin(radians) * radius, 0, Math.cos(radians) * radius];
     const projection = buildProjectionMatrix(
-      metadataIntrinsic(camera.video.captureMetadata, camera.probe),
+      intrinsics.k,
       yawRotation(-angleDeg),
       translation,
     );
@@ -301,13 +316,24 @@ function buildCameraModels(cameras: readonly ProcessedCamera[]) {
         `Camera ${camera.video.deviceIndex} angle is ${Math.round(angleError)}deg away from the nearest pro slot.`,
       );
     }
-    if (!asRecord(asRecord(camera.video.captureMetadata)?.camera)?.intrinsics) {
+    if (intrinsics.source === "fallback_fov") {
       placementFeedback.push(`Camera ${camera.video.deviceIndex} intrinsics missing; fallback FOV was used.`);
+    }
+    if (!calibrationClipId) {
+      placementFeedback.push(`Camera ${camera.video.deviceIndex} calibration clip id is missing.`);
     }
     if (index === 0 && Math.abs(angleDeg) > 25) {
       placementFeedback.push("Reference camera should be near the front angle.");
     }
-    return { camera, angleDeg, projection, placementScore, placementFeedback };
+    return {
+      camera,
+      angleDeg,
+      projection,
+      intrinsicsSource: intrinsics.source,
+      calibrationClipId,
+      placementScore,
+      placementFeedback,
+    };
   });
 }
 
@@ -569,6 +595,16 @@ export async function reconstructMultiViewPose(input: {
         ),
       ),
     ).size / EXPECTED_PRO_ANGLES.length;
+  const calibrationClipCoverage =
+    cameraModels.filter((model) => Boolean(model.calibrationClipId)).length / cameraModels.length;
+  const intrinsicsCoverage =
+    cameraModels.filter((model) => model.intrinsicsSource === "metadata").length / cameraModels.length;
+  const calibrationQualityScore = clamp(
+    placementQualityScore * 0.54 + uniqueSlotCoverage * 0.18 + calibrationClipCoverage * 0.16 +
+      intrinsicsCoverage * 0.12,
+    0,
+    1,
+  );
   const averageViewCount = matchedFrameCount > 0 ? viewCountSum / matchedFrameCount : 0;
   const matchedViewCoverage = clamp(averageViewCount / Math.max(1, sorted.length), 0, 1);
   const averageTimeDeltaMs =
@@ -585,6 +621,7 @@ export async function reconstructMultiViewPose(input: {
         matchedViewCoverage * 8 +
         reprojectionScore * 7 +
         placementQualityScore * 5 +
+        calibrationQualityScore * 4 +
         uniqueSlotCoverage * 4 +
         syncScore * 4 +
         recoveryRatio * 3 -
@@ -606,6 +643,9 @@ export async function reconstructMultiViewPose(input: {
   if (averageReprojectionErrorPx > 42) {
     warnings.push("Multi-view reprojection error is high; calibration capture should be repeated.");
   }
+  if (calibrationClipCoverage < 1) {
+    warnings.push("Calibration clip coverage is incomplete for the pro 4-camera take.");
+  }
 
   const reconstruction: MultiViewReconstructionArtifact = {
     schema: "mocap.multi_view_reconstruction.v1",
@@ -619,6 +659,8 @@ export async function reconstructMultiViewPose(input: {
       deviceId: model.camera.video.deviceId,
       captureSessionId: model.camera.video.captureSessionId,
       approxAngleDeg: model.angleDeg,
+      calibrationClipId: model.calibrationClipId,
+      intrinsicsSource: model.intrinsicsSource,
       placementScore: model.placementScore,
       placementFeedback: model.placementFeedback,
       videoStorageKey: model.camera.video.videoStorageKey,
@@ -655,7 +697,15 @@ export async function reconstructMultiViewPose(input: {
       averageTimeDeltaMs,
     },
     calibration: {
-      method: "metadata_intrinsics_multiview_v1",
+      method:
+        calibrationClipCoverage >= 1
+          ? "metadata_intrinsics_calibration_clip_multiview_v1"
+          : "metadata_intrinsics_multiview_v1",
+      calibrationReady: calibrationClipCoverage >= 1 && uniqueSlotCoverage >= 1,
+      calibrationQualityScore,
+      calibrationClipIds: cameraModels
+        .map((model) => model.calibrationClipId)
+        .filter((value): value is string => Boolean(value)),
       placementQualityScore,
       coverageScore: uniqueSlotCoverage,
       expectedAnglesDeg: EXPECTED_PRO_ANGLES,

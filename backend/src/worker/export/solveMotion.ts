@@ -5,10 +5,22 @@ import type {
   SolvedMotionArtifact,
   SolvedMotionFrame,
 } from "../types";
+import type { MotionRetargetPreset } from "./retargetPresets";
+import { resolveMotionRetargetPreset } from "./retargetPresets";
 import { ROTATION_ORDER, SKELETON, SKELETON_NAME } from "./skeletonDefinition";
 
 type Vec3 = [number, number, number];
 type Quat = [number, number, number, number];
+type Euler = [number, number, number];
+
+type SolveMotionOptions = {
+  presetId?: string;
+  source?: "single_camera" | "dual_camera" | "multi_view";
+};
+
+type IkStats = {
+  adjustedJointRotationCount: number;
+};
 
 const MP = {
   nose: 0,
@@ -103,6 +115,41 @@ function quatToEulerXYZ(q: Quat): [number, number, number] {
   ];
 }
 
+function presetSummary(preset: MotionRetargetPreset): NonNullable<SolvedMotionArtifact["preset"]> {
+  return {
+    id: preset.id,
+    label: preset.label,
+    exportFormat: preset.exportFormat,
+    targetSkeleton: preset.retarget.targetSkeleton,
+    scaleMode: preset.retarget.scaleMode,
+    rootMotion: preset.retarget.rootMotion,
+    footLocking: preset.retarget.footLocking,
+  };
+}
+
+function clampEulerWithPreset(
+  jointName: string,
+  rotation: Euler,
+  preset: MotionRetargetPreset,
+  stats: IkStats,
+): Euler {
+  const constraint = preset.constraints.find((item) => item.joint === jointName);
+  if (!constraint?.minEulerDeg || !constraint.maxEulerDeg) return rotation;
+  const next: Euler = [...rotation];
+  let adjusted = false;
+  for (let axis = 0; axis < 3; axis += 1) {
+    const min = constraint.minEulerDeg[axis];
+    const max = constraint.maxEulerDeg[axis];
+    const clamped = Math.max(min, Math.min(max, next[axis]));
+    if (clamped !== next[axis]) {
+      next[axis] = rotation[axis] * (1 - constraint.weight) + clamped * constraint.weight;
+      adjusted = true;
+    }
+  }
+  if (adjusted) stats.adjustedJointRotationCount += 1;
+  return next;
+}
+
 function convertLandmark(landmark: PoseLandmark | undefined, scale = 100): Vec3 | null {
   if (!landmark) return null;
   if (![landmark.x, landmark.y, landmark.z].every(Number.isFinite)) return null;
@@ -160,10 +207,15 @@ function skeletonPoints(frame: PoseFrameArtifactFrame): Record<string, Vec3> | n
   };
 }
 
-function solveFrame(frame: PoseFrameArtifactFrame, firstRoot: Vec3): SolvedMotionFrame | null {
+function solveFrame(
+  frame: PoseFrameArtifactFrame,
+  firstRoot: Vec3,
+  preset: MotionRetargetPreset,
+  ikStats: IkStats,
+): SolvedMotionFrame | null {
   const points = skeletonPoints(frame);
   if (!points) return null;
-  const joints: Record<string, [number, number, number]> = {};
+  const joints: Record<string, Euler> = {};
 
   for (const joint of SKELETON) {
     if (!joint.primaryChild) {
@@ -174,7 +226,12 @@ function solveFrame(frame: PoseFrameArtifactFrame, firstRoot: Vec3): SolvedMotio
     const source = points[joint.name];
     const target = points[joint.primaryChild];
     const direction = source && target ? sub(target, source) : from;
-    joints[joint.name] = quatToEulerXYZ(quatFromUnitVectors(from, direction));
+    joints[joint.name] = clampEulerWithPreset(
+      joint.name,
+      quatToEulerXYZ(quatFromUnitVectors(from, direction)),
+      preset,
+      ikStats,
+    );
   }
 
   return {
@@ -185,13 +242,30 @@ function solveFrame(frame: PoseFrameArtifactFrame, firstRoot: Vec3): SolvedMotio
   };
 }
 
-export function solveMotion(artifact: PoseFramesArtifact): SolvedMotionArtifact {
+export function solveMotion(
+  artifact: PoseFramesArtifact,
+  options: SolveMotionOptions = {},
+): SolvedMotionArtifact {
+  const preset = resolveMotionRetargetPreset(options.presetId);
+  const ikStats: IkStats = { adjustedJointRotationCount: 0 };
+  const ikWarnings: string[] = [];
+  if (options.source === "multi_view" && preset.ikProfile !== "pro_multiview") {
+    ikWarnings.push("Multi-view source was solved without the pro multi-view IK profile.");
+  }
   const firstValid = artifact.frames.find((frame) => skeletonPoints(frame));
   if (!firstValid) {
     return {
       schema: "mocap.solved_motion.v1",
       takeId: artifact.takeId,
       jobId: artifact.jobId,
+      preset: presetSummary(preset),
+      ik: {
+        enabled: preset.constraints.length > 0,
+        profile: preset.ikProfile,
+        appliedConstraintCount: preset.constraints.length,
+        adjustedJointRotationCount: 0,
+        warnings: ikWarnings,
+      },
       skeleton: {
         name: SKELETON_NAME,
         rotationOrder: ROTATION_ORDER,
@@ -211,19 +285,30 @@ export function solveMotion(artifact: PoseFramesArtifact): SolvedMotionArtifact 
 
   const firstRoot = skeletonPoints(firstValid)?.Hips ?? [0, 0, 0];
   const frames = artifact.frames
-    .map((frame) => solveFrame(frame, firstRoot))
+    .map((frame) => solveFrame(frame, firstRoot, preset, ikStats))
     .filter((frame): frame is SolvedMotionFrame => frame != null);
   const errors: string[] = [];
-  const warnings: string[] = [];
+  const warnings: string[] = [...ikWarnings];
   if (frames.length === 0) errors.push("Solved motion has no frames.");
   if (frames.length < artifact.frames.length * 0.5) {
     warnings.push("More than half of detected frames were not solveable.");
+  }
+  if (preset.constraints.length > 0 && ikStats.adjustedJointRotationCount > frames.length * 5) {
+    warnings.push("IK constraints adjusted a high number of joint rotations; review calibration and placement.");
   }
 
   return {
     schema: "mocap.solved_motion.v1",
     takeId: artifact.takeId,
     jobId: artifact.jobId,
+    preset: presetSummary(preset),
+    ik: {
+      enabled: preset.constraints.length > 0,
+      profile: preset.ikProfile,
+      appliedConstraintCount: preset.constraints.length,
+      adjustedJointRotationCount: ikStats.adjustedJointRotationCount,
+      warnings,
+    },
     skeleton: {
       name: SKELETON_NAME,
       rotationOrder: ROTATION_ORDER,

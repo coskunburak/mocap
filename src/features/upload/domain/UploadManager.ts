@@ -26,7 +26,11 @@ export type UploadResult = Readonly<{
   localTake: Take;
   remoteTakeId: string;
   uploadSessionId: string;
-  job: ApiProcessingJob;
+  job?: ApiProcessingJob;
+  waitingForVideos?: {
+    uploaded?: number;
+    expected: number;
+  };
 }>;
 
 export type UploadManagerInput = Readonly<{

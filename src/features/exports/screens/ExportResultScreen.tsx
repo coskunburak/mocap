@@ -40,6 +40,7 @@ type QualityReport = {
     cameraCount?: number;
     placementQualityScore?: number;
     occlusionRecoveryRatio?: number;
+    calibrationQualityScore?: number;
   };
 };
 
@@ -86,6 +87,8 @@ type MultiViewReconstruction = {
     deviceIndex: number;
     deviceRole: string;
     approxAngleDeg: number;
+    calibrationClipId?: string | null;
+    intrinsicsSource?: "metadata" | "fallback_fov";
     placementScore: number;
     placementFeedback: string[];
   }>;
@@ -94,6 +97,9 @@ type MultiViewReconstruction = {
     averageTimeDeltaMs: number;
   };
   calibration: {
+    calibrationReady?: boolean;
+    calibrationQualityScore?: number;
+    calibrationClipIds?: string[];
     placementQualityScore: number;
     coverageScore: number;
     observedAnglesDeg: number[];
@@ -422,6 +428,13 @@ export default function ExportResultScreen() {
               value={metricPercent(multiViewReconstruction?.quality.matchedViewCoverage)}
             />
             <QualityMetric
+              label="calibration"
+              value={metricPercent(
+                multiViewReconstruction?.calibration.calibrationQualityScore ??
+                  quality?.reconstruction?.calibrationQualityScore,
+              )}
+            />
+            <QualityMetric
               label="occlusion"
               value={metricPercent(
                 multiViewReconstruction?.quality.occlusionRecoveryRatio ??
@@ -456,9 +469,14 @@ export default function ExportResultScreen() {
           {multiViewReconstruction?.cameras.slice(0, 4).map((camera) => (
             <Text key={camera.deviceIndex} style={styles.meta}>
               {camera.deviceRole} · {Math.round(camera.approxAngleDeg)}deg ·{" "}
-              {metricPercent(camera.placementScore)}
+              {metricPercent(camera.placementScore)} · {camera.intrinsicsSource ?? "metadata"}
             </Text>
           ))}
+          {multiViewReconstruction?.calibration.calibrationClipIds?.length ? (
+            <Text style={styles.meta}>
+              calibration clips {multiViewReconstruction.calibration.calibrationClipIds.length}/4
+            </Text>
+          ) : null}
           {[
             ...(multiViewReconstruction?.calibration.warnings ?? []),
             ...(multiViewReconstruction?.warnings ?? []),

@@ -7,6 +7,9 @@ Sprint 10 extends the dual-camera backend into a pro multi-view foundation:
 - 4-device capture sessions with `front`, `right`, `back`, `left` roles.
 - 4-video upload grouping under one take.
 - Processing guard that requires all expected pro videos before job creation.
+- Mobile Pro setup creates/joins a backend `pro_4_camera` session and records the assigned role/index into capture metadata.
+- UploadManager reuses the backend session take for all four devices and waits until all videos are uploaded before starting the job.
+- Calibration clip IDs, approximate camera angles, and intrinsics source are written into the multi-view artifact.
 - Per-camera normalization and pose detection for all four videos.
 - Pairwise audio sync from the reference camera to every secondary camera.
 - Multi-view frame matching.
@@ -14,6 +17,7 @@ Sprint 10 extends the dual-camera backend into a pro multi-view foundation:
 - Baseline occlusion recovery using temporal hold plus available-view fallback.
 - Camera placement scoring and feedback.
 - Multi-view quality score, reprojection metrics, coverage metrics, and export validation.
+- Pro retarget preset and advanced IK constraint hooks are attached to solved motion artifacts.
 
 ## Artifact
 
@@ -26,6 +30,7 @@ takes/{takeId}/jobs/{jobId}/multi_view_reconstruction.json
 The artifact schema is `mocap.multi_view_reconstruction.v1` and includes:
 
 - camera placement scores and angle feedback
+- calibration readiness, clip coverage, and intrinsics source
 - sync offsets and confidence
 - matched frame coverage
 - reprojection average and p95
@@ -44,6 +49,7 @@ The result screen now surfaces pro multi-view feedback:
 - reprojection error
 - triangulated landmark ratio
 - per-camera angle and placement score
+- calibration quality and intrinsics fallback status
 
 ## QA
 

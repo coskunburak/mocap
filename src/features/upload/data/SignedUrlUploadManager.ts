@@ -187,21 +187,38 @@ export class SignedUrlUploadManager implements UploadManager {
       this.throwIfCancelled();
       emit({ stage: "preparing", progress: 0.04, message: humanStage("preparing") });
 
-      const projectId =
+      const localCaptureSessionId = take.captureMetadata.captureSessionId.startsWith("cs_")
+        ? take.captureMetadata.captureSessionId
+        : undefined;
+      let projectId =
         env.defaultProjectId ??
-        take.remote?.projectId ??
-        (await this.deps.api.createProject(input.projectName ?? "Mobile Captures")).id;
-      const remoteTake = await this.deps.sessions.createTake(projectId, {
-        name: take.name,
-        captureMode: apiCaptureMode(take),
-        expectedVideoCount: take.viewCount ?? 1,
-      });
+        take.remote?.projectId;
+      let remoteTake = take.remote?.takeId
+        ? await this.deps.api.getTake(take.remote.takeId).catch(() => null)
+        : null;
+
+      if (localCaptureSessionId) {
+        const session = await this.deps.sessions.getCaptureSession(localCaptureSessionId);
+        projectId = session.captureSession.projectId;
+        remoteTake = await this.deps.api.getTake(session.captureSession.takeId);
+      }
+
+      if (!projectId) {
+        projectId = (await this.deps.api.createProject(input.projectName ?? "Mobile Captures")).id;
+      }
+
+      if (!remoteTake) {
+        remoteTake = await this.deps.sessions.createTake(projectId, {
+          name: take.name,
+          captureMode: apiCaptureMode(take),
+          expectedVideoCount: take.viewCount ?? 1,
+        });
+      }
+
       const metadata = sanitizeMetadata({
         ...take.captureMetadata,
         takeId: remoteTake.id,
-        captureSessionId: take.captureMetadata.captureSessionId.startsWith("cs_")
-          ? take.captureMetadata.captureSessionId
-          : remoteTake.id,
+        captureSessionId: localCaptureSessionId ?? remoteTake.id,
       });
       const metadataText = JSON.stringify(metadata);
       const metadataSizeBytes = utf8ByteLength(metadataText);
@@ -217,9 +234,7 @@ export class SignedUrlUploadManager implements UploadManager {
       });
 
       const upload = await this.deps.sessions.initUpload(remoteTake.id, {
-        captureSessionId: metadata.captureSessionId.startsWith("cs_")
-          ? metadata.captureSessionId
-          : undefined,
+        captureSessionId: localCaptureSessionId,
         deviceId: metadata.deviceId,
         deviceIndex: metadata.deviceIndex,
         deviceRole: metadata.deviceRole,
@@ -279,7 +294,7 @@ export class SignedUrlUploadManager implements UploadManager {
         uploadSessionId: upload.uploadSession.id,
       });
 
-      await this.deps.sessions.completeUpload(remoteTake.id, {
+      const completed = await this.deps.sessions.completeUpload(remoteTake.id, {
         uploadSessionId: upload.uploadSession.id,
         videoUploaded: true,
         metadataUploaded: true,
@@ -288,30 +303,35 @@ export class SignedUrlUploadManager implements UploadManager {
         captureMetadata: metadata,
       });
 
-      emit({
-        stage: "starting_processing",
-        progress: 0.95,
-        message: humanStage("starting_processing"),
-        remoteTakeId: remoteTake.id,
-        uploadSessionId: upload.uploadSession.id,
-      });
-
-      const job = await this.deps.sessions.createProcessingJob(
-        remoteTake.id,
-        input.preset ??
-          (metadata.captureMode === "pro_4_camera"
-            ? "humanoid_bvh_pro_4_camera_v1"
-            : metadata.captureMode === "dual"
-              ? "humanoid_bvh_dual_v1"
-              : "humanoid_bvh_v1"),
-      );
+      const completedTake = completed.take;
+      const shouldStartProcessing = completedTake.status === "uploaded";
+      const job = shouldStartProcessing
+        ? await (async () => {
+            emit({
+              stage: "starting_processing",
+              progress: 0.95,
+              message: humanStage("starting_processing"),
+              remoteTakeId: remoteTake.id,
+              uploadSessionId: upload.uploadSession.id,
+            });
+            return this.deps.sessions.createProcessingJob(
+              remoteTake.id,
+              input.preset ??
+                (metadata.captureMode === "pro_4_camera"
+                  ? "humanoid_bvh_pro_4_camera_v1"
+                  : metadata.captureMode === "dual"
+                    ? "humanoid_bvh_dual_v1"
+                    : "humanoid_bvh_v1"),
+            );
+          })()
+        : undefined;
       const localTake = await takeRepoFs.updateTakeMeta(take.id, {
         remote: {
           projectId,
           takeId: remoteTake.id,
           uploadSessionId: upload.uploadSession.id,
-          jobId: job.id,
-          status: "processing",
+          jobId: job?.id,
+          status: job ? "processing" : "uploaded",
           progress: 1,
           updatedAt: Date.now(),
         },
@@ -323,7 +343,7 @@ export class SignedUrlUploadManager implements UploadManager {
         message: humanStage("completed"),
         remoteTakeId: remoteTake.id,
         uploadSessionId: upload.uploadSession.id,
-        jobId: job.id,
+        jobId: job?.id,
       });
 
       return {
@@ -331,6 +351,11 @@ export class SignedUrlUploadManager implements UploadManager {
         remoteTakeId: remoteTake.id,
         uploadSessionId: upload.uploadSession.id,
         job,
+        waitingForVideos: job
+          ? undefined
+          : {
+              expected: completedTake.expectedVideoCount,
+            },
       };
     } catch (error) {
       await failLocal(error);

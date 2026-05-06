@@ -306,6 +306,12 @@ export default function CaptureScreen() {
       }
       if (recorderState.status !== "idle") return;
 
+      const isProCapture =
+        mvState.captureMode === "pro-4-camera" && Boolean(mvState.backendCaptureSessionId);
+      const isDualCapture =
+        !isProCapture &&
+        (mvState.connectionState === "ready" || mvState.connectionState === "capturing");
+
       await startRecording({
         takeName: `${captureView === "front" ? "Front" : "Back"} Take ${new Date().toLocaleTimeString()}`,
         trackingProfile,
@@ -313,17 +319,27 @@ export default function CaptureScreen() {
           ...calibration,
           calibratedAt: Date.now(),
         },
-        captureMode:
-          mvState.connectionState === "ready" || mvState.connectionState === "capturing"
-            ? "dual-camera"
-            : "solo",
-        viewCount:
-          mvState.connectionState === "ready" || mvState.connectionState === "capturing"
-            ? 2
-            : 1,
-        deviceRole: mvState.peerRole === "guest" ? "secondary" : "primary",
-        deviceIndex: mvState.peerRole === "guest" ? 1 : 0,
-        captureSessionId: mvState.sessionId ? `cap_${mvState.sessionId}` : undefined,
+        captureMode: isProCapture ? "pro-4-camera" : isDualCapture ? "dual-camera" : "solo",
+        viewCount: isProCapture ? 4 : isDualCapture ? 2 : 1,
+        deviceId: isProCapture ? mvState.proDeviceId : undefined,
+        deviceRole: isProCapture
+          ? mvState.proDeviceRole ?? "front"
+          : mvState.peerRole === "guest"
+            ? "secondary"
+            : "primary",
+        deviceIndex: isProCapture
+          ? mvState.proDeviceIndex ?? 0
+          : mvState.peerRole === "guest"
+            ? 1
+            : 0,
+        captureSessionId: isProCapture
+          ? mvState.backendCaptureSessionId
+          : mvState.sessionId
+            ? `cap_${mvState.sessionId}`
+            : undefined,
+        multiCameraSessionId: isProCapture ? mvState.backendCaptureSessionId : undefined,
+        approxCameraAngle: isProCapture ? mvState.proApproxCameraAngle : undefined,
+        calibrationClipId: isProCapture ? mvState.proCalibrationClipId : undefined,
         clockOffsetMs: mvState.clockOffset,
       });
     } catch (e: any) {
@@ -341,8 +357,15 @@ export default function CaptureScreen() {
     trackingHint,
     trackingProfile,
     mvState.clockOffset,
+    mvState.backendCaptureSessionId,
     mvState.connectionState,
     mvState.peerRole,
+    mvState.proApproxCameraAngle,
+    mvState.proCalibrationClipId,
+    mvState.proDeviceId,
+    mvState.proDeviceIndex,
+    mvState.proDeviceRole,
+    mvState.captureMode,
     mvState.sessionId,
   ]);
 

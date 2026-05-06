@@ -140,6 +140,15 @@ export function validateCaptureMetadata(value: unknown): CaptureMetadataValidati
   if (!Number.isInteger(value.deviceIndex) || (value.deviceIndex as number) < 0) {
     errors.push("deviceIndex must be a non-negative integer");
   }
+  if (!["solo", "dual", "pro_4_camera"].includes(String(value.captureMode))) {
+    errors.push("captureMode must be solo, dual or pro_4_camera");
+  }
+  if (
+    value.approxCameraAngle != null &&
+    !isFiniteNumber(value.approxCameraAngle)
+  ) {
+    errors.push("approxCameraAngle must be a finite number when provided");
+  }
   if (!isFiniteNumber(value.durationMs) || (value.durationMs as number) < 0) {
     errors.push("durationMs must be a non-negative number");
   }

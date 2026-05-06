@@ -96,12 +96,23 @@ export default function UploadProgressScreen() {
           onProgress: setProgress,
         });
         setTake(result.localTake);
-        navigation.replace(routes.ProcessingStatus, {
-          localTakeId: result.localTake.id,
-          remoteProjectId: result.localTake.remote?.projectId,
-          remoteTakeId: result.remoteTakeId,
-          jobId: result.job.id,
-        });
+        if (result.job) {
+          navigation.replace(routes.ProcessingStatus, {
+            localTakeId: result.localTake.id,
+            remoteProjectId: result.localTake.remote?.projectId,
+            remoteTakeId: result.remoteTakeId,
+            jobId: result.job.id,
+          });
+        } else {
+          setProgress({
+            stage: "completed",
+            progress: 1,
+            attempt: 1,
+            message: `Uploaded. Waiting for ${result.waitingForVideos?.expected ?? nextTake.viewCount ?? 1} cameras before processing starts.`,
+            remoteTakeId: result.remoteTakeId,
+            uploadSessionId: result.uploadSessionId,
+          });
+        }
       } catch (error: any) {
         const message = error?.message ?? "Upload failed";
         setErrorMessage(message);

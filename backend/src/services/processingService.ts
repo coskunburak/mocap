@@ -5,6 +5,7 @@ import {
   TakeRepository,
   UploadRepository,
 } from "../infra/db/repositories";
+import { isMotionRetargetPresetId } from "../worker/export/retargetPresets";
 import { asRecord, optionalString } from "./validators";
 
 const ACTIVE_STATES = new Set([
@@ -49,6 +50,9 @@ export class ProcessingService {
           ? "humanoid_bvh_dual_v1"
           : "humanoid_bvh_v1";
     const preset = optionalString(obj.preset, defaultPreset);
+    if (!isMotionRetargetPresetId(preset)) {
+      throw badRequest("Processing preset is not supported", { preset });
+    }
     const job = await this.jobs.create({
       userId,
       projectId: take.projectId,

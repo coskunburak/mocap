@@ -26,6 +26,8 @@ export type MultiViewConnectionState =
   | "capturing"
   | "error";
 
+export type ProCameraRole = "front" | "right" | "back" | "left";
+
 export type MultiViewState = {
   // Mode
   captureMode: CaptureMode;
@@ -41,6 +43,15 @@ export type MultiViewState = {
   localDevice?: DeviceInfo;
   remoteDevice?: DeviceInfo;
   sessionId?: string;
+  backendProjectId?: string;
+  backendTakeId?: string;
+  backendCaptureSessionId?: string;
+  backendJoinToken?: string;
+  proDeviceRole?: ProCameraRole;
+  proDeviceId?: string;
+  proDeviceIndex?: number;
+  proApproxCameraAngle?: number;
+  proCalibrationClipId?: string;
 
   // Time sync
   timeSyncReady: boolean;
@@ -80,6 +91,18 @@ export type MultiViewState = {
   setLocalDevice: (device: DeviceInfo) => void;
   setRemoteDevice: (device: DeviceInfo | undefined) => void;
   setSessionId: (id: string) => void;
+  setBackendCaptureSession: (input: {
+    projectId: string;
+    takeId: string;
+    captureSessionId: string;
+    joinToken: string;
+    deviceRole: ProCameraRole;
+    deviceId: string;
+    deviceIndex: number;
+    approxCameraAngle: number;
+    calibrationClipId?: string;
+  }) => void;
+  setProCalibrationClip: (clipId: string | undefined) => void;
   setTimeSyncState: (ready: boolean, offset: number, rtt: number) => void;
   setStereoCalibration: (cal: StereoCalibrationResult | undefined) => void;
   setCalibrationProgress: (inProgress: boolean, step: number, total: number) => void;
@@ -107,6 +130,15 @@ const INITIAL: Omit<MultiViewState, keyof MultiViewActions> = {
   localDevice: undefined,
   remoteDevice: undefined,
   sessionId: undefined,
+  backendProjectId: undefined,
+  backendTakeId: undefined,
+  backendCaptureSessionId: undefined,
+  backendJoinToken: undefined,
+  proDeviceRole: undefined,
+  proDeviceId: undefined,
+  proDeviceIndex: undefined,
+  proApproxCameraAngle: undefined,
+  proCalibrationClipId: undefined,
   timeSyncReady: false,
   clockOffset: 0,
   syncRtt: 0,
@@ -138,6 +170,8 @@ type MultiViewActions = Pick<
   | "setLocalDevice"
   | "setRemoteDevice"
   | "setSessionId"
+  | "setBackendCaptureSession"
+  | "setProCalibrationClip"
   | "setTimeSyncState"
   | "setStereoCalibration"
   | "setCalibrationProgress"
@@ -168,6 +202,24 @@ export const useMultiViewStore = create<MultiViewState>((set) => ({
   setRemoteDevice: (remoteDevice) => set({ remoteDevice }),
 
   setSessionId: (sessionId) => set({ sessionId }),
+
+  setBackendCaptureSession: (input) =>
+    set({
+      captureMode: "pro-4-camera",
+      peerRole: "host",
+      connectionState: "ready",
+      backendProjectId: input.projectId,
+      backendTakeId: input.takeId,
+      backendCaptureSessionId: input.captureSessionId,
+      backendJoinToken: input.joinToken,
+      proDeviceRole: input.deviceRole,
+      proDeviceId: input.deviceId,
+      proDeviceIndex: input.deviceIndex,
+      proApproxCameraAngle: input.approxCameraAngle,
+      proCalibrationClipId: input.calibrationClipId,
+    }),
+
+  setProCalibrationClip: (proCalibrationClipId) => set({ proCalibrationClipId }),
 
   setTimeSyncState: (timeSyncReady, clockOffset, syncRtt) =>
     set({ timeSyncReady, clockOffset, syncRtt }),

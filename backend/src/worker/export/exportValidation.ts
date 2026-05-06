@@ -167,16 +167,21 @@ export function buildQualityReport(
               reprojectionErrorPx: reconstruction.quality.averageReprojectionErrorPx,
               reprojectionP95Px: reconstruction.quality.reprojectionP95Px,
               triangulatedLandmarkRatio: reconstruction.quality.triangulatedLandmarkRatio,
-              averageViewCount: reconstruction.quality.averageViewCount,
-              matchedViewCoverage: reconstruction.quality.matchedViewCoverage,
-              placementQualityScore: reconstruction.quality.placementQualityScore,
-              occlusionRecoveryRatio: reconstruction.quality.occlusionRecoveryRatio,
-            }
+            averageViewCount: reconstruction.quality.averageViewCount,
+            matchedViewCoverage: reconstruction.quality.matchedViewCoverage,
+            placementQualityScore: reconstruction.quality.placementQualityScore,
+            calibrationQualityScore: reconstruction.calibration.calibrationQualityScore,
+            occlusionRecoveryRatio: reconstruction.quality.occlusionRecoveryRatio,
+          }
         : {}),
+      ikAppliedConstraintCount: solved.ik?.appliedConstraintCount ?? 0,
+      ikAdjustedJointRotationCount: solved.ik?.adjustedJointRotationCount ?? 0,
+      retargetPresetEnabled: solved.preset ? 1 : 0,
     },
     warnings: [
       ...validation.warnings,
       ...cleanup.warnings,
+      ...(solved.ik?.warnings ?? []),
       ...(reconstruction?.warnings ?? []),
     ],
     errors: validation.errors,
@@ -203,6 +208,7 @@ export function buildQualityReport(
             cameraCount: reconstruction.cameraCount,
             placementQualityScore: reconstruction.quality.placementQualityScore,
             occlusionRecoveryRatio: reconstruction.quality.occlusionRecoveryRatio,
+            calibrationQualityScore: reconstruction.calibration.calibrationQualityScore,
           }
       : {
           source: "single_camera",

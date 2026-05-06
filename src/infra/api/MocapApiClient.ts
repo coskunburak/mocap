@@ -159,7 +159,7 @@ export interface MocapApiClient {
       expectedDeviceCount?: number;
       hostDevice?: {
         deviceId: string;
-        deviceRole?: "host" | "primary" | "front";
+        deviceRole?: "host" | "primary" | "front" | "back" | "left" | "right";
         platform?: string;
         appVersion?: string;
       };
@@ -177,7 +177,7 @@ export interface MocapApiClient {
   joinCaptureSession(input: {
     joinToken: string;
     deviceId: string;
-      deviceRole?: "guest" | "secondary" | "front" | "back" | "left" | "right";
+    deviceRole?: "guest" | "secondary" | "front" | "back" | "left" | "right";
     platform?: string;
     appVersion?: string;
     deviceIndex?: number;

@@ -27,6 +27,23 @@ function extensionFor(contentType: string, fileName?: string) {
   throw badRequest("video.contentType must be video/quicktime or video/mp4");
 }
 
+const ROLE_BY_CAPTURE_MODE: Record<string, Set<string>> = {
+  solo: new Set(["primary"]),
+  dual: new Set(["host", "guest", "primary", "secondary"]),
+  pro_4_camera: new Set(["front", "right", "back", "left", "calibration"]),
+};
+
+function assertRoleForCaptureMode(captureMode: string, deviceRole: string) {
+  const allowed = ROLE_BY_CAPTURE_MODE[captureMode] ?? ROLE_BY_CAPTURE_MODE.solo;
+  if (!allowed.has(deviceRole)) {
+    throw badRequest("deviceRole is not valid for captureMode", {
+      captureMode,
+      deviceRole,
+      allowed: Array.from(allowed),
+    });
+  }
+}
+
 export class UploadService {
   constructor(
     private readonly takes = new TakeRepository(),
@@ -50,6 +67,7 @@ export class UploadService {
         : null;
     const deviceIndex = requireInt(obj.deviceIndex ?? 0, "deviceIndex", 0, 3);
     const deviceRole = optionalString(obj.deviceRole, "primary");
+    assertRoleForCaptureMode(take.captureMode, deviceRole);
     const videoContentType = requireString(video.contentType, "video.contentType");
     const metadataContentType = requireString(metadata.contentType, "metadata.contentType");
     const videoSizeBytes = requireNumber(
@@ -86,6 +104,32 @@ export class UploadService {
         throw conflict("Capture session video count does not match take", {
           expectedDeviceCount: captureSession.expectedDeviceCount,
           takeExpectedVideoCount: take.expectedVideoCount,
+        });
+      }
+      if (captureSession.captureMode !== take.captureMode) {
+        throw conflict("Capture session mode does not match take", {
+          captureSessionMode: captureSession.captureMode,
+          takeCaptureMode: take.captureMode,
+        });
+      }
+      const devices = await this.captureSessions.listDevices(userId, captureSession.id);
+      const registeredDevice = devices.find((device) => device.deviceId === deviceId);
+      if (!registeredDevice) {
+        throw conflict("Device must be registered before uploading to a capture session", {
+          captureSessionId,
+          deviceId,
+        });
+      }
+      if (registeredDevice.deviceIndex !== deviceIndex) {
+        throw conflict("Registered device index does not match upload deviceIndex", {
+          registeredDeviceIndex: registeredDevice.deviceIndex,
+          uploadDeviceIndex: deviceIndex,
+        });
+      }
+      if (registeredDevice.deviceRole !== deviceRole) {
+        throw conflict("Registered device role does not match upload deviceRole", {
+          registeredDeviceRole: registeredDevice.deviceRole,
+          uploadDeviceRole: deviceRole,
         });
       }
     }
@@ -176,6 +220,13 @@ export class UploadService {
         metadataDeviceIndex: captureMetadata.deviceIndex,
       });
     }
+    const take = await this.takes.get(userId, takeId);
+    if (captureMetadata.captureMode !== take.captureMode) {
+      throw badRequest("captureMetadata.captureMode must match take captureMode", {
+        takeCaptureMode: take.captureMode,
+        metadataCaptureMode: captureMetadata.captureMode,
+      });
+    }
     if (
       session.captureSessionId &&
       captureMetadata.captureSessionId !== session.captureSessionId
@@ -191,6 +242,7 @@ export class UploadService {
         metadataDeviceId: captureMetadata.deviceId,
       });
     }
+    assertRoleForCaptureMode(take.captureMode, captureMetadata.deviceRole);
     if (new Date(session.expiresAt).getTime() < Date.now()) {
       throw conflict("Upload session expired");
     }
@@ -208,10 +260,10 @@ export class UploadService {
       captureMetadata,
       syncMetadata: captureMetadata.sync,
     });
-    const take = await this.takes.markUploadedIfComplete(userId, takeId);
+    const updatedTake = await this.takes.markUploadedIfComplete(userId, takeId);
     if (session.captureSessionId) {
       await this.captureSessions.markUploadProgress(userId, session.captureSessionId);
     }
-    return { ...completed, take };
+    return { ...completed, take: updatedTake };
   }
 }

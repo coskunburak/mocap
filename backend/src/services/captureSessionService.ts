@@ -64,6 +64,11 @@ export class CaptureSessionService {
     if (captureMode === "dual" && expectedDeviceCount < 2) {
       throw badRequest("dual capture requires at least two expected devices");
     }
+    if (captureMode === "pro_4_camera" && expectedDeviceCount !== 4) {
+      throw badRequest("pro_4_camera capture requires exactly four expected devices", {
+        expectedDeviceCount,
+      });
+    }
     const name = optionalString(obj.name, `Dual Capture ${new Date().toISOString()}`);
     const take = await this.takes.create({
       userId,
@@ -133,6 +138,11 @@ export class CaptureSessionService {
       0,
       captureSession.expectedDeviceCount - 1,
     );
+    if (captureSession.captureMode === "pro_4_camera" && requestedDeviceIndex == null) {
+      throw badRequest("pro_4_camera device registration requires deviceIndex", {
+        captureSessionId,
+      });
+    }
     const deviceId = requireString(obj.deviceId, "deviceId");
     const device = await this.sessions.registerDevice({
       userId,

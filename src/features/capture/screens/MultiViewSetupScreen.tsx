@@ -5,9 +5,10 @@
  * then proceed to calibration and capture.
  */
 
-import React, { useCallback, useState } from "react";
+import React, { useCallback, useMemo, useState } from "react";
 import {
   Alert,
+  Platform,
   Pressable,
   StyleSheet,
   Text,
@@ -15,6 +16,8 @@ import {
   View,
 } from "react-native";
 import { useNavigation } from "@react-navigation/native";
+import { container } from "../../../app/di/container";
+import { env } from "../../../app/config/env";
 import { routes } from "../../../app/navigation/routes";
 import { Button } from "../../../ui/components/Button";
 import { Screen } from "../../../ui/components/Screen";
@@ -22,8 +25,26 @@ import { colors, radii, spacing, typography } from "../../../ui/theme";
 import { DEFAULT_PORT } from "../../../infra/networking/PeerProtocol";
 import { useMultiViewCapture } from "../hooks/useMultiViewCapture";
 import { useMultiViewStore } from "../state/multiViewStore";
+import type { ProCameraRole } from "../state/multiViewStore";
 
 type Nav = any;
+
+const PRO_SLOTS: Array<{
+  role: ProCameraRole;
+  index: number;
+  angle: number;
+}> = [
+  { role: "front", index: 0, angle: 0 },
+  { role: "right", index: 1, angle: 70 },
+  { role: "back", index: 2, angle: 180 },
+  { role: "left", index: 3, angle: -70 },
+];
+
+function makeProDeviceId() {
+  return `${Platform.OS}-pro-${Date.now().toString(36)}-${Math.random()
+    .toString(36)
+    .slice(2, 7)}`;
+}
 
 // ─── Role selector ─────────────────────────────────────────────────
 
@@ -114,14 +135,13 @@ function ConnectionBadge() {
   );
 }
 
-function ProPlacementGuide() {
-  const slots = [
-    ["front", "0deg"],
-    ["right", "70deg"],
-    ["back", "180deg"],
-    ["left", "-70deg"],
-  ] as const;
-
+function ProPlacementGuide({
+  selectedRole,
+  onSelectRole,
+}: {
+  selectedRole: ProCameraRole;
+  onSelectRole: (role: ProCameraRole) => void;
+}) {
   return (
     <View style={styles.proGuide}>
       <View style={styles.proGuideHeader}>
@@ -129,11 +149,19 @@ function ProPlacementGuide() {
         <Text style={styles.proGuideMeta}>4 cameras</Text>
       </View>
       <View style={styles.proSlotGrid}>
-        {slots.map(([label, angle]) => (
-          <View key={label} style={styles.proSlot}>
-            <Text style={styles.proSlotLabel}>{label}</Text>
-            <Text style={styles.proSlotAngle}>{angle}</Text>
-          </View>
+        {PRO_SLOTS.map((slot) => (
+          <Pressable
+            key={slot.role}
+            onPress={() => onSelectRole(slot.role)}
+            style={({ pressed }) => [
+              styles.proSlot,
+              selectedRole === slot.role && styles.proSlotSelected,
+              pressed && styles.roleCardPressed,
+            ]}
+          >
+            <Text style={styles.proSlotLabel}>{slot.role}</Text>
+            <Text style={styles.proSlotAngle}>{slot.angle}deg</Text>
+          </Pressable>
         ))}
       </View>
     </View>
@@ -144,10 +172,16 @@ function ProPlacementGuide() {
 
 export default function MultiViewSetupScreen() {
   const navigation = useNavigation<Nav>();
+  const [setupMode, setSetupMode] = useState<"dual" | "pro">("dual");
   const [selectedRole, setSelectedRole] = useState<"host" | "guest">("host");
+  const [selectedProRole, setSelectedProRole] = useState<ProCameraRole>("front");
+  const [joinToken, setJoinToken] = useState("");
   const [hostIp, setHostIp] = useState("");
   const [hostPort, setHostPort] = useState(String(DEFAULT_PORT));
   const [connecting, setConnecting] = useState(false);
+  const [sessionBusy, setSessionBusy] = useState(false);
+  const [sessionError, setSessionError] = useState<string | null>(null);
+  const [localProDeviceId] = useState(makeProDeviceId);
 
   const {
     state,
@@ -157,10 +191,15 @@ export default function MultiViewSetupScreen() {
     stopGuest,
   } = useMultiViewCapture();
 
+  const selectedProSlot = useMemo(
+    () => PRO_SLOTS.find((slot) => slot.role === selectedProRole) ?? PRO_SLOTS[0],
+    [selectedProRole],
+  );
   const isSessionActive =
     state.connectionState !== "disconnected" && state.connectionState !== "error";
   const canProceed =
     state.connectionState === "ready" || state.connectionState === "capturing";
+  const canProceedPro = Boolean(state.backendCaptureSessionId && state.proCalibrationClipId);
 
   const handleStart = useCallback(async () => {
     setConnecting(true);
@@ -198,13 +237,119 @@ export default function MultiViewSetupScreen() {
     navigation.goBack();
   }, [navigation]);
 
+  const ensureProjectId = useCallback(async () => {
+    if (env.defaultProjectId) return env.defaultProjectId;
+    return (await container.apiClient.createProject("Pro Captures")).id;
+  }, []);
+
+  const calibrationClipId = useCallback(
+    () => `calib_${Date.now().toString(36)}_${selectedProSlot.role}`,
+    [selectedProSlot.role],
+  );
+
+  const applyProSession = useCallback(
+    (input: {
+      projectId: string;
+      takeId: string;
+      captureSessionId: string;
+      joinToken: string;
+    }) => {
+      const clipId = calibrationClipId();
+      state.setBackendCaptureSession({
+        projectId: input.projectId,
+        takeId: input.takeId,
+        captureSessionId: input.captureSessionId,
+        joinToken: input.joinToken,
+        deviceRole: selectedProSlot.role,
+        deviceId: localProDeviceId,
+        deviceIndex: selectedProSlot.index,
+        approxCameraAngle: selectedProSlot.angle,
+        calibrationClipId: clipId,
+      });
+      setJoinToken(input.joinToken);
+    },
+    [calibrationClipId, selectedProSlot, state],
+  );
+
+  const handleCreateProSession = useCallback(async () => {
+    setSessionBusy(true);
+    setSessionError(null);
+    try {
+      const projectId = await ensureProjectId();
+      const result = await container.mocapSessionService.createCaptureSession(projectId, {
+        name: `Pro Capture ${new Date().toLocaleTimeString()}`,
+        captureMode: "pro_4_camera",
+        expectedDeviceCount: 4,
+        hostDevice: {
+          deviceId: localProDeviceId,
+          deviceRole: selectedProSlot.role,
+          platform: Platform.OS,
+          appVersion: "1.0.0",
+        },
+        syncMetadata: {
+          guide: "front/right/back/left",
+          expectedAnglesDeg: PRO_SLOTS.map((slot) => slot.angle),
+        },
+      });
+      applyProSession({
+        projectId,
+        takeId: result.captureSession.takeId,
+        captureSessionId: result.captureSession.id,
+        joinToken: result.captureSession.joinToken,
+      });
+    } catch (error: any) {
+      const message = error?.message ?? "Failed to create pro session";
+      setSessionError(message);
+      Alert.alert("Pro session", message);
+    } finally {
+      setSessionBusy(false);
+    }
+  }, [applyProSession, ensureProjectId, localProDeviceId, selectedProSlot.role]);
+
+  const handleJoinProSession = useCallback(async () => {
+    if (!joinToken.trim()) {
+      Alert.alert("Join token required", "Enter the Pro session token.");
+      return;
+    }
+    setSessionBusy(true);
+    setSessionError(null);
+    try {
+      const result = await container.mocapSessionService.joinCaptureSession({
+        joinToken: joinToken.trim(),
+        deviceId: localProDeviceId,
+        deviceRole: selectedProSlot.role,
+        deviceIndex: selectedProSlot.index,
+        platform: Platform.OS,
+        appVersion: "1.0.0",
+      });
+      applyProSession({
+        projectId: result.captureSession.projectId,
+        takeId: result.captureSession.takeId,
+        captureSessionId: result.captureSession.id,
+        joinToken: result.captureSession.joinToken,
+      });
+    } catch (error: any) {
+      const message = error?.message ?? "Failed to join pro session";
+      setSessionError(message);
+      Alert.alert("Pro session", message);
+    } finally {
+      setSessionBusy(false);
+    }
+  }, [applyProSession, joinToken, localProDeviceId, selectedProSlot.index, selectedProSlot.role]);
+
+  const handleRefreshCalibration = useCallback(() => {
+    state.setProCalibrationClip(calibrationClipId());
+  }, [calibrationClipId, state]);
+
   return (
     <Screen scroll background="default" contentContainerStyle={styles.screen}>
       <View style={styles.hero}>
-        <Text style={styles.eyebrow}>DUAL CAMERA</Text>
+        <Text style={styles.eyebrow}>{setupMode === "pro" ? "PRO 4 CAMERA" : "DUAL CAMERA"}</Text>
         <Text style={styles.heroTitle}>Set up capture</Text>
         <Text style={styles.heroCopy}>
-          One Host controls recording while one Guest streams landmarks for frame matching and 3D solve.
+          {setupMode === "pro"
+            ? "Four devices register to one backend take with front/right/back/left placement and shared calibration metadata."
+            : "One Host controls recording while one Guest streams landmarks for frame matching and 3D solve."}
         </Text>
         <View style={styles.flowRow}>
           <Text style={styles.flowChip}>connect</Text>
@@ -214,7 +359,94 @@ export default function MultiViewSetupScreen() {
         </View>
       </View>
 
-      {!isSessionActive ? (
+      <View style={styles.modeTabs}>
+        <Pressable
+          onPress={() => setSetupMode("dual")}
+          style={[styles.modeTab, setupMode === "dual" && styles.modeTabActive]}
+        >
+          <Text style={styles.modeTabText}>Dual</Text>
+        </Pressable>
+        <Pressable
+          onPress={() => setSetupMode("pro")}
+          style={[styles.modeTab, setupMode === "pro" && styles.modeTabActive]}
+        >
+          <Text style={styles.modeTabText}>Pro 4</Text>
+        </Pressable>
+      </View>
+
+      {setupMode === "pro" ? (
+        <>
+          <ProPlacementGuide
+            selectedRole={selectedProRole}
+            onSelectRole={setSelectedProRole}
+          />
+
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Backend session</Text>
+            <View style={styles.setupCard}>
+              {state.backendCaptureSessionId ? (
+                <>
+                  <Text style={styles.inputLabel}>Session</Text>
+                  <Text style={styles.ipValue}>{state.backendJoinToken}</Text>
+                  <Text style={styles.meta}>
+                    {state.proDeviceRole} · device {state.proDeviceIndex ?? 0} ·{" "}
+                    {state.proApproxCameraAngle ?? 0}deg
+                  </Text>
+                </>
+              ) : (
+                <>
+                  <Button
+                    label="Create Pro Session"
+                    variant="primary"
+                    size="lg"
+                    fullWidth
+                    loading={sessionBusy}
+                    onPress={handleCreateProSession}
+                  />
+                  <View style={styles.inputGroup}>
+                    <Text style={styles.inputLabel}>Join token</Text>
+                    <TextInput
+                      style={styles.input}
+                      placeholder="ABCD123"
+                      placeholderTextColor={colors.textMuted}
+                      value={joinToken}
+                      onChangeText={setJoinToken}
+                      autoCapitalize="characters"
+                      autoCorrect={false}
+                    />
+                  </View>
+                  <Button
+                    label="Join Pro Session"
+                    variant="ghost"
+                    size="md"
+                    fullWidth
+                    loading={sessionBusy}
+                    onPress={handleJoinProSession}
+                  />
+                </>
+              )}
+              {sessionError ? <Text style={styles.warningText}>{sessionError}</Text> : null}
+            </View>
+          </View>
+
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Calibration</Text>
+            <View style={styles.setupCard}>
+              <Text style={styles.meta}>
+                {state.proCalibrationClipId ?? "calibration not armed"}
+              </Text>
+              <Button
+                label="Arm Calibration Clip"
+                variant="ghost"
+                size="md"
+                fullWidth
+                disabled={!state.backendCaptureSessionId}
+                onPress={handleRefreshCalibration}
+              />
+            </View>
+          </View>
+        </>
+      ) : !isSessionActive ? (
         <>
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Role</Text>
@@ -231,8 +463,6 @@ export default function MultiViewSetupScreen() {
               />
             </View>
           </View>
-
-          <ProPlacementGuide />
 
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>
@@ -307,7 +537,27 @@ export default function MultiViewSetupScreen() {
       )}
 
       <View style={styles.actions}>
-        {!isSessionActive ? (
+        {setupMode === "pro" ? (
+          <>
+            <Button
+              label={canProceedPro ? "Open Capture" : "Complete Pro Setup"}
+              variant="primary"
+              size="lg"
+              fullWidth
+              disabled={!canProceedPro}
+              onPress={handleProceed}
+            />
+            {state.backendCaptureSessionId ? (
+              <Button
+                label="Reset Session"
+                variant="ghost"
+                size="md"
+                fullWidth
+                onPress={state.resetMultiView}
+              />
+            ) : null}
+          </>
+        ) : !isSessionActive ? (
           <Button
             label={selectedRole === "host" ? "Start Host" : "Connect Guest"}
             variant="primary"
@@ -394,6 +644,28 @@ const styles = StyleSheet.create({
     borderRadius: radii.pill,
     overflow: "hidden",
     backgroundColor: "rgba(255,255,255,0.1)",
+  },
+  modeTabs: {
+    flexDirection: "row",
+    padding: 4,
+    borderRadius: 16,
+    backgroundColor: "rgba(255,255,255,0.07)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.12)",
+  },
+  modeTab: {
+    flex: 1,
+    minHeight: 44,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 12,
+  },
+  modeTabActive: {
+    backgroundColor: "rgba(108,242,214,0.18)",
+  },
+  modeTabText: {
+    ...typography.label.md,
+    color: colors.white,
   },
   section: {
     gap: spacing.sm,
@@ -516,6 +788,10 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.12)",
   },
+  proSlotSelected: {
+    backgroundColor: "rgba(108,242,214,0.14)",
+    borderColor: colors.accent,
+  },
   proSlotLabel: {
     ...typography.label.md,
     color: colors.white,
@@ -550,6 +826,15 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.md,
     color: colors.white,
     ...typography.body.md,
+  },
+  meta: {
+    ...typography.mono.sm,
+    color: "rgba(255,255,255,0.58)",
+  },
+  warningText: {
+    ...typography.body.sm,
+    color: colors.warning,
+    lineHeight: 19,
   },
   statusCard: {
     padding: spacing.md,

@@ -17,6 +17,9 @@ export type BuildCaptureMetadataInput = Readonly<{
   deviceRole?: CaptureDeviceRole;
   deviceIndex?: number;
   captureMode?: CaptureModeV1;
+  multiCameraSessionId?: string;
+  approxCameraAngle?: number;
+  calibrationClipId?: string;
   orientation?: CaptureVideoOrientation;
   isMirrored?: boolean;
   camera?: Partial<CaptureCameraMetadata>;
@@ -35,6 +38,9 @@ export function buildCaptureMetadata(input: BuildCaptureMetadataInput): CaptureM
     deviceRole: input.deviceRole ?? "primary",
     deviceIndex: input.deviceIndex ?? 0,
     captureMode: input.captureMode ?? "solo",
+    multiCameraSessionId: input.multiCameraSessionId,
+    approxCameraAngle: input.approxCameraAngle,
+    calibrationClipId: input.calibrationClipId,
     recordingStartedAt: input.recording.startedAt,
     recordingEndedAt: input.recording.endedAt,
     durationMs: input.recording.durationMs,
@@ -67,4 +73,3 @@ export function buildCaptureMetadata(input: BuildCaptureMetadataInput): CaptureM
     },
   };
 }
-
