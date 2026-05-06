@@ -40,6 +40,12 @@ type RecorderOptions = {
   chunkFrames?: number; // default 30
   trackingProfile?: "pose" | "holistic";
   calibration?: TakeCalibration;
+  captureMode?: "solo" | "dual-camera" | "pro-4-camera";
+  viewCount?: number;
+  deviceRole?: "primary" | "secondary" | "front" | "back" | "left" | "right" | "calibration";
+  deviceIndex?: number;
+  captureSessionId?: string;
+  clockOffsetMs?: number | null;
 };
 
 type NormalizedRecorderOptions = {
@@ -48,6 +54,12 @@ type NormalizedRecorderOptions = {
   chunkFrames: number;
   trackingProfile?: "pose" | "holistic";
   calibration?: TakeCalibration;
+  captureMode: "solo" | "dual-camera" | "pro-4-camera";
+  viewCount: number;
+  deviceRole: "primary" | "secondary" | "front" | "back" | "left" | "right" | "calibration";
+  deviceIndex: number;
+  captureSessionId?: string;
+  clockOffsetMs?: number | null;
 };
 
 function createCaptureSessionId(takeId: string) {
@@ -88,6 +100,12 @@ export function useRecorder() {
     chunkFrames: 30,
     trackingProfile: undefined,
     calibration: undefined,
+    captureMode: "solo",
+    viewCount: 1,
+    deviceRole: "primary",
+    deviceIndex: 0,
+    captureSessionId: undefined,
+    clockOffsetMs: 0,
   });
 
   const updateCounters = useCallback(() => {
@@ -169,6 +187,12 @@ export function useRecorder() {
         chunkFrames: options?.chunkFrames ?? 30,
         trackingProfile: options?.trackingProfile,
         calibration: options?.calibration,
+        captureMode: options?.captureMode ?? "solo",
+        viewCount: options?.viewCount ?? 1,
+        deviceRole: options?.deviceRole ?? "primary",
+        deviceIndex: options?.deviceIndex ?? 0,
+        captureSessionId: options?.captureSessionId,
+        clockOffsetMs: options?.clockOffsetMs ?? 0,
       };
 
       // ✅ create take async
@@ -181,10 +205,13 @@ export function useRecorder() {
           qualityScore: optsRef.current.calibration
             ? Math.round(optsRef.current.calibration.readinessScore * 100)
             : undefined,
+          captureMode: optsRef.current.captureMode,
+          viewCount: optsRef.current.viewCount,
         },
       );
 
-      const captureSessionId = createCaptureSessionId(take.id);
+      const captureSessionId =
+        optsRef.current.captureSessionId ?? createCaptureSessionId(take.id);
       takeRef.current = take;
       chunkNoRef.current = 0;
       bufferRef.current = [];
@@ -266,7 +293,23 @@ export function useRecorder() {
         recording,
         captureSessionId,
         deviceId: localDeviceId(),
+        deviceRole: optsRef.current.deviceRole,
+        deviceIndex: optsRef.current.deviceIndex,
+        captureMode:
+          optsRef.current.captureMode === "pro-4-camera"
+            ? "pro_4_camera"
+            : optsRef.current.captureMode === "dual-camera"
+              ? "dual"
+              : "solo",
         quality,
+        sync: {
+          syncMethod:
+            optsRef.current.captureMode === "dual-camera" ||
+            optsRef.current.captureMode === "pro-4-camera"
+              ? "network_time_sync"
+              : "single_device_clock",
+          clockOffsetMs: optsRef.current.clockOffsetMs ?? 0,
+        },
         appVersion: "1.0.0",
         buildNumber: "1",
       });

@@ -1,6 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { userIdFromRequest } from "./auth";
 import { ExportService } from "../services/exportService";
+import { CaptureSessionService } from "../services/captureSessionService";
 import { ProcessingService } from "../services/processingService";
 import { ProjectService } from "../services/projectService";
 import { TakeService } from "../services/takeService";
@@ -8,12 +9,14 @@ import { UploadService } from "../services/uploadService";
 
 type ProjectParams = { projectId: string };
 type TakeParams = { takeId: string };
+type CaptureSessionParams = { captureSessionId: string };
 type JobParams = { jobId: string };
 type ExportParams = { exportId: string };
 
 export async function registerRoutes(app: FastifyInstance) {
   const projects = new ProjectService();
   const takes = new TakeService();
+  const captureSessions = new CaptureSessionService();
   const uploads = new UploadService();
   const processing = new ProcessingService();
   const exports = new ExportService();
@@ -38,6 +41,45 @@ export async function registerRoutes(app: FastifyInstance) {
     );
     reply.code(201).send({ take });
   });
+
+  app.post<{ Params: ProjectParams }>(
+    "/api/projects/:projectId/capture-sessions",
+    async (request, reply) => {
+      const result = await captureSessions.create(
+        userIdFromRequest(request),
+        request.params.projectId,
+        request.body,
+      );
+      reply.code(201).send(result);
+    },
+  );
+
+  app.post("/api/capture-sessions/join", async (request, reply) => {
+    const result = await captureSessions.join(userIdFromRequest(request), request.body);
+    reply.code(201).send(result);
+  });
+
+  app.get<{ Params: CaptureSessionParams }>(
+    "/api/capture-sessions/:captureSessionId",
+    async (request) => {
+      return captureSessions.get(
+        userIdFromRequest(request),
+        request.params.captureSessionId,
+      );
+    },
+  );
+
+  app.post<{ Params: CaptureSessionParams }>(
+    "/api/capture-sessions/:captureSessionId/devices/register",
+    async (request, reply) => {
+      const result = await captureSessions.register(
+        userIdFromRequest(request),
+        request.params.captureSessionId,
+        request.body,
+      );
+      reply.code(201).send(result);
+    },
+  );
 
   app.get<{ Params: TakeParams }>("/api/takes/:takeId", async (request) => {
     const take = await takes.get(userIdFromRequest(request), request.params.takeId);

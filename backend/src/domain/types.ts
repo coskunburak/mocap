@@ -8,6 +8,26 @@ export type Project = {
 
 export type CaptureMode = "solo" | "dual" | "pro_4_camera";
 export type TakeStatus = "created" | "uploading" | "uploaded" | "processing" | "processed" | "failed";
+export type CaptureSessionStatus =
+  | "pairing"
+  | "ready"
+  | "recording"
+  | "uploading"
+  | "uploaded"
+  | "processing"
+  | "completed"
+  | "failed"
+  | "expired";
+export type CaptureDeviceRole =
+  | "host"
+  | "guest"
+  | "primary"
+  | "secondary"
+  | "front"
+  | "back"
+  | "left"
+  | "right"
+  | "calibration";
 export type UploadSessionStatus = "pending" | "completed" | "expired" | "failed";
 export type CaptureVideoStatus = "uploading" | "uploaded" | "failed";
 export type ProcessingJobState =
@@ -34,13 +54,46 @@ export type Take = {
   updatedAt: string;
 };
 
+export type CaptureSession = {
+  id: string;
+  userId: string;
+  projectId: string;
+  takeId: string;
+  captureMode: CaptureMode;
+  expectedDeviceCount: number;
+  joinToken: string;
+  status: CaptureSessionStatus;
+  syncMetadata: unknown | null;
+  expiresAt: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type CaptureDevice = {
+  id: string;
+  userId: string;
+  projectId: string;
+  takeId: string;
+  captureSessionId: string;
+  deviceId: string;
+  deviceRole: CaptureDeviceRole;
+  deviceIndex: number;
+  platform: string | null;
+  appVersion: string | null;
+  metadata: unknown | null;
+  pairedAt: string;
+  lastSeenAt: string;
+};
+
 export type CaptureVideo = {
   id: string;
   userId: string;
   projectId: string;
   takeId: string;
+  captureSessionId: string | null;
   uploadSessionId: string;
   deviceIndex: number;
+  deviceId: string | null;
   deviceRole: string;
   videoStorageKey: string;
   metadataStorageKey: string;
@@ -48,6 +101,7 @@ export type CaptureVideo = {
   fileSizeBytes: number | null;
   metadataSizeBytes: number | null;
   captureMetadata: unknown | null;
+  syncMetadata: unknown | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -57,7 +111,9 @@ export type UploadSession = {
   userId: string;
   projectId: string;
   takeId: string;
+  captureSessionId: string | null;
   deviceIndex: number;
+  deviceId: string | null;
   status: UploadSessionStatus;
   videoStorageKey: string;
   metadataStorageKey: string;
@@ -102,4 +158,3 @@ export type ExportFile = {
   fileSizeBytes: number | null;
   createdAt: string;
 };
-

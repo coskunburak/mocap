@@ -1,6 +1,10 @@
 import { config } from "../config";
 import { badRequest, conflict } from "../domain/errors";
-import { TakeRepository, UploadRepository } from "../infra/db/repositories";
+import {
+  CaptureSessionRepository,
+  TakeRepository,
+  UploadRepository,
+} from "../infra/db/repositories";
 import {
   metadataStorageKey,
   ObjectStorage,
@@ -27,6 +31,7 @@ export class UploadService {
   constructor(
     private readonly takes = new TakeRepository(),
     private readonly uploads = new UploadRepository(),
+    private readonly captureSessions = new CaptureSessionRepository(),
     private readonly storage = new ObjectStorage(),
   ) {}
 
@@ -35,6 +40,14 @@ export class UploadService {
     const obj = asRecord(body);
     const video = asRecord(obj.video, "video");
     const metadata = asRecord(obj.metadata, "metadata");
+    const captureSessionId =
+      typeof obj.captureSessionId === "string" && obj.captureSessionId.trim().length > 0
+        ? obj.captureSessionId.trim()
+        : null;
+    const deviceId =
+      typeof obj.deviceId === "string" && obj.deviceId.trim().length > 0
+        ? obj.deviceId.trim()
+        : null;
     const deviceIndex = requireInt(obj.deviceIndex ?? 0, "deviceIndex", 0, 3);
     const deviceRole = optionalString(obj.deviceRole, "primary");
     const videoContentType = requireString(video.contentType, "video.contentType");
@@ -61,6 +74,21 @@ export class UploadService {
         expectedVideoCount: take.expectedVideoCount,
       });
     }
+    if (captureSessionId) {
+      const captureSession = await this.captureSessions.get(userId, captureSessionId);
+      if (captureSession.takeId !== take.id) {
+        throw conflict("Capture session does not belong to this take", {
+          captureSessionId,
+          takeId: take.id,
+        });
+      }
+      if (captureSession.expectedDeviceCount !== take.expectedVideoCount) {
+        throw conflict("Capture session video count does not match take", {
+          expectedDeviceCount: captureSession.expectedDeviceCount,
+          takeExpectedVideoCount: take.expectedVideoCount,
+        });
+      }
+    }
 
     const videoKey = videoStorageKey(
       take.id,
@@ -80,7 +108,9 @@ export class UploadService {
       userId,
       projectId: take.projectId,
       takeId: take.id,
+      captureSessionId,
       deviceIndex,
+      deviceId,
       deviceRole,
       videoStorageKey: videoKey,
       metadataStorageKey: metadataKey,
@@ -134,6 +164,33 @@ export class UploadService {
     if (session.takeId !== takeId) {
       throw conflict("Upload session does not belong to this take");
     }
+    if (captureMetadata.takeId !== takeId) {
+      throw badRequest("captureMetadata.takeId must match route takeId", {
+        routeTakeId: takeId,
+        metadataTakeId: captureMetadata.takeId,
+      });
+    }
+    if (captureMetadata.deviceIndex !== session.deviceIndex) {
+      throw badRequest("captureMetadata.deviceIndex must match upload session deviceIndex", {
+        sessionDeviceIndex: session.deviceIndex,
+        metadataDeviceIndex: captureMetadata.deviceIndex,
+      });
+    }
+    if (
+      session.captureSessionId &&
+      captureMetadata.captureSessionId !== session.captureSessionId
+    ) {
+      throw badRequest("captureMetadata.captureSessionId must match upload session", {
+        sessionCaptureSessionId: session.captureSessionId,
+        metadataCaptureSessionId: captureMetadata.captureSessionId,
+      });
+    }
+    if (session.deviceId && captureMetadata.deviceId !== session.deviceId) {
+      throw badRequest("captureMetadata.deviceId must match upload session", {
+        sessionDeviceId: session.deviceId,
+        metadataDeviceId: captureMetadata.deviceId,
+      });
+    }
     if (new Date(session.expiresAt).getTime() < Date.now()) {
       throw conflict("Upload session expired");
     }
@@ -149,8 +206,12 @@ export class UploadService {
       videoSizeBytes,
       metadataSizeBytes,
       captureMetadata,
+      syncMetadata: captureMetadata.sync,
     });
     const take = await this.takes.markUploadedIfComplete(userId, takeId);
+    if (session.captureSessionId) {
+      await this.captureSessions.markUploadProgress(userId, session.captureSessionId);
+    }
     return { ...completed, take };
   }
 }

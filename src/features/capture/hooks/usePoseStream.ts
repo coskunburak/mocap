@@ -65,6 +65,12 @@ type StartRecordingOptions = {
   chunkFrames?: number;
   trackingProfile?: "pose" | "holistic";
   calibration?: import("../../../domain/mocap/models/Take").TakeCalibration;
+  captureMode?: "solo" | "dual-camera" | "pro-4-camera";
+  viewCount?: number;
+  deviceRole?: "primary" | "secondary" | "front" | "back" | "left" | "right" | "calibration";
+  deviceIndex?: number;
+  captureSessionId?: string;
+  clockOffsetMs?: number | null;
 };
 
 const TRACKING_REQUIRED_JOINTS = [

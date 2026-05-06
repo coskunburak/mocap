@@ -1,5 +1,7 @@
 import type {
   ApiProcessingJob,
+  ApiCaptureDevice,
+  ApiCaptureSession,
   ApiTake,
   CompleteUploadInput,
   CreateTakeInput,
@@ -9,6 +11,22 @@ import type {
 
 export interface MocapSessionService {
   createTake(projectId: string, input: CreateTakeInput): Promise<ApiTake>;
+  createCaptureSession(
+    projectId: string,
+    input: Parameters<MocapApiClient["createCaptureSession"]>[1],
+  ): Promise<{
+    captureSession: ApiCaptureSession;
+    take: ApiTake;
+    devices: readonly ApiCaptureDevice[];
+  }>;
+  getCaptureSession(captureSessionId: string): ReturnType<MocapApiClient["getCaptureSession"]>;
+  joinCaptureSession(
+    input: Parameters<MocapApiClient["joinCaptureSession"]>[0],
+  ): ReturnType<MocapApiClient["joinCaptureSession"]>;
+  registerCaptureDevice(
+    captureSessionId: string,
+    input: Parameters<MocapApiClient["registerCaptureDevice"]>[1],
+  ): ReturnType<MocapApiClient["registerCaptureDevice"]>;
   initUpload(
     takeId: string,
     input: InitUploadInput,
@@ -28,6 +46,28 @@ export class ApiMocapSessionService implements MocapSessionService {
 
   createTake(projectId: string, input: CreateTakeInput) {
     return this.api.createTake(projectId, input);
+  }
+
+  createCaptureSession(
+    projectId: string,
+    input: Parameters<MocapApiClient["createCaptureSession"]>[1],
+  ) {
+    return this.api.createCaptureSession(projectId, input);
+  }
+
+  getCaptureSession(captureSessionId: string) {
+    return this.api.getCaptureSession(captureSessionId);
+  }
+
+  joinCaptureSession(input: Parameters<MocapApiClient["joinCaptureSession"]>[0]) {
+    return this.api.joinCaptureSession(input);
+  }
+
+  registerCaptureDevice(
+    captureSessionId: string,
+    input: Parameters<MocapApiClient["registerCaptureDevice"]>[1],
+  ) {
+    return this.api.registerCaptureDevice(captureSessionId, input);
   }
 
   initUpload(takeId: string, input: InitUploadInput) {

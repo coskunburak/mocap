@@ -1,0 +1,89 @@
+{
+  "apiBaseUrl": "http://127.0.0.1:4010",
+  "token": "dev-user-id",
+  "projectName": "Golden QA",
+  "pollIntervalMs": 2500,
+  "timeoutMs": 1200000,
+  "thresholds": {
+    "minQualityScore": 58,
+    "minJitterScore": 0.55,
+    "minFootSlidingScore": 0.55,
+    "minBoneLengthConsistency": 0.72
+  },
+  "samples": [
+    {
+      "name": "single-camera-walk",
+      "videoPath": "./samples/single-camera-walk.mp4",
+      "metadataPath": "./samples/single-camera-walk.metadata.json",
+      "preset": "humanoid_bvh_quality_v1_5",
+      "minQualityScore": 64
+    },
+    {
+      "name": "single-camera-turn",
+      "videoPath": "./samples/single-camera-turn.mp4",
+      "metadataPath": "./samples/single-camera-turn.metadata.json",
+      "preset": "humanoid_bvh_quality_v1_5"
+    },
+    {
+      "name": "single-camera-low-light",
+      "videoPath": "./samples/single-camera-low-light.mp4",
+      "metadataPath": "./samples/single-camera-low-light.metadata.json",
+      "preset": "humanoid_bvh_quality_v1_5",
+      "minQualityScore": 48
+    },
+    {
+      "name": "dual-camera-clap-sync",
+      "captureMode": "dual",
+      "expectedVideoCount": 2,
+      "preset": "humanoid_bvh_dual_v1",
+      "minQualityScore": 68,
+      "videos": [
+        {
+          "videoPath": "./samples/dual-camera-clap-host.mp4",
+          "metadataPath": "./samples/dual-camera-clap-host.metadata.json",
+          "deviceIndex": 0,
+          "deviceRole": "primary"
+        },
+        {
+          "videoPath": "./samples/dual-camera-clap-guest.mp4",
+          "metadataPath": "./samples/dual-camera-clap-guest.metadata.json",
+          "deviceIndex": 1,
+          "deviceRole": "secondary"
+        }
+      ]
+    },
+    {
+      "name": "pro-4-camera-calibration",
+      "captureMode": "pro_4_camera",
+      "expectedVideoCount": 4,
+      "preset": "humanoid_bvh_pro_4_camera_v1",
+      "minQualityScore": 72,
+      "videos": [
+        {
+          "videoPath": "./samples/pro-front.mp4",
+          "metadataPath": "./samples/pro-front.metadata.json",
+          "deviceIndex": 0,
+          "deviceRole": "front"
+        },
+        {
+          "videoPath": "./samples/pro-right.mp4",
+          "metadataPath": "./samples/pro-right.metadata.json",
+          "deviceIndex": 1,
+          "deviceRole": "right"
+        },
+        {
+          "videoPath": "./samples/pro-back.mp4",
+          "metadataPath": "./samples/pro-back.metadata.json",
+          "deviceIndex": 2,
+          "deviceRole": "back"
+        },
+        {
+          "videoPath": "./samples/pro-left.mp4",
+          "metadataPath": "./samples/pro-left.metadata.json",
+          "deviceIndex": 3,
+          "deviceRole": "left"
+        }
+      ]
+    }
+  ]
+}

@@ -1,7 +1,9 @@
 import { randomUUID } from "crypto";
 import { pool, rowToIso } from "./postgres";
-import { notFound } from "../../domain/errors";
+import { conflict, notFound } from "../../domain/errors";
 import type {
+  CaptureDevice,
+  CaptureSession,
   CaptureVideo,
   ExportFile,
   JobTimelineEvent,
@@ -141,6 +143,313 @@ export class TakeRepository {
   }
 }
 
+export class CaptureSessionRepository {
+  async create(input: {
+    userId: string;
+    projectId: string;
+    takeId: string;
+    captureMode: string;
+    expectedDeviceCount: number;
+    joinToken: string;
+    expiresAt: Date;
+    syncMetadata?: unknown | null;
+  }): Promise<CaptureSession> {
+    const result = await pool.query(
+      `
+        insert into capture_sessions
+          (id, user_id, project_id, take_id, capture_mode, expected_device_count,
+           join_token, status, sync_metadata, expires_at)
+        values ($1, $2, $3, $4, $5, $6, $7, 'pairing', $8, $9)
+        returning id, user_id as "userId", project_id as "projectId", take_id as "takeId",
+          capture_mode as "captureMode", expected_device_count as "expectedDeviceCount",
+          join_token as "joinToken", status, sync_metadata as "syncMetadata",
+          expires_at as "expiresAt", created_at as "createdAt", updated_at as "updatedAt"
+      `,
+      [
+        id("cs"),
+        input.userId,
+        input.projectId,
+        input.takeId,
+        input.captureMode,
+        input.expectedDeviceCount,
+        input.joinToken,
+        input.syncMetadata ?? null,
+        input.expiresAt,
+      ],
+    );
+    return rowToIso(result.rows[0]);
+  }
+
+  async get(userId: string, captureSessionId: string): Promise<CaptureSession> {
+    const result = await pool.query(
+      `
+        select id, user_id as "userId", project_id as "projectId", take_id as "takeId",
+          capture_mode as "captureMode", expected_device_count as "expectedDeviceCount",
+          join_token as "joinToken", status, sync_metadata as "syncMetadata",
+          expires_at as "expiresAt", created_at as "createdAt", updated_at as "updatedAt"
+        from capture_sessions
+        where user_id = $1 and id = $2
+      `,
+      [userId, captureSessionId],
+    );
+    if (!result.rowCount) throw notFound("Capture session not found");
+    return rowToIso(result.rows[0]);
+  }
+
+  async getByJoinToken(userId: string, joinToken: string): Promise<CaptureSession> {
+    const result = await pool.query(
+      `
+        select id, user_id as "userId", project_id as "projectId", take_id as "takeId",
+          capture_mode as "captureMode", expected_device_count as "expectedDeviceCount",
+          join_token as "joinToken", status, sync_metadata as "syncMetadata",
+          expires_at as "expiresAt", created_at as "createdAt", updated_at as "updatedAt"
+        from capture_sessions
+        where user_id = $1 and join_token = $2
+      `,
+      [userId, joinToken],
+    );
+    if (!result.rowCount) throw notFound("Capture session not found");
+    return rowToIso(result.rows[0]);
+  }
+
+  async registerDevice(input: {
+    userId: string;
+    captureSessionId: string;
+    deviceId: string;
+    deviceRole: string;
+    platform?: string | null;
+    appVersion?: string | null;
+    requestedDeviceIndex?: number | null;
+    metadata?: unknown | null;
+  }): Promise<CaptureDevice> {
+    const client = await pool.connect();
+    try {
+      await client.query("begin");
+      const sessionResult = await client.query(
+        `
+          select id, user_id, project_id, take_id, expected_device_count, status, expires_at
+          from capture_sessions
+          where user_id = $1 and id = $2
+          for update
+        `,
+        [input.userId, input.captureSessionId],
+      );
+      if (!sessionResult.rowCount) throw notFound("Capture session not found");
+      const session = sessionResult.rows[0] as {
+        id: string;
+        project_id: string;
+        take_id: string;
+        expected_device_count: number;
+        expires_at: Date;
+      };
+
+      const existing = await client.query(
+        `
+          select id, user_id as "userId", project_id as "projectId", take_id as "takeId",
+            capture_session_id as "captureSessionId", device_id as "deviceId",
+            device_role as "deviceRole", device_index as "deviceIndex", platform,
+            app_version as "appVersion", metadata, paired_at as "pairedAt",
+            last_seen_at as "lastSeenAt"
+          from capture_devices
+          where user_id = $1 and capture_session_id = $2 and device_id = $3
+        `,
+        [input.userId, input.captureSessionId, input.deviceId],
+      );
+      if (existing.rowCount) {
+        const updated = await client.query(
+          `
+            update capture_devices
+            set device_role = $4,
+              platform = $5,
+              app_version = $6,
+              metadata = $7,
+              last_seen_at = now(),
+              updated_at = now()
+            where user_id = $1 and capture_session_id = $2 and device_id = $3
+            returning id, user_id as "userId", project_id as "projectId", take_id as "takeId",
+              capture_session_id as "captureSessionId", device_id as "deviceId",
+              device_role as "deviceRole", device_index as "deviceIndex", platform,
+              app_version as "appVersion", metadata, paired_at as "pairedAt",
+              last_seen_at as "lastSeenAt"
+          `,
+          [
+            input.userId,
+            input.captureSessionId,
+            input.deviceId,
+            input.deviceRole,
+            input.platform ?? null,
+            input.appVersion ?? null,
+            input.metadata ?? null,
+          ],
+        );
+        await client.query("commit");
+        return rowToIso(updated.rows[0]);
+      }
+
+      const requested = input.requestedDeviceIndex;
+      let deviceIndex: number | null =
+        requested != null && requested >= 0 && requested < session.expected_device_count
+          ? requested
+          : null;
+      if (deviceIndex != null) {
+        const occupied = await client.query(
+          `
+            select device_id
+            from capture_devices
+            where capture_session_id = $1 and device_index = $2
+            limit 1
+          `,
+          [input.captureSessionId, deviceIndex],
+        );
+        if (occupied.rowCount && occupied.rows[0].device_id !== input.deviceId) {
+          throw conflict("Device slot is already registered", {
+            captureSessionId: input.captureSessionId,
+            deviceIndex,
+          });
+        }
+      }
+      if (deviceIndex == null) {
+        const nextIndex = await client.query(
+          `
+            with slots as (
+              select generate_series(0, $3::integer - 1) as device_index
+            )
+            select slots.device_index
+            from slots
+            left join capture_devices d
+              on d.capture_session_id = $2 and d.device_index = slots.device_index
+            where d.id is null
+            order by slots.device_index asc
+            limit 1
+          `,
+          [input.userId, input.captureSessionId, session.expected_device_count],
+        );
+        if (!nextIndex.rowCount) {
+          throw conflict("No free device slot is available for this capture session", {
+            captureSessionId: input.captureSessionId,
+          });
+        }
+        deviceIndex = Number(nextIndex.rows[0].device_index);
+      }
+
+      const inserted = await client.query(
+        `
+          insert into capture_devices
+            (id, user_id, project_id, take_id, capture_session_id, device_id,
+             device_role, device_index, platform, app_version, metadata)
+          values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+          returning id, user_id as "userId", project_id as "projectId", take_id as "takeId",
+            capture_session_id as "captureSessionId", device_id as "deviceId",
+            device_role as "deviceRole", device_index as "deviceIndex", platform,
+            app_version as "appVersion", metadata, paired_at as "pairedAt",
+            last_seen_at as "lastSeenAt"
+        `,
+        [
+          id("dev"),
+          input.userId,
+          session.project_id,
+          session.take_id,
+          input.captureSessionId,
+          input.deviceId,
+          input.deviceRole,
+          deviceIndex,
+          input.platform ?? null,
+          input.appVersion ?? null,
+          input.metadata ?? null,
+        ],
+      );
+
+      await client.query(
+        `
+          update capture_sessions s
+          set status = case
+              when (
+                select count(*)
+                from capture_devices d
+                where d.capture_session_id = s.id
+              ) >= s.expected_device_count then 'ready'
+              else 'pairing'
+            end,
+            updated_at = now()
+          where s.id = $1
+        `,
+        [input.captureSessionId],
+      );
+
+      await client.query("commit");
+      return rowToIso(inserted.rows[0]);
+    } catch (error) {
+      await client.query("rollback");
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  async listDevices(userId: string, captureSessionId: string): Promise<CaptureDevice[]> {
+    const result = await pool.query(
+      `
+        select id, user_id as "userId", project_id as "projectId", take_id as "takeId",
+          capture_session_id as "captureSessionId", device_id as "deviceId",
+          device_role as "deviceRole", device_index as "deviceIndex", platform,
+          app_version as "appVersion", metadata, paired_at as "pairedAt",
+          last_seen_at as "lastSeenAt"
+        from capture_devices
+        where user_id = $1 and capture_session_id = $2
+        order by device_index asc
+      `,
+      [userId, captureSessionId],
+    );
+    return result.rows.map(rowToIso);
+  }
+
+  async markUploadProgress(userId: string, captureSessionId: string): Promise<CaptureSession> {
+    const result = await pool.query(
+      `
+        update capture_sessions s
+        set status = case
+            when (
+              select count(*)
+              from capture_videos v
+              where v.capture_session_id = s.id and v.status = 'uploaded'
+            ) >= s.expected_device_count then 'uploaded'
+            else 'uploading'
+          end,
+          updated_at = now()
+        where s.user_id = $1 and s.id = $2
+        returning id, user_id as "userId", project_id as "projectId", take_id as "takeId",
+          capture_mode as "captureMode", expected_device_count as "expectedDeviceCount",
+          join_token as "joinToken", status, sync_metadata as "syncMetadata",
+          expires_at as "expiresAt", created_at as "createdAt", updated_at as "updatedAt"
+      `,
+      [userId, captureSessionId],
+    );
+    if (!result.rowCount) throw notFound("Capture session not found");
+    return rowToIso(result.rows[0]);
+  }
+
+  async updateStatus(
+    userId: string,
+    captureSessionId: string,
+    status: string,
+  ): Promise<CaptureSession> {
+    const result = await pool.query(
+      `
+        update capture_sessions
+        set status = $3, updated_at = now()
+        where user_id = $1 and id = $2
+        returning id, user_id as "userId", project_id as "projectId", take_id as "takeId",
+          capture_mode as "captureMode", expected_device_count as "expectedDeviceCount",
+          join_token as "joinToken", status, sync_metadata as "syncMetadata",
+          expires_at as "expiresAt", created_at as "createdAt", updated_at as "updatedAt"
+      `,
+      [userId, captureSessionId, status],
+    );
+    if (!result.rowCount) throw notFound("Capture session not found");
+    return rowToIso(result.rows[0]);
+  }
+}
+
 export class UploadRepository {
   async failPendingForDevice(input: {
     userId: string;
@@ -185,7 +494,9 @@ export class UploadRepository {
     userId: string;
     projectId: string;
     takeId: string;
+    captureSessionId?: string | null;
     deviceIndex: number;
+    deviceId?: string | null;
     deviceRole: string;
     videoStorageKey: string;
     metadataStorageKey: string;
@@ -199,19 +510,23 @@ export class UploadRepository {
       const upload = await client.query(
         `
           insert into upload_sessions
-            (id, user_id, project_id, take_id, device_index, status, video_storage_key, metadata_storage_key, expires_at)
-          values ($1, $2, $3, $4, $5, 'pending', $6, $7, $8)
+            (id, user_id, project_id, take_id, capture_session_id, device_index, device_id,
+             status, video_storage_key, metadata_storage_key, expires_at)
+          values ($1, $2, $3, $4, $5, $6, $7, 'pending', $8, $9, $10)
           returning id, user_id as "userId", project_id as "projectId", take_id as "takeId",
+            capture_session_id as "captureSessionId",
             device_index as "deviceIndex", status, video_storage_key as "videoStorageKey",
-            metadata_storage_key as "metadataStorageKey", expires_at as "expiresAt",
-            created_at as "createdAt", updated_at as "updatedAt"
+            metadata_storage_key as "metadataStorageKey", device_id as "deviceId",
+            expires_at as "expiresAt", created_at as "createdAt", updated_at as "updatedAt"
         `,
         [
           uploadId,
           input.userId,
           input.projectId,
           input.takeId,
+          input.captureSessionId ?? null,
           input.deviceIndex,
+          input.deviceId ?? null,
           input.videoStorageKey,
           input.metadataStorageKey,
           input.expiresAt,
@@ -220,12 +535,15 @@ export class UploadRepository {
       const video = await client.query(
         `
           insert into capture_videos
-            (id, user_id, project_id, take_id, upload_session_id, device_index, device_role,
+            (id, user_id, project_id, take_id, capture_session_id, upload_session_id,
+             device_index, device_id, device_role,
              video_storage_key, metadata_storage_key, status)
-          values ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'uploading')
+          values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'uploading')
           on conflict (take_id, device_index)
           do update set
+            capture_session_id = excluded.capture_session_id,
             upload_session_id = excluded.upload_session_id,
+            device_id = excluded.device_id,
             device_role = excluded.device_role,
             video_storage_key = excluded.video_storage_key,
             metadata_storage_key = excluded.metadata_storage_key,
@@ -233,21 +551,26 @@ export class UploadRepository {
             file_size_bytes = null,
             metadata_size_bytes = null,
             capture_metadata = null,
+            sync_metadata = null,
             updated_at = now()
           returning id, user_id as "userId", project_id as "projectId", take_id as "takeId",
+            capture_session_id as "captureSessionId",
             upload_session_id as "uploadSessionId", device_index as "deviceIndex",
-            device_role as "deviceRole", video_storage_key as "videoStorageKey",
+            device_id as "deviceId", device_role as "deviceRole", video_storage_key as "videoStorageKey",
             metadata_storage_key as "metadataStorageKey", status,
             file_size_bytes as "fileSizeBytes", metadata_size_bytes as "metadataSizeBytes",
-            capture_metadata as "captureMetadata", created_at as "createdAt", updated_at as "updatedAt"
+            capture_metadata as "captureMetadata", sync_metadata as "syncMetadata",
+            created_at as "createdAt", updated_at as "updatedAt"
         `,
         [
           videoId,
           input.userId,
           input.projectId,
           input.takeId,
+          input.captureSessionId ?? null,
           uploadId,
           input.deviceIndex,
+          input.deviceId ?? null,
           input.deviceRole,
           input.videoStorageKey,
           input.metadataStorageKey,
@@ -270,9 +593,10 @@ export class UploadRepository {
     const result = await pool.query(
       `
         select id, user_id as "userId", project_id as "projectId", take_id as "takeId",
+          capture_session_id as "captureSessionId",
           device_index as "deviceIndex", status, video_storage_key as "videoStorageKey",
-          metadata_storage_key as "metadataStorageKey", expires_at as "expiresAt",
-          created_at as "createdAt", updated_at as "updatedAt"
+          metadata_storage_key as "metadataStorageKey", device_id as "deviceId",
+          expires_at as "expiresAt", created_at as "createdAt", updated_at as "updatedAt"
         from upload_sessions
         where user_id = $1 and id = $2
       `,
@@ -286,11 +610,13 @@ export class UploadRepository {
     const result = await pool.query(
       `
         select id, user_id as "userId", project_id as "projectId", take_id as "takeId",
+          capture_session_id as "captureSessionId",
           upload_session_id as "uploadSessionId", device_index as "deviceIndex",
-          device_role as "deviceRole", video_storage_key as "videoStorageKey",
+          device_id as "deviceId", device_role as "deviceRole", video_storage_key as "videoStorageKey",
           metadata_storage_key as "metadataStorageKey", status,
           file_size_bytes as "fileSizeBytes", metadata_size_bytes as "metadataSizeBytes",
-          capture_metadata as "captureMetadata", created_at as "createdAt", updated_at as "updatedAt"
+          capture_metadata as "captureMetadata", sync_metadata as "syncMetadata",
+          created_at as "createdAt", updated_at as "updatedAt"
         from capture_videos
         where user_id = $1 and take_id = $2
         order by device_index asc
@@ -306,6 +632,7 @@ export class UploadRepository {
     videoSizeBytes: number;
     metadataSizeBytes: number;
     captureMetadata: unknown;
+    syncMetadata?: unknown | null;
   }): Promise<{ uploadSession: UploadSession; captureVideo: CaptureVideo }> {
     const client = await pool.connect();
     try {
@@ -316,9 +643,10 @@ export class UploadRepository {
           set status = 'completed', updated_at = now()
           where user_id = $1 and id = $2 and status = 'pending'
           returning id, user_id as "userId", project_id as "projectId", take_id as "takeId",
+            capture_session_id as "captureSessionId",
             device_index as "deviceIndex", status, video_storage_key as "videoStorageKey",
-            metadata_storage_key as "metadataStorageKey", expires_at as "expiresAt",
-            created_at as "createdAt", updated_at as "updatedAt"
+            metadata_storage_key as "metadataStorageKey", device_id as "deviceId",
+            expires_at as "expiresAt", created_at as "createdAt", updated_at as "updatedAt"
         `,
         [input.userId, input.uploadSessionId],
       );
@@ -331,14 +659,17 @@ export class UploadRepository {
             file_size_bytes = $3,
             metadata_size_bytes = $4,
             capture_metadata = $5,
+            sync_metadata = $6,
             updated_at = now()
           where user_id = $1 and upload_session_id = $2
           returning id, user_id as "userId", project_id as "projectId", take_id as "takeId",
+            capture_session_id as "captureSessionId",
             upload_session_id as "uploadSessionId", device_index as "deviceIndex",
-            device_role as "deviceRole", video_storage_key as "videoStorageKey",
+            device_id as "deviceId", device_role as "deviceRole", video_storage_key as "videoStorageKey",
             metadata_storage_key as "metadataStorageKey", status,
             file_size_bytes as "fileSizeBytes", metadata_size_bytes as "metadataSizeBytes",
-            capture_metadata as "captureMetadata", created_at as "createdAt", updated_at as "updatedAt"
+            capture_metadata as "captureMetadata", sync_metadata as "syncMetadata",
+            created_at as "createdAt", updated_at as "updatedAt"
         `,
         [
           input.userId,
@@ -346,6 +677,7 @@ export class UploadRepository {
           input.videoSizeBytes,
           input.metadataSizeBytes,
           input.captureMetadata,
+          input.syncMetadata ?? null,
         ],
       );
       await client.query("commit");

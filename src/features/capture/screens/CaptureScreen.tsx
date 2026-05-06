@@ -313,6 +313,18 @@ export default function CaptureScreen() {
           ...calibration,
           calibratedAt: Date.now(),
         },
+        captureMode:
+          mvState.connectionState === "ready" || mvState.connectionState === "capturing"
+            ? "dual-camera"
+            : "solo",
+        viewCount:
+          mvState.connectionState === "ready" || mvState.connectionState === "capturing"
+            ? 2
+            : 1,
+        deviceRole: mvState.peerRole === "guest" ? "secondary" : "primary",
+        deviceIndex: mvState.peerRole === "guest" ? 1 : 0,
+        captureSessionId: mvState.sessionId ? `cap_${mvState.sessionId}` : undefined,
+        clockOffsetMs: mvState.clockOffset,
       });
     } catch (e: any) {
       console.error("[CaptureScreen] startRecording error", e);
@@ -328,6 +340,10 @@ export default function CaptureScreen() {
     status,
     trackingHint,
     trackingProfile,
+    mvState.clockOffset,
+    mvState.connectionState,
+    mvState.peerRole,
+    mvState.sessionId,
   ]);
 
   const onStopRecord = useCallback(async () => {

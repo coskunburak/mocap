@@ -1,4 +1,12 @@
-import type { PoseFramesArtifact, QualityReport, SolvedMotionArtifact } from "../types";
+import type {
+  CleanupReport,
+  DualCameraReconstructionArtifact,
+  MultiViewReconstructionArtifact,
+  PoseFramesArtifact,
+  PreviewSummary,
+  QualityReport,
+  SolvedMotionArtifact,
+} from "../types";
 import { SKELETON } from "./skeletonDefinition";
 
 function hasOnlyFiniteNumbers(value: unknown): boolean {
@@ -56,7 +64,15 @@ export function validateBvhText(bvh: string, frameCount: number) {
 export function buildQualityReport(
   pose: PoseFramesArtifact,
   solved: SolvedMotionArtifact,
-  validation: { ok: boolean; errors: string[]; warnings: string[] },
+  cleanup: CleanupReport,
+  validation: {
+    ok: boolean;
+    errors: string[];
+    warnings: string[];
+    blenderOk: boolean;
+    blenderSkipped: boolean;
+  },
+  reconstruction?: DualCameraReconstructionArtifact | MultiViewReconstructionArtifact,
 ): QualityReport {
   const detectedRatio =
     pose.quality.frameCount > 0
@@ -64,31 +80,185 @@ export function buildQualityReport(
       : 0;
   const solvedRatio =
     pose.quality.frameCount > 0 ? solved.frameCount / pose.quality.frameCount : 0;
-  const score = Math.round(
+  const singleCameraScore = Math.round(
     Math.max(
       0,
       Math.min(
         100,
-        pose.quality.averagePoseConfidence * 45 + detectedRatio * 35 + solvedRatio * 20,
+        pose.quality.averagePoseConfidence * 24 +
+          detectedRatio * 18 +
+          solvedRatio * 14 +
+          cleanup.metrics.jitterScore * 13 +
+          cleanup.metrics.footSlidingScore * 11 +
+          cleanup.metrics.boneLengthConsistency * 12 +
+          cleanup.metrics.rootStability * 8,
       ),
     ),
   );
+  const reconstructionScore =
+    reconstruction?.schema === "mocap.dual_reconstruction.v1"
+      ? reconstruction.quality.dualQualityScore
+      : reconstruction?.schema === "mocap.multi_view_reconstruction.v1"
+        ? reconstruction.quality.multiViewQualityScore
+        : singleCameraScore;
+  const score =
+    reconstruction && reconstructionScore > singleCameraScore
+      ? Math.min(100, Math.round(singleCameraScore * 0.55 + reconstructionScore * 0.45))
+      : singleCameraScore;
+  const grade =
+    validation.errors.length > 0
+      ? "failed"
+      : score >= 88
+        ? "excellent"
+        : score >= 74
+          ? "good"
+          : score >= 58
+            ? "usable"
+            : "poor";
+  const summary =
+    grade === "excellent"
+      ? "Clean solve. Export is ready for DCC review."
+      : grade === "good"
+        ? "Usable solve with minor cleanup warnings."
+        : grade === "usable"
+          ? "Export is usable, but review foot contact and jitter before final delivery."
+          : grade === "poor"
+            ? "Input quality is low. Re-capture is recommended for production delivery."
+            : "Export validation failed. Reprocess or re-capture before delivery.";
 
   return {
     schema: "mocap.quality_report.v1",
     takeId: pose.takeId,
     jobId: pose.jobId,
     score,
+    grade,
+    summary,
     metrics: {
-      sourceFrameCount: pose.quality.frameCount,
+      ...cleanup.metrics,
       detectedFrameCount: pose.quality.detectedFrameCount,
       detectedRatio,
       lowConfidenceFrameCount: pose.quality.lowConfidenceFrameCount,
       averagePoseConfidence: pose.quality.averagePoseConfidence,
-      solvedFrameCount: solved.frameCount,
       solvedRatio,
+      ...(reconstruction?.schema === "mocap.dual_reconstruction.v1"
+        ? {
+            dualSingleCameraBaselineScore: reconstruction.quality.singleCameraBaselineScore,
+            dualQualityScore: reconstruction.quality.dualQualityScore,
+            dualQualityGain: reconstruction.quality.qualityGain,
+            syncOffsetMs: reconstruction.sync.offsetMs,
+            syncConfidence: reconstruction.sync.confidence,
+            matchedFrameCount: reconstruction.sync.matchedFrameCount,
+            averageTimeDeltaMs: reconstruction.sync.averageTimeDeltaMs,
+            reprojectionErrorPx: reconstruction.quality.averageReprojectionErrorPx,
+            reprojectionP95Px: reconstruction.quality.reprojectionP95Px,
+            triangulatedLandmarkRatio: reconstruction.quality.triangulatedLandmarkRatio,
+            fallbackLandmarkRatio: reconstruction.quality.fallbackLandmarkRatio,
+            calibrationQualityScore: reconstruction.calibration.qualityScore,
+          }
+        : reconstruction?.schema === "mocap.multi_view_reconstruction.v1"
+          ? {
+              multiViewSingleCameraBaselineScore:
+                reconstruction.quality.singleCameraBaselineScore,
+              multiViewQualityScore: reconstruction.quality.multiViewQualityScore,
+              multiViewQualityGain: reconstruction.quality.qualityGain,
+              cameraCount: reconstruction.cameraCount,
+              matchedFrameCount: reconstruction.sync.matchedFrameCount,
+              averageTimeDeltaMs: reconstruction.sync.averageTimeDeltaMs,
+              reprojectionErrorPx: reconstruction.quality.averageReprojectionErrorPx,
+              reprojectionP95Px: reconstruction.quality.reprojectionP95Px,
+              triangulatedLandmarkRatio: reconstruction.quality.triangulatedLandmarkRatio,
+              averageViewCount: reconstruction.quality.averageViewCount,
+              matchedViewCoverage: reconstruction.quality.matchedViewCoverage,
+              placementQualityScore: reconstruction.quality.placementQualityScore,
+              occlusionRecoveryRatio: reconstruction.quality.occlusionRecoveryRatio,
+            }
+        : {}),
     },
-    warnings: validation.warnings,
+    warnings: [
+      ...validation.warnings,
+      ...cleanup.warnings,
+      ...(reconstruction?.warnings ?? []),
+    ],
     errors: validation.errors,
+    actions: cleanup.actions,
+    validation: {
+      exportOk: validation.ok,
+      blenderOk: validation.blenderOk,
+      blenderSkipped: validation.blenderSkipped,
+    },
+    reconstruction: reconstruction?.schema === "mocap.dual_reconstruction.v1"
+      ? {
+          source: "dual_camera",
+          syncOffsetMs: reconstruction.sync.offsetMs,
+          reprojectionErrorPx: reconstruction.quality.averageReprojectionErrorPx,
+          triangulatedLandmarkRatio: reconstruction.quality.triangulatedLandmarkRatio,
+          qualityGain: reconstruction.quality.qualityGain,
+        }
+      : reconstruction?.schema === "mocap.multi_view_reconstruction.v1"
+        ? {
+            source: "multi_view",
+            reprojectionErrorPx: reconstruction.quality.averageReprojectionErrorPx,
+            triangulatedLandmarkRatio: reconstruction.quality.triangulatedLandmarkRatio,
+            qualityGain: reconstruction.quality.qualityGain,
+            cameraCount: reconstruction.cameraCount,
+            placementQualityScore: reconstruction.quality.placementQualityScore,
+            occlusionRecoveryRatio: reconstruction.quality.occlusionRecoveryRatio,
+          }
+      : {
+          source: "single_camera",
+        },
+  };
+}
+
+export function buildPreviewSummary(
+  solved: SolvedMotionArtifact,
+  quality: QualityReport,
+  cleanup: CleanupReport,
+): PreviewSummary {
+  const roots = solved.frames.map((frame) => frame.rootTranslation);
+  const min = roots.reduce(
+    (acc, root) => [
+      Math.min(acc[0], root[0]),
+      Math.min(acc[1], root[1]),
+      Math.min(acc[2], root[2]),
+    ] as [number, number, number],
+    [Infinity, Infinity, Infinity],
+  );
+  const max = roots.reduce(
+    (acc, root) => [
+      Math.max(acc[0], root[0]),
+      Math.max(acc[1], root[1]),
+      Math.max(acc[2], root[2]),
+    ] as [number, number, number],
+    [-Infinity, -Infinity, -Infinity],
+  );
+  const rootTravel = roots.slice(1).reduce((acc, root, index) => {
+    const previous = roots[index];
+    return acc + Math.hypot(root[0] - previous[0], root[2] - previous[2]);
+  }, 0);
+
+  return {
+    schema: "mocap.preview_summary.v1",
+    takeId: solved.takeId,
+    jobId: solved.jobId,
+    fps: solved.fps,
+    durationMs: solved.durationMs,
+    frameCount: solved.frameCount,
+    qualityScore: quality.score,
+    rootTravel,
+    rootBounds: {
+      min: min.map((value) => (Number.isFinite(value) ? value : 0)) as [
+        number,
+        number,
+        number,
+      ],
+      max: max.map((value) => (Number.isFinite(value) ? value : 0)) as [
+        number,
+        number,
+        number,
+      ],
+    },
+    contactFrames: cleanup.metrics.footContactFrameCount,
+    warnings: quality.warnings.slice(0, 8),
   };
 }

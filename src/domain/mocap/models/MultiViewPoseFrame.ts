@@ -89,4 +89,4 @@ export type StereoCalibrationResult = Readonly<{
 /**
  * Capture mode discriminator.
  */
-export type CaptureMode = "solo" | "dual-camera";
+export type CaptureMode = "solo" | "dual-camera" | "pro-4-camera";

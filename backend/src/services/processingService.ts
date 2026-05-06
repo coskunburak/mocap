@@ -1,5 +1,10 @@
 import { badRequest, conflict } from "../domain/errors";
-import { JobRepository, TakeRepository } from "../infra/db/repositories";
+import {
+  CaptureSessionRepository,
+  JobRepository,
+  TakeRepository,
+  UploadRepository,
+} from "../infra/db/repositories";
 import { asRecord, optionalString } from "./validators";
 
 const ACTIVE_STATES = new Set([
@@ -16,17 +21,34 @@ export class ProcessingService {
   constructor(
     private readonly takes = new TakeRepository(),
     private readonly jobs = new JobRepository(),
+    private readonly uploads = new UploadRepository(),
+    private readonly captureSessions = new CaptureSessionRepository(),
   ) {}
 
   async create(userId: string, takeId: string, body: unknown) {
     const take = await this.takes.get(userId, takeId);
-    if (take.status !== "uploaded") {
+    if (!["uploaded", "processed", "failed"].includes(take.status)) {
       throw conflict("Upload must be completed before processing can start", {
         takeStatus: take.status,
       });
     }
+    const uploadedVideos = (await this.uploads.listVideosByTake(userId, take.id)).filter(
+      (video) => video.status === "uploaded",
+    );
+    if (uploadedVideos.length < take.expectedVideoCount) {
+      throw conflict("All expected capture videos must be uploaded before processing can start", {
+        uploadedVideoCount: uploadedVideos.length,
+        expectedVideoCount: take.expectedVideoCount,
+      });
+    }
     const obj = asRecord(body ?? {});
-    const preset = optionalString(obj.preset, "humanoid_bvh_v1");
+    const defaultPreset =
+      take.captureMode === "pro_4_camera"
+        ? "humanoid_bvh_pro_4_camera_v1"
+        : take.captureMode === "dual"
+          ? "humanoid_bvh_dual_v1"
+          : "humanoid_bvh_v1";
+    const preset = optionalString(obj.preset, defaultPreset);
     const job = await this.jobs.create({
       userId,
       projectId: take.projectId,
@@ -34,6 +56,17 @@ export class ProcessingService {
       preset,
     });
     await this.takes.updateStatus(userId, take.id, "processing");
+    await Promise.all(
+      Array.from(
+        new Set(
+          uploadedVideos
+            .map((video) => video.captureSessionId)
+            .filter((id): id is string => Boolean(id)),
+        ),
+      ).map((captureSessionId) =>
+        this.captureSessions.updateStatus(userId, captureSessionId, "processing"),
+      ),
+    );
     return job;
   }
 

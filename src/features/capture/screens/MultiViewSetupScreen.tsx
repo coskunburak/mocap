@@ -114,6 +114,32 @@ function ConnectionBadge() {
   );
 }
 
+function ProPlacementGuide() {
+  const slots = [
+    ["front", "0deg"],
+    ["right", "70deg"],
+    ["back", "180deg"],
+    ["left", "-70deg"],
+  ] as const;
+
+  return (
+    <View style={styles.proGuide}>
+      <View style={styles.proGuideHeader}>
+        <Text style={styles.sectionTitle}>Pro placement</Text>
+        <Text style={styles.proGuideMeta}>4 cameras</Text>
+      </View>
+      <View style={styles.proSlotGrid}>
+        {slots.map(([label, angle]) => (
+          <View key={label} style={styles.proSlot}>
+            <Text style={styles.proSlotLabel}>{label}</Text>
+            <Text style={styles.proSlotAngle}>{angle}</Text>
+          </View>
+        ))}
+      </View>
+    </View>
+  );
+}
+
 // ─── Main screen ───────────────────────────────────────────────────
 
 export default function MultiViewSetupScreen() {
@@ -205,6 +231,8 @@ export default function MultiViewSetupScreen() {
               />
             </View>
           </View>
+
+          <ProPlacementGuide />
 
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>
@@ -454,6 +482,48 @@ const styles = StyleSheet.create({
     height: 11,
     borderRadius: radii.pill,
     backgroundColor: colors.accent,
+  },
+  proGuide: {
+    gap: spacing.sm,
+    padding: spacing.md,
+    borderRadius: 18,
+    backgroundColor: "rgba(255,255,255,0.05)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.12)",
+  },
+  proGuideHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  proGuideMeta: {
+    ...typography.mono.sm,
+    color: colors.accent,
+  },
+  proSlotGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: spacing.sm,
+  },
+  proSlot: {
+    minWidth: 126,
+    flexGrow: 1,
+    minHeight: 58,
+    justifyContent: "center",
+    padding: spacing.sm,
+    borderRadius: 14,
+    backgroundColor: "rgba(0,0,0,0.42)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.12)",
+  },
+  proSlotLabel: {
+    ...typography.label.md,
+    color: colors.white,
+  },
+  proSlotAngle: {
+    ...typography.mono.sm,
+    color: "rgba(255,255,255,0.58)",
+    marginTop: 2,
   },
   setupCard: {
     gap: spacing.sm,

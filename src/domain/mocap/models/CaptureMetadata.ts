@@ -2,7 +2,14 @@ export const CAPTURE_METADATA_SCHEMA = "mocap.capture.v1" as const;
 
 export type CaptureMetadataSchema = typeof CAPTURE_METADATA_SCHEMA;
 export type CaptureModeV1 = "solo" | "dual" | "pro_4_camera";
-export type CaptureDeviceRole = "primary" | "secondary" | "calibration";
+export type CaptureDeviceRole =
+  | "primary"
+  | "secondary"
+  | "front"
+  | "back"
+  | "left"
+  | "right"
+  | "calibration";
 export type CaptureDevicePlatform = "ios" | "android" | "web" | "unknown";
 export type CaptureCameraPosition = "front" | "back" | "external" | "unknown";
 export type CaptureVideoOrientation =
@@ -170,4 +177,3 @@ export function validateCaptureMetadata(value: unknown): CaptureMetadataValidati
 
   return { ok: errors.length === 0, errors };
 }
-

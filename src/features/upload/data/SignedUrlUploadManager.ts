@@ -63,6 +63,7 @@ function contentTypeForVideo(take: Take): "video/quicktime" | "video/mp4" {
 
 function apiCaptureMode(take: Take): "solo" | "dual" | "pro_4_camera" {
   if (take.captureMode === "dual-camera") return "dual";
+  if (take.captureMode === "pro-4-camera") return "pro_4_camera";
   return take.captureMode ?? "solo";
 }
 
@@ -157,9 +158,6 @@ export class SignedUrlUploadManager implements UploadManager {
       throw new UploadManagerError("Recorded video file was not found.", "missing_file", false);
     }
 
-    const metadata = sanitizeMetadata(take.captureMetadata);
-    const metadataText = JSON.stringify(metadata);
-    const metadataSizeBytes = utf8ByteLength(metadataText);
     const videoSizeBytes = videoInfo.size ?? take.video.fileSizeBytes;
     const contentType = contentTypeForVideo(take);
 
@@ -198,6 +196,15 @@ export class SignedUrlUploadManager implements UploadManager {
         captureMode: apiCaptureMode(take),
         expectedVideoCount: take.viewCount ?? 1,
       });
+      const metadata = sanitizeMetadata({
+        ...take.captureMetadata,
+        takeId: remoteTake.id,
+        captureSessionId: take.captureMetadata.captureSessionId.startsWith("cs_")
+          ? take.captureMetadata.captureSessionId
+          : remoteTake.id,
+      });
+      const metadataText = JSON.stringify(metadata);
+      const metadataSizeBytes = utf8ByteLength(metadataText);
 
       await takeRepoFs.updateTakeMeta(take.id, {
         remote: {
@@ -210,6 +217,10 @@ export class SignedUrlUploadManager implements UploadManager {
       });
 
       const upload = await this.deps.sessions.initUpload(remoteTake.id, {
+        captureSessionId: metadata.captureSessionId.startsWith("cs_")
+          ? metadata.captureSessionId
+          : undefined,
+        deviceId: metadata.deviceId,
         deviceIndex: metadata.deviceIndex,
         deviceRole: metadata.deviceRole,
         video: {
@@ -287,7 +298,12 @@ export class SignedUrlUploadManager implements UploadManager {
 
       const job = await this.deps.sessions.createProcessingJob(
         remoteTake.id,
-        input.preset ?? "humanoid_bvh_v1",
+        input.preset ??
+          (metadata.captureMode === "pro_4_camera"
+            ? "humanoid_bvh_pro_4_camera_v1"
+            : metadata.captureMode === "dual"
+              ? "humanoid_bvh_dual_v1"
+              : "humanoid_bvh_v1"),
       );
       const localTake = await takeRepoFs.updateTakeMeta(take.id, {
         remote: {

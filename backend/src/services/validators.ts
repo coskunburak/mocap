@@ -1,5 +1,15 @@
 import { badRequest } from "../domain/errors";
 
+export type CaptureMetadataBody = Record<string, unknown> & {
+  takeId: string;
+  captureSessionId: string;
+  deviceId: string;
+  deviceRole: string;
+  deviceIndex: number;
+  durationMs: number;
+  sync: Record<string, unknown>;
+};
+
 export function requireString(value: unknown, field: string) {
   if (typeof value !== "string" || value.trim().length === 0) {
     throw badRequest(`${field} is required`, { field });
@@ -44,7 +54,7 @@ export function asRecord(value: unknown, field = "body"): Record<string, unknown
   return value as Record<string, unknown>;
 }
 
-export function validateCaptureMetadata(value: unknown) {
+export function validateCaptureMetadata(value: unknown): CaptureMetadataBody {
   const obj = asRecord(value, "captureMetadata");
   if (obj.schema !== "mocap.capture.v1") {
     throw badRequest("captureMetadata.schema must be mocap.capture.v1", {
@@ -65,8 +75,7 @@ export function validateCaptureMetadata(value: unknown) {
   requireNumber(obj.durationMs, "captureMetadata.durationMs");
   asRecord(obj.video, "captureMetadata.video");
   asRecord(obj.quality, "captureMetadata.quality");
-  asRecord(obj.sync, "captureMetadata.sync");
+  const sync = asRecord(obj.sync, "captureMetadata.sync");
   asRecord(obj.app, "captureMetadata.app");
-  return obj;
+  return { ...obj, sync } as CaptureMetadataBody;
 }
-

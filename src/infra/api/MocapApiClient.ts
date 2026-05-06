@@ -17,6 +17,46 @@ export type ApiTake = Readonly<{
   expectedVideoCount: number;
 }>;
 
+export type ApiCaptureSession = Readonly<{
+  id: string;
+  projectId: string;
+  takeId: string;
+  captureMode: "solo" | "dual" | "pro_4_camera";
+  expectedDeviceCount: number;
+  joinToken: string;
+  status:
+    | "pairing"
+    | "ready"
+    | "recording"
+    | "uploading"
+    | "uploaded"
+    | "processing"
+    | "completed"
+    | "failed"
+    | "expired";
+  expiresAt: string;
+}>;
+
+export type ApiCaptureDevice = Readonly<{
+  id: string;
+  captureSessionId: string;
+  takeId: string;
+  deviceId: string;
+  deviceRole:
+    | "host"
+    | "guest"
+    | "primary"
+    | "secondary"
+    | "front"
+    | "back"
+    | "left"
+    | "right"
+    | "calibration";
+  deviceIndex: number;
+  platform: string | null;
+  appVersion: string | null;
+}>;
+
 export type ApiUploadTarget = Readonly<{
   storageKey: string;
   uploadUrl: string;
@@ -73,8 +113,19 @@ export type CreateTakeInput = Readonly<{
 }>;
 
 export type InitUploadInput = Readonly<{
+  captureSessionId?: string;
+  deviceId?: string;
   deviceIndex: number;
-  deviceRole: "primary" | "secondary" | "calibration";
+  deviceRole:
+    | "host"
+    | "guest"
+    | "primary"
+    | "secondary"
+    | "front"
+    | "back"
+    | "left"
+    | "right"
+    | "calibration";
   video: {
     contentType: "video/quicktime" | "video/mp4";
     fileName: string;
@@ -100,6 +151,65 @@ export interface MocapApiClient {
   createProject(name: string): Promise<ApiProject>;
   listProjects(): Promise<readonly ApiProject[]>;
   createTake(projectId: string, input: CreateTakeInput): Promise<ApiTake>;
+  createCaptureSession(
+    projectId: string,
+    input: {
+      name: string;
+      captureMode?: "dual" | "pro_4_camera";
+      expectedDeviceCount?: number;
+      hostDevice?: {
+        deviceId: string;
+        deviceRole?: "host" | "primary" | "front";
+        platform?: string;
+        appVersion?: string;
+      };
+      syncMetadata?: unknown;
+    },
+  ): Promise<{
+    captureSession: ApiCaptureSession;
+    take: ApiTake;
+    devices: readonly ApiCaptureDevice[];
+  }>;
+  getCaptureSession(captureSessionId: string): Promise<{
+    captureSession: ApiCaptureSession;
+    devices: readonly ApiCaptureDevice[];
+  }>;
+  joinCaptureSession(input: {
+    joinToken: string;
+    deviceId: string;
+      deviceRole?: "guest" | "secondary" | "front" | "back" | "left" | "right";
+    platform?: string;
+    appVersion?: string;
+    deviceIndex?: number;
+  }): Promise<{
+    captureSession: ApiCaptureSession;
+    device: ApiCaptureDevice;
+    devices: readonly ApiCaptureDevice[];
+  }>;
+  registerCaptureDevice(
+    captureSessionId: string,
+    input: {
+      deviceId: string;
+      deviceRole:
+        | "host"
+        | "guest"
+        | "primary"
+        | "secondary"
+        | "front"
+        | "back"
+        | "left"
+        | "right"
+        | "calibration";
+      platform?: string;
+      appVersion?: string;
+      deviceIndex?: number;
+      metadata?: unknown;
+    },
+  ): Promise<{
+    captureSession: ApiCaptureSession;
+    device: ApiCaptureDevice;
+    devices: readonly ApiCaptureDevice[];
+  }>;
   getTake(takeId: string): Promise<ApiTake>;
   initUpload(
     takeId: string,
@@ -159,6 +269,52 @@ export class HttpMocapApiClient implements MocapApiClient {
       { method: "POST", body: input },
     );
     return response.take;
+  }
+
+  async createCaptureSession(
+    projectId: string,
+    input: Parameters<MocapApiClient["createCaptureSession"]>[1],
+  ) {
+    return this.client.request<{
+      captureSession: ApiCaptureSession;
+      take: ApiTake;
+      devices: ApiCaptureDevice[];
+    }>(`/api/projects/${encodeURIComponent(projectId)}/capture-sessions`, {
+      method: "POST",
+      body: input,
+    });
+  }
+
+  async getCaptureSession(captureSessionId: string) {
+    return this.client.request<{
+      captureSession: ApiCaptureSession;
+      devices: ApiCaptureDevice[];
+    }>(`/api/capture-sessions/${encodeURIComponent(captureSessionId)}`);
+  }
+
+  async joinCaptureSession(input: Parameters<MocapApiClient["joinCaptureSession"]>[0]) {
+    return this.client.request<{
+      captureSession: ApiCaptureSession;
+      device: ApiCaptureDevice;
+      devices: ApiCaptureDevice[];
+    }>("/api/capture-sessions/join", {
+      method: "POST",
+      body: input,
+    });
+  }
+
+  async registerCaptureDevice(
+    captureSessionId: string,
+    input: Parameters<MocapApiClient["registerCaptureDevice"]>[1],
+  ) {
+    return this.client.request<{
+      captureSession: ApiCaptureSession;
+      device: ApiCaptureDevice;
+      devices: ApiCaptureDevice[];
+    }>(`/api/capture-sessions/${encodeURIComponent(captureSessionId)}/devices/register`, {
+      method: "POST",
+      body: input,
+    });
   }
 
   async getTake(takeId: string) {
