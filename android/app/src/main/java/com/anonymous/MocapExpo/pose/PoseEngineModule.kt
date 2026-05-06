@@ -1,6 +1,7 @@
 package com.anonymous.MocapExpo.pose
 
 import android.Manifest
+import android.app.Activity
 import android.content.pm.PackageManager
 import androidx.camera.core.CameraSelector
 import androidx.core.content.ContextCompat
@@ -116,7 +117,7 @@ class PoseEngineModule(
         return@execute
       }
 
-      val activity = currentActivity
+      val activity = currentActivityOrNull()
       if (activity == null) {
         promise.reject(ERROR_START, "Preview start failed: no active activity.")
         return@execute
@@ -194,7 +195,7 @@ class PoseEngineModule(
         return@execute
       }
 
-      val activity = currentActivity
+      val activity = currentActivityOrNull()
       if (activity == null) {
         synchronized(stateLock) {
           state = EngineState.ERROR
@@ -313,9 +314,9 @@ class PoseEngineModule(
           )
         } catch (error: Throwable) {
           if (previewActive) {
-            PoseCameraSession.setCallbacks(
+              PoseCameraSession.setCallbacks(
               reactApplicationContext,
-              currentActivity,
+              currentActivityOrNull(),
               onFrame = null,
               onError = null,
             )
@@ -387,7 +388,7 @@ class PoseEngineModule(
         promise.resolve(null)
       }
 
-      val activity = currentActivity
+      val activity = currentActivityOrNull()
       if (previewActive && activity != null) {
         PoseCameraSession.setCallbacks(
           reactApplicationContext,
@@ -423,6 +424,8 @@ class PoseEngineModule(
       Manifest.permission.CAMERA,
     ) == PackageManager.PERMISSION_GRANTED
   }
+
+  private fun currentActivityOrNull(): Activity? = reactApplicationContext.currentActivity
 
   private fun resolvePoseModelName(requestedModel: String): String {
     val preferred = if (requestedModel == "lite") "pose_landmarker_lite" else "pose_landmarker_full"

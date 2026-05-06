@@ -26,6 +26,10 @@ export type PoseFrame = Readonly<{
   requestedTrackingProfile?: TrackingProfileRequest;
   fps?: number;
   frameId?: number;
+  /** Which device produced this frame (for multi-view) */
+  sourceDevice?: string;
+  /** Whether this frame contains triangulated 3D data */
+  triangulated?: boolean;
 }>;
 
 function countBuffer(buf?: LandmarkBuffer) {

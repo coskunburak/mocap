@@ -1,3 +1,5 @@
+import type { StereoCalibrationResult, CaptureMode } from "./MultiViewPoseFrame";
+
 export type TakeId = string;
 
 export type CalibrationPose = "t-pose" | "a-pose";
@@ -46,6 +48,23 @@ export type TakeReview = Readonly<{
   reviewedAt: number;
 }>;
 
+export type TakeMotionArtifact = Readonly<{
+  status: "ready" | "needs-review" | "failed";
+  solverVersion: string;
+  sourceSpace: "normalized" | "world" | "triangulated";
+  raw2dFrameCount: number;
+  rawWorldFrameCount: number;
+  triangulatedFrameCount: number;
+  cleaned3dFrameCount: number;
+  bakedAvatarFrameCount: number;
+  calibrationFrameCount: number;
+  targetPose: CalibrationPose;
+  avatarPreset: string;
+  qualityScore: number;
+  issues: string[];
+  generatedAt: number;
+}>;
+
 export type Take = Readonly<{
   id: TakeId;
 
@@ -70,10 +89,16 @@ export type Take = Readonly<{
   postProcess?: TakePostProcess;
   retarget?: TakeRetarget;
   review?: TakeReview;
+  motion?: TakeMotionArtifact;
   qualityScore?: number;
+
+  // dual-camera fields
+  captureMode?: CaptureMode;
+  stereoCalibration?: StereoCalibrationResult;
+  viewCount?: number;
 }>;
 
-export const TAKE_SCHEMA_VERSION = 3;
+export const TAKE_SCHEMA_VERSION = 5;
 
 export type NewTakeMeta = Readonly<{
   trackingProfile?: "pose" | "holistic";
@@ -81,7 +106,11 @@ export type NewTakeMeta = Readonly<{
   postProcess?: TakePostProcess;
   retarget?: TakeRetarget;
   review?: TakeReview;
+  motion?: TakeMotionArtifact;
   qualityScore?: number;
+  captureMode?: CaptureMode;
+  stereoCalibration?: StereoCalibrationResult;
+  viewCount?: number;
 }>;
 
 export function newTake(name = "Take", projectId?: string, meta?: NewTakeMeta): Take {
@@ -102,6 +131,10 @@ export function newTake(name = "Take", projectId?: string, meta?: NewTakeMeta): 
     postProcess: meta?.postProcess,
     retarget: meta?.retarget,
     review: meta?.review,
+    motion: meta?.motion,
     qualityScore: meta?.qualityScore,
+    captureMode: meta?.captureMode ?? "solo",
+    stereoCalibration: meta?.stereoCalibration,
+    viewCount: meta?.viewCount ?? 1,
   };
 }

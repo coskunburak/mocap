@@ -1,6 +1,9 @@
 import { useCallback, useMemo, useRef, useState } from "react";
 import type { PoseFrame } from "../../../domain/mocap/models/PoseFrame";
+import type { MultiViewPoseFrame } from "../../../domain/mocap/models/MultiViewPoseFrame";
 import type { Take, TakeCalibration } from "../../../domain/mocap/models/Take";
+import { analyzeTakeReview } from "../../../domain/mocap/pipeline/review/TakeReviewAnalyzer";
+import { readTakeFrames } from "../../../infra/persistence/takeRepoFs.reader";
 
 type TakeRepo = typeof import("../../../infra/persistence/TakeRepo.fs").takeRepoFs;
 
@@ -42,7 +45,7 @@ export function useRecorder() {
   // refs (no rerender per frame)
   const takeRef = useRef<Take | null>(null);
   const chunkNoRef = useRef(0);
-  const bufferRef = useRef<PoseFrame[]>([]);
+  const bufferRef = useRef<(PoseFrame | MultiViewPoseFrame)[]>([]);
   const firstTsRef = useRef<number | null>(null);
   const lastTsRef = useRef<number | null>(null);
 
@@ -93,15 +96,16 @@ export function useRecorder() {
         const buffer = bufferRef.current;
         if (buffer.length === 0) break;
 
-        // Move frames out quickly
-        const frames = buffer.splice(0, buffer.length);
+        // Keep frames in memory until persistence succeeds.
+        const frames = buffer.slice(0, buffer.length);
         const chunkNo = chunkNoRef.current;
 
         // yield to UI (avoid blocking taps)
         await new Promise<void>((r) => setTimeout(r, 0));
 
-        // ✅ await persistence (production)
+        // Persist before mutating in-memory state so failed writes do not lose frames.
         await takeRepo.appendFrames(take.id, chunkNo, frames);
+        buffer.splice(0, frames.length);
         chunkNoRef.current = chunkNo + 1;
 
         updateCounters();
@@ -119,6 +123,12 @@ export function useRecorder() {
       flushAgainRef.current = false;
     }
   }, [updateCounters]);
+
+  const queueFlush = useCallback(() => {
+    void flush().catch((error) => {
+      console.error("[Recorder] chunk flush failed", error);
+    });
+  }, [flush]);
 
   const startRecording = useCallback(
     async (options?: RecorderOptions) => {
@@ -157,7 +167,7 @@ export function useRecorder() {
   );
 
   const pushFrame = useCallback(
-    (frame: PoseFrame) => {
+    (frame: PoseFrame | MultiViewPoseFrame) => {
       if (state.status !== "recording") return;
 
       const take = takeRef.current;
@@ -175,10 +185,10 @@ export function useRecorder() {
 
       // chunk trigger
       if (bufferRef.current.length >= optsRef.current.chunkFrames) {
-        void flush(); // async
+        queueFlush();
       }
     },
-    [flush, state.status, updateCounters]
+    [queueFlush, state.status, updateCounters]
   );
 
   const stopRecording = useCallback(async () => {
@@ -192,14 +202,41 @@ export function useRecorder() {
       return prev;
     });
 
-    // ✅ ensure everything flushed
-    await flush();
+    let enriched: Take;
+    try {
+      await flush();
 
-    const first = firstTsRef.current ?? 0;
-    const last = lastTsRef.current ?? first;
+      const first = firstTsRef.current ?? 0;
+      const last = lastTsRef.current ?? first;
 
-    // ✅ finalize async
-    const finalized = await takeRepo.finalizeTake(take.id, first, last);
+      const finalized = await takeRepo.finalizeTake(take.id, first, last);
+      const persistedFrames = await readTakeFrames(take.id);
+      const inferredTrackingProfile =
+        finalized.trackingProfile ?? persistedFrames[0]?.trackingProfile;
+      const analysis =
+        persistedFrames.length > 0 ? analyzeTakeReview(finalized, persistedFrames) : null;
+
+      enriched =
+        analysis || inferredTrackingProfile !== finalized.trackingProfile
+          ? await takeRepo.updateTakeMeta(take.id, {
+              calibration: analysis?.calibration ?? finalized.calibration,
+              postProcess: analysis?.cleanup ?? finalized.postProcess,
+              retarget: analysis?.retarget ?? finalized.retarget,
+              review: analysis?.recommendedReview ?? finalized.review,
+              motion: analysis?.motion ?? finalized.motion,
+              qualityScore: analysis?.qualityScore ?? finalized.qualityScore,
+              trackingProfile: inferredTrackingProfile,
+            })
+          : finalized;
+    } catch (error) {
+      setState({
+        status: "recording",
+        take,
+        buffered: bufferRef.current.length,
+        flushedChunks: chunkNoRef.current,
+      });
+      throw error;
+    }
 
     // reset
     takeRef.current = null;
@@ -210,7 +247,7 @@ export function useRecorder() {
 
     setState({ status: "idle" });
 
-    return finalized;
+    return enriched;
   }, [flush, state.status]);
 
   const currentTake = useMemo(() => {

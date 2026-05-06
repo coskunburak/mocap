@@ -11,6 +11,7 @@ import com.google.mediapipe.tasks.components.containers.Category
 import com.google.mediapipe.tasks.components.containers.Landmark
 import com.google.mediapipe.tasks.components.containers.NormalizedLandmark
 import com.google.mediapipe.tasks.core.BaseOptions
+import com.google.mediapipe.tasks.core.Delegate
 import com.google.mediapipe.tasks.vision.core.ImageProcessingOptions
 import com.google.mediapipe.tasks.vision.core.RunningMode
 import com.google.mediapipe.tasks.vision.holisticlandmarker.HolisticLandmarker
@@ -78,26 +79,26 @@ class PoseLandmarkerRunner(
       map.putDouble("timestampMs", timestampMs.toDouble())
       map.putString("trackingProfile", trackingProfile)
       map.putString("requestedTrackingProfile", requestedTrackingProfile)
-      map.putArray("landmarks", landmarks.toWritableArray())
-      map.putArray("worldLandmarks", worldLandmarks.toWritableArray())
+      map.putArray("landmarks", landmarks.toLandmarkWritableArray())
+      map.putArray("worldLandmarks", worldLandmarks.toLandmarkWritableArray())
 
       if (faceLandmarks.isNotEmpty()) {
-        map.putArray("faceLandmarks", faceLandmarks.toWritableArray())
+        map.putArray("faceLandmarks", faceLandmarks.toLandmarkWritableArray())
       }
       if (leftHandLandmarks.isNotEmpty()) {
-        map.putArray("leftHandLandmarks", leftHandLandmarks.toWritableArray())
+        map.putArray("leftHandLandmarks", leftHandLandmarks.toLandmarkWritableArray())
       }
       if (leftHandWorldLandmarks.isNotEmpty()) {
-        map.putArray("leftHandWorldLandmarks", leftHandWorldLandmarks.toWritableArray())
+        map.putArray("leftHandWorldLandmarks", leftHandWorldLandmarks.toLandmarkWritableArray())
       }
       if (rightHandLandmarks.isNotEmpty()) {
-        map.putArray("rightHandLandmarks", rightHandLandmarks.toWritableArray())
+        map.putArray("rightHandLandmarks", rightHandLandmarks.toLandmarkWritableArray())
       }
       if (rightHandWorldLandmarks.isNotEmpty()) {
-        map.putArray("rightHandWorldLandmarks", rightHandWorldLandmarks.toWritableArray())
+        map.putArray("rightHandWorldLandmarks", rightHandWorldLandmarks.toLandmarkWritableArray())
       }
       if (faceBlendshapes.isNotEmpty()) {
-        map.putArray("faceBlendshapes", faceBlendshapes.toWritableArray())
+        map.putArray("faceBlendshapes", faceBlendshapes.toBlendshapeWritableArray())
       }
       if (hasPoseSegmentationMask != null) {
         map.putBoolean("hasPoseSegmentationMask", hasPoseSegmentationMask)
@@ -267,9 +268,9 @@ class PoseLandmarkerRunner(
       .setModelAssetPath(modelAssetPath)
       .setDelegate(
         if (usesCpu) {
-          BaseOptions.Delegate.CPU
+          Delegate.CPU
         } else {
-          BaseOptions.Delegate.GPU
+          Delegate.GPU
         },
       )
       .build()
@@ -470,33 +471,33 @@ class PoseLandmarkerRunner(
   }
 
   private fun clamp01(value: Float): Float = value.coerceIn(0f, 1f)
+}
 
-  private fun List<LandmarkPayload>.toWritableArray(): WritableArray {
-    val array = Arguments.createArray()
-    forEach { landmark ->
-      val item = Arguments.createMap()
-      item.putInt("id", landmark.id)
-      item.putDouble("x", landmark.x)
-      item.putDouble("y", landmark.y)
-      item.putDouble("z", landmark.z)
-      item.putDouble("v", landmark.v)
-      array.pushMap(item)
-    }
-    return array
+private fun List<PoseLandmarkerRunner.LandmarkPayload>.toLandmarkWritableArray(): WritableArray {
+  val array = Arguments.createArray()
+  forEach { landmark ->
+    val item = Arguments.createMap()
+    item.putInt("id", landmark.id)
+    item.putDouble("x", landmark.x)
+    item.putDouble("y", landmark.y)
+    item.putDouble("z", landmark.z)
+    item.putDouble("v", landmark.v)
+    array.pushMap(item)
   }
+  return array
+}
 
-  private fun List<BlendshapePayload>.toWritableArray(): WritableArray {
-    val array = Arguments.createArray()
-    forEach { blendshape ->
-      val item = Arguments.createMap()
-      item.putInt("index", blendshape.index)
-      item.putString("name", blendshape.name)
-      item.putDouble("score", blendshape.score)
-      if (blendshape.displayName != null) {
-        item.putString("displayName", blendshape.displayName)
-      }
-      array.pushMap(item)
+private fun List<PoseLandmarkerRunner.BlendshapePayload>.toBlendshapeWritableArray(): WritableArray {
+  val array = Arguments.createArray()
+  forEach { blendshape ->
+    val item = Arguments.createMap()
+    item.putInt("index", blendshape.index)
+    item.putString("name", blendshape.name)
+    item.putDouble("score", blendshape.score)
+    if (blendshape.displayName != null) {
+      item.putString("displayName", blendshape.displayName)
     }
-    return array
+    array.pushMap(item)
   }
+  return array
 }

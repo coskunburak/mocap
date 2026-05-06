@@ -110,7 +110,9 @@ function hasTrackingLock(frame: PoseFrame, threshold: number) {
   };
 }
 
-export function usePoseStream(onFrame?: (frame: PoseFrame) => void) {
+export function usePoseStream(
+  onFrame?: (frame: PoseFrame) => PoseFrame | import("../../../domain/mocap/models/MultiViewPoseFrame").MultiViewPoseFrame | void | null
+) {
   const {
     setStatus,
     setError,
@@ -151,7 +153,7 @@ export function usePoseStream(onFrame?: (frame: PoseFrame) => void) {
     isRecordingRef.current = recorder.state.status === "recording";
   }, [recorder.state.status]);
 
-  const pushFrameRef = useRef<(f: PoseFrame) => void>(() => {});
+  const pushFrameRef = useRef<(f: PoseFrame | import("../../../domain/mocap/models/MultiViewPoseFrame").MultiViewPoseFrame) => void>(() => {});
   useEffect(() => {
     pushFrameRef.current = recorder.pushFrame;
   }, [recorder.pushFrame]);
@@ -315,12 +317,12 @@ export function usePoseStream(onFrame?: (frame: PoseFrame) => void) {
 
       setFrame(next, poseFps);
 
+      const overrideFrame = onFrame?.(next);
+
       // ✅ record aktifse frame'i yaz
       if (isRecordingRef.current) {
-        pushFrameRef.current(next);
+        pushFrameRef.current(overrideFrame || next);
       }
-
-      onFrame?.(next);
     },
     [jointThreshold, onFrame, setFrame, setTrackingState, smoothingEnabled]
   );

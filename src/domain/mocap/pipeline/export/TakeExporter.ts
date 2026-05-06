@@ -2,7 +2,7 @@ import * as FSAny from "expo-file-system/legacy";
 import * as Sharing from "expo-sharing";
 
 import type { PoseFrame } from "../../models/PoseFrame";
-import type { Take, TakeId } from "../../models/Take";
+import type { Take, TakeId, TakeMotionArtifact } from "../../models/Take";
 import { BVHWriter } from "./BVHWriter";
 import { readTakeFrames, readTakeMeta } from "../../../../infra/persistence/takeRepoFs.reader";
 import { takeRepoFs } from "../../../../infra/persistence/TakeRepo.fs";
@@ -98,6 +98,41 @@ function estimateFps(frames: PoseFrame[]): number | null {
   return (frames.length - 1) / (dt / 1000);
 }
 
+function buildExportMotionArtifact(
+  rawFrames: readonly PoseFrame[],
+  cleanedFrames: readonly PoseFrame[],
+  baked: ReturnType<typeof bakeAnimation>,
+  calibration: NonNullable<Take["calibration"]>,
+  retarget: ReturnType<typeof analyzeRetarget>,
+  validation: ExportValidationResult,
+  qualityScore: number,
+  avatarPreset: string,
+): TakeMotionArtifact {
+  const issues = validation.issues.map((issue) => issue.message);
+
+  return {
+    status:
+      validation.ok && retarget.ready && calibration.status === "ready" && qualityScore >= 70
+        ? "ready"
+        : "needs-review",
+    solverVersion: baked.solverVersion,
+    sourceSpace: baked.sourceSpace,
+    raw2dFrameCount: rawFrames.length,
+    rawWorldFrameCount: rawFrames.filter((frame) => frame.worldLandmarks).length,
+    triangulatedFrameCount: rawFrames.filter(
+      (frame) => frame.triangulated && frame.worldLandmarks,
+    ).length,
+    cleaned3dFrameCount: cleanedFrames.length,
+    bakedAvatarFrameCount: baked.frames.length,
+    calibrationFrameCount: baked.calibrationFrameCount,
+    targetPose: baked.targetPose,
+    avatarPreset,
+    qualityScore,
+    issues,
+    generatedAt: Date.now(),
+  };
+}
+
 export const TakeExporter = {
   async exportTake(takeId: TakeId, opts?: ExportOptions): Promise<ExportResult> {
     const preset = getExportPreset(opts?.presetId ?? "dcc-archive");
@@ -143,6 +178,19 @@ export const TakeExporter = {
           .join(" "),
       );
     }
+    const qualityScore = Math.round(
+      ((calibration.readinessScore * 100) + cleanup.report.qualityScore) / 2,
+    );
+    const motion = buildExportMotionArtifact(
+      rawFrames,
+      cleanedFrames,
+      baked,
+      calibration,
+      retarget,
+      validation,
+      qualityScore,
+      preset.id,
+    );
     const nextMeta: Take = await takeRepoFs.updateTakeMeta(takeId, {
       trackingProfile:
         meta.trackingProfile ??
@@ -152,9 +200,8 @@ export const TakeExporter = {
       postProcess: cleanup.report,
       retarget,
       review: meta.review,
-      qualityScore: Math.round(
-        ((calibration.readinessScore * 100) + cleanup.report.qualityScore) / 2,
-      ),
+      motion,
+      qualityScore,
     });
 
     const exportDir = ensureExportDir();
@@ -184,6 +231,7 @@ export const TakeExporter = {
             cleanup: cleanup.report,
             retarget,
             calibration,
+            motion: nextMeta.motion,
             review: nextMeta.review,
             exportPreset: {
               id: preset.id,
@@ -197,6 +245,9 @@ export const TakeExporter = {
               fps: baked.fps,
               duration: baked.duration,
               scaleMultiplier: baked.scaleMultiplier,
+              solverVersion: baked.solverVersion,
+              sourceSpace: baked.sourceSpace,
+              targetPose: baked.targetPose,
               joints: baked.nodes.map((node, index) => ({
                 sourceJoint: node.sourceJoint,
                 name: node.name,
@@ -234,6 +285,7 @@ export const TakeExporter = {
             cleanup: cleanup.report,
             retarget,
             calibration,
+            motion: nextMeta.motion,
             review: nextMeta.review,
             exportPreset: {
               id: preset.id,
@@ -247,6 +299,9 @@ export const TakeExporter = {
               fps: baked.fps,
               duration: baked.duration,
               scaleMultiplier: baked.scaleMultiplier,
+              solverVersion: baked.solverVersion,
+              sourceSpace: baked.sourceSpace,
+              targetPose: baked.targetPose,
               joints: baked.nodes.map((node, index) => ({
                 sourceJoint: node.sourceJoint,
                 name: node.name,

@@ -16,6 +16,9 @@ import androidx.lifecycle.LifecycleOwner
 import java.lang.ref.WeakReference
 import java.util.concurrent.Executors
 
+typealias PoseFrameCallback = (PoseCameraSession.FrameInfo) -> Unit
+typealias PoseErrorCallback = (String) -> Unit
+
 object PoseCameraSession {
 
   data class Config(
@@ -26,9 +29,6 @@ object PoseCameraSession {
   data class FrameInfo(
     val imageProxy: ImageProxy,
   )
-
-  typealias FrameCallback = (FrameInfo) -> Unit
-  typealias ErrorCallback = (String) -> Unit
 
   private val lock = Any()
   private val analyzerExecutor = Executors.newSingleThreadExecutor()
@@ -43,8 +43,8 @@ object PoseCameraSession {
 
   private var isRunning = false
   private var config: Config? = null
-  private var onFrame: FrameCallback? = null
-  private var onError: ErrorCallback? = null
+  private var onFrame: PoseFrameCallback? = null
+  private var onError: PoseErrorCallback? = null
 
   fun attachPreviewView(view: PreviewView?) {
     val context = view?.context?.applicationContext ?: synchronized(lock) { appContext }
@@ -68,8 +68,8 @@ object PoseCameraSession {
     context: Context,
     activity: Activity,
     config: Config,
-    onFrame: FrameCallback?,
-    onError: ErrorCallback?,
+    onFrame: PoseFrameCallback?,
+    onError: PoseErrorCallback?,
     completion: (Throwable?) -> Unit,
   ) {
     val wantsAnalysis = onFrame != null
@@ -98,8 +98,8 @@ object PoseCameraSession {
   fun setCallbacks(
     context: Context,
     activity: Activity?,
-    onFrame: FrameCallback?,
-    onError: ErrorCallback?,
+    onFrame: PoseFrameCallback?,
+    onError: PoseErrorCallback?,
     completion: ((Throwable?) -> Unit)? = null,
   ) {
     val owner = activity ?: synchronized(lock) { lastActivityRef.get() }

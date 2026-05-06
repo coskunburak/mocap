@@ -20,11 +20,20 @@ const ROOT = `${DOC_DIR ?? "file://"}mocap/takes/`;
 function takeDir(id: TakeId) {
   return `${ROOT}${id}/`;
 }
+function chunksDir(id: TakeId) {
+  return `${takeDir(id)}chunks/`;
+}
 function metaPath(id: TakeId) {
   return `${takeDir(id)}meta.json`;
 }
-function framesPath(id: TakeId) {
+function legacyFramesPath(id: TakeId) {
   return `${takeDir(id)}frames.jsonl`;
+}
+function chunkPath(id: TakeId, chunkNumber: number) {
+  return `${chunksDir(id)}${String(chunkNumber).padStart(6, "0")}.jsonl`;
+}
+function tempChunkPath(id: TakeId, chunkNumber: number) {
+  return `${takeDir(id)}.${String(chunkNumber).padStart(6, "0")}.jsonl.tmp`;
 }
 
 async function ensureDir(dir: string) {
@@ -38,6 +47,23 @@ async function writeJson(path: string, obj: unknown) {
   await FS.writeAsStringAsync(path, JSON.stringify(obj), {
     encoding: FS.EncodingType.UTF8 as any,
   } as any);
+}
+
+async function writeChunkAtomically(path: string, tempPath: string, contents: string) {
+  const tempInfo = await FS.getInfoAsync(tempPath);
+  if (tempInfo.exists) {
+    await FS.deleteAsync(tempPath, { idempotent: true });
+  }
+
+  const finalInfo = await FS.getInfoAsync(path);
+  if (finalInfo.exists) {
+    throw new Error(`Chunk already exists: ${path}`);
+  }
+
+  await FS.writeAsStringAsync(tempPath, contents, {
+    encoding: FS.EncodingType.UTF8 as any,
+  } as any);
+  await FS.moveAsync({ from: tempPath, to: path } as any);
 }
 
 async function readJson<T>(path: string): Promise<T | undefined> {
@@ -69,6 +95,18 @@ type JsonlFrame = {
   psm?: 1;
   prof?: "pose" | "holistic";
   rprof?: "auto" | "pose" | "holistic";
+  
+  // Multi-view extensions
+  mv?: 1; // Flag indicating this is a MultiViewPoseFrame
+  fa?: JsonlFrame; // frameA
+  fb?: JsonlFrame; // frameB
+  t3d?: number[];  // triangulated3D
+  re?: number[];   // reprojErrors
+  are?: number;    // avgReprojError
+  tc?: number;     // triangulatedCount
+  td?: number;     // timeDelta
+  da?: string;     // deviceA
+  db?: string;     // deviceB
 };
 
 function toStoredBlendshapes(
@@ -83,22 +121,6 @@ function toStoredBlendshapes(
   }));
 }
 
-async function appendTextFile(path: string, text: string) {
-  const info = await FS.getInfoAsync(path);
-  if (!info.exists) {
-    await FS.writeAsStringAsync(path, text, {
-      encoding: FS.EncodingType.UTF8 as any,
-    } as any);
-    return;
-  }
-  const prev = await FS.readAsStringAsync(path, {
-    encoding: FS.EncodingType.UTF8 as any,
-  } as any);
-  await FS.writeAsStringAsync(path, prev + text, {
-    encoding: FS.EncodingType.UTF8 as any,
-  } as any);
-}
-
 export const takeRepoFs = {
   async createTake(name?: string, projectId?: string, meta?: NewTakeMeta): Promise<Take> {
     await ensureDir(ROOT);
@@ -106,11 +128,9 @@ export const takeRepoFs = {
     const take = newTake(name ?? "Take", projectId, meta);
     const dir = takeDir(take.id);
     await ensureDir(dir);
+    await ensureDir(chunksDir(take.id));
 
     await writeJson(metaPath(take.id), take);
-    await FS.writeAsStringAsync(framesPath(take.id), "", {
-      encoding: FS.EncodingType.UTF8 as any,
-    } as any);
 
     return take;
   },
@@ -135,36 +155,59 @@ export const takeRepoFs = {
   async appendFrames(
     takeId: TakeId,
     chunkNumber: number,
-    frames: PoseFrame[]
+    frames: (PoseFrame | import("../../domain/mocap/models/MultiViewPoseFrame").MultiViewPoseFrame)[]
   ): Promise<{ startTs: number; endTs: number; frameCount: number }> {
     const take = await this.getTake(takeId);
     if (!take) throw new Error(`Take not found: ${takeId}`);
     if (frames.length === 0) return { startTs: 0, endTs: 0, frameCount: 0 };
 
-    const stored: JsonlFrame[] = frames.map((f) => ({
+    const serializeFrame = (f: PoseFrame): JsonlFrame => ({
       ts: f.ts,
       lm: Array.from(f.landmarks),
       wlm: f.worldLandmarks ? Array.from(f.worldLandmarks) : undefined,
       flm: f.faceLandmarks ? Array.from(f.faceLandmarks) : undefined,
       lhm: f.leftHandLandmarks ? Array.from(f.leftHandLandmarks) : undefined,
-      lhwm: f.leftHandWorldLandmarks
-        ? Array.from(f.leftHandWorldLandmarks)
-        : undefined,
+      lhwm: f.leftHandWorldLandmarks ? Array.from(f.leftHandWorldLandmarks) : undefined,
       rhm: f.rightHandLandmarks ? Array.from(f.rightHandLandmarks) : undefined,
-      rhwm: f.rightHandWorldLandmarks
-        ? Array.from(f.rightHandWorldLandmarks)
-        : undefined,
+      rhwm: f.rightHandWorldLandmarks ? Array.from(f.rightHandWorldLandmarks) : undefined,
       fbs: toStoredBlendshapes(f.faceBlendshapes),
       psm: f.hasPoseSegmentationMask ? 1 : undefined,
       prof: f.trackingProfile,
       rprof: f.requestedTrackingProfile,
-    }));
+    });
+
+    const stored: JsonlFrame[] = frames.map((f: any) => {
+      if (f.frameA && f.frameB && f.triangulated3D) {
+        // MultiViewPoseFrame
+        return {
+          ts: f.ts,
+          lm: [], // Main landmarks left empty to save space, data is in fa/fb
+          mv: 1,
+          fa: serializeFrame(f.frameA),
+          fb: serializeFrame(f.frameB),
+          t3d: Array.from(f.triangulated3D),
+          re: Array.from(f.reprojErrors),
+          are: f.avgReprojError,
+          tc: f.triangulatedCount,
+          td: f.timeDelta,
+          da: f.deviceA,
+          db: f.deviceB,
+        };
+      }
+      // Standard PoseFrame
+      return serializeFrame(f);
+    });
 
     const startTs = stored[0].ts;
     const endTs = stored[stored.length - 1].ts;
 
     const lines = stored.map((x) => JSON.stringify(x)).join("\n") + "\n";
-    await appendTextFile(framesPath(takeId), lines);
+    await ensureDir(chunksDir(takeId));
+    await writeChunkAtomically(
+      chunkPath(takeId, chunkNumber),
+      tempChunkPath(takeId, chunkNumber),
+      lines,
+    );
 
     const next: Take = {
       ...take,

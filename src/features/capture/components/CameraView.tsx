@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo } from "react";
 import {
   Linking,
+  Platform,
   StyleSheet,
   Text,
   View,
@@ -14,12 +15,15 @@ import { colors, radii, spacing, typography } from "../../../ui/theme";
 type Props = {
   onLayoutSize?: (w: number, h: number) => void;
   isActive?: boolean;
+  rounded?: boolean;
 };
 
 const NativePosePreviewView =
-  requireNativeComponent<{ style?: object }>("PosePreviewView");
+  Platform.OS === "android" || Platform.OS === "ios"
+    ? requireNativeComponent<{ style?: object }>("PosePreviewView")
+    : (props: any) => <View {...props} />;
 
-export function CameraView({ onLayoutSize, isActive = true }: Props) {
+export function CameraView({ onLayoutSize, isActive = true, rounded = true }: Props) {
   const isFocused = useIsFocused();
   const { hasPermission, requestPermission } = useCameraPermission();
   const previewEnabled = hasPermission && isFocused && isActive;
@@ -64,7 +68,7 @@ export function CameraView({ onLayoutSize, isActive = true }: Props) {
 
   return (
     <View
-      style={styles.container}
+      style={[styles.container, !rounded && styles.containerSquare]}
       onLayout={(e) => {
         const { width, height } = e.nativeEvent.layout;
         onLayoutSize?.(width, height);
@@ -81,6 +85,9 @@ const styles = StyleSheet.create({
     borderRadius: radii.lg,
     overflow: "hidden",
     backgroundColor: colors.backgroundDeep,
+  },
+  containerSquare: {
+    borderRadius: 0,
   },
   fallback: {
     flex: 1,

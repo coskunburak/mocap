@@ -27,11 +27,7 @@ function assertAvailable() {
       module: MODULE_NAME,
       availableModules: Object.keys(NativeModules ?? {}).slice(0, 10),
     });
-    const hint =
-      Platform.OS === "ios"
-        ? "iOS: pod install + rebuild. Ensure PoseEngineModule is exported."
-        : "Android: gradle sync + rebuild. Ensure module is registered.";
-    throw new Error(`[PoseEngine] Native module '${MODULE_NAME}' not found. ${hint}`);
+    throw new Error(`[PoseEngine] Native module '${MODULE_NAME}' not found. Android: gradle sync + rebuild. Ensure module is registered.`);
   }
 }
 

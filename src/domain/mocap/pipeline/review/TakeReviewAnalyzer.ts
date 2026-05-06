@@ -1,10 +1,15 @@
 import { lmAt } from "../../models/Landmark";
 import { MP33 } from "../../models/MediapipePose33";
 import type { PoseFrame } from "../../models/PoseFrame";
-import type { Take, TakeReview } from "../../models/Take";
+import type { Take, TakeMotionArtifact, TakeReview } from "../../models/Take";
 import { analyzeCalibration } from "../calibration/CalibrationAnalyzer";
 import { PoseCleanupPipeline } from "../cleanup/PoseCleanupPipeline";
 import { analyzeRetarget } from "../retarget/RetargetSolver";
+import {
+  AVATAR_MOTION_SOLVER_VERSION,
+  buildAvatarMotionClip,
+  type AvatarMotionSourceSpace,
+} from "../avatar/AvatarMotion";
 
 export type ReviewFinding = Readonly<{
   id: string;
@@ -22,6 +27,7 @@ export type TakeReviewAnalysis = Readonly<{
   calibration: ReturnType<typeof analyzeCalibration>;
   cleanup: ReturnType<typeof PoseCleanupPipeline.run>["report"];
   retarget: ReturnType<typeof analyzeRetarget>;
+  motion: TakeMotionArtifact;
   issueFrames: number[];
   findings: ReviewFinding[];
   qualityScore: number;
@@ -166,6 +172,94 @@ function buildFindings(
   return findings;
 }
 
+function estimateFps(frames: readonly PoseFrame[]) {
+  if (frames.length < 2) {
+    return 30;
+  }
+
+  const dt = frames[frames.length - 1].ts - frames[0].ts;
+  if (dt <= 0) {
+    return 30;
+  }
+
+  return Math.max(1, Math.min(120, (frames.length - 1) / (dt / 1000)));
+}
+
+function fallbackSourceSpace(frames: readonly PoseFrame[]): AvatarMotionSourceSpace {
+  if (frames.every((frame) => frame.triangulated && frame.worldLandmarks)) {
+    return "triangulated";
+  }
+  if (frames.every((frame) => frame.worldLandmarks)) {
+    return "world";
+  }
+  return "normalized";
+}
+
+function buildMotionArtifact(
+  rawFrames: readonly PoseFrame[],
+  cleanedFrames: readonly PoseFrame[],
+  calibration: ReturnType<typeof analyzeCalibration>,
+  retarget: ReturnType<typeof analyzeRetarget>,
+  findings: readonly ReviewFinding[],
+  qualityScore: number,
+): TakeMotionArtifact {
+  const rawWorldFrameCount = rawFrames.filter((frame) => frame.worldLandmarks).length;
+  const triangulatedFrameCount = rawFrames.filter(
+    (frame) => frame.triangulated && frame.worldLandmarks,
+  ).length;
+  const issues = findings
+    .filter((finding) => finding.severity !== "info")
+    .map((finding) => finding.label);
+
+  try {
+    const clip = buildAvatarMotionClip(cleanedFrames, {
+      fps: estimateFps(cleanedFrames),
+      targetPose: calibration.targetPose,
+      preserveRootMotion: "auto",
+    });
+
+    return {
+      status:
+        retarget.ready && calibration.status === "ready" && qualityScore >= 70
+          ? "ready"
+          : "needs-review",
+      solverVersion: clip.calibration.solverVersion,
+      sourceSpace: clip.calibration.sourceSpace,
+      raw2dFrameCount: rawFrames.length,
+      rawWorldFrameCount,
+      triangulatedFrameCount,
+      cleaned3dFrameCount: cleanedFrames.length,
+      bakedAvatarFrameCount: clip.frames.length,
+      calibrationFrameCount: clip.calibration.calibrationFrameCount,
+      targetPose: clip.calibration.targetPose,
+      avatarPreset: "generic-humanoid",
+      qualityScore,
+      issues,
+      generatedAt: Date.now(),
+    };
+  } catch (error) {
+    return {
+      status: "failed",
+      solverVersion: AVATAR_MOTION_SOLVER_VERSION,
+      sourceSpace: fallbackSourceSpace(rawFrames),
+      raw2dFrameCount: rawFrames.length,
+      rawWorldFrameCount,
+      triangulatedFrameCount,
+      cleaned3dFrameCount: cleanedFrames.length,
+      bakedAvatarFrameCount: 0,
+      calibrationFrameCount: 0,
+      targetPose: calibration.targetPose,
+      avatarPreset: "generic-humanoid",
+      qualityScore: 0,
+      issues: [
+        ...issues,
+        error instanceof Error ? error.message : "Avatar motion solve failed.",
+      ],
+      generatedAt: Date.now(),
+    };
+  }
+}
+
 export function analyzeTakeReview(take: Take, frames: readonly PoseFrame[]): TakeReviewAnalysis {
   const rawFrames = [...frames];
   const maxIndex = Math.max(0, rawFrames.length - 1);
@@ -198,6 +292,14 @@ export function analyzeTakeReview(take: Take, frames: readonly PoseFrame[]): Tak
       ),
     ),
   );
+  const motion = buildMotionArtifact(
+    rawFrames,
+    cleanedFrames,
+    calibration,
+    retarget,
+    findings,
+    qualityScore,
+  );
 
   return {
     rawFrames,
@@ -207,6 +309,7 @@ export function analyzeTakeReview(take: Take, frames: readonly PoseFrame[]): Tak
     calibration,
     cleanup: cleanupRun.report,
     retarget,
+    motion,
     issueFrames: issueStats.issueFrames,
     findings,
     qualityScore,

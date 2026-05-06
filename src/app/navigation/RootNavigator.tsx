@@ -4,6 +4,7 @@ import { NavigationContainer, type Theme } from "@react-navigation/native";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import CaptureScreen from "../../features/capture/screens/CaptureScreen";
+import MultiViewSetupScreen from "../../features/capture/screens/MultiViewSetupScreen";
 import ExportScreen from "../../features/exports/screens/ExportScreen";
 import ExportsListScreen from "../../features/exports/screens/ExportsListScreen";
 import ProjectDetailScreen from "../../features/projects/screens/ProjectDetailScreen";
@@ -85,26 +86,29 @@ function Tabs() {
       screenOptions={({ route }) => ({
         headerShown: false,
         tabBarHideOnKeyboard: true,
-        tabBarStyle: {
-          position: "absolute",
-          left: spacing.md,
-          right: spacing.md,
-          bottom: spacing.md,
-          height: 76,
-          paddingTop: spacing.xs,
-          paddingBottom: spacing.sm,
-          paddingHorizontal: spacing.xs,
-          borderRadius: radii.xl,
-          borderTopWidth: 0,
-          backgroundColor: colors.tabBar,
-          shadowColor: colors.black,
-          shadowOpacity: 0.32,
-          shadowRadius: 20,
-          shadowOffset: { width: 0, height: 12 },
-          elevation: 14,
-        },
+        tabBarStyle:
+          route.name === routes.Capture
+            ? { display: "none" }
+            : {
+                position: "absolute",
+                left: spacing.md,
+                right: spacing.md,
+                bottom: spacing.sm,
+                height: 62,
+                paddingTop: 6,
+                paddingBottom: 8,
+                paddingHorizontal: spacing.xs,
+                borderRadius: radii.pill,
+                borderTopWidth: 0,
+                backgroundColor: "rgba(0,0,0,0.88)",
+                shadowColor: colors.black,
+                shadowOpacity: 0.34,
+                shadowRadius: 18,
+                shadowOffset: { width: 0, height: 10 },
+                elevation: 14,
+              },
         tabBarItemStyle: {
-          borderRadius: radii.lg,
+          borderRadius: radii.pill,
         },
         tabBarLabel: ({ focused }) => (
           <TabLabel label={TAB_LABELS[route.name] ?? route.name} focused={focused} />
@@ -130,6 +134,10 @@ export default function RootNavigator() {
         />
         <Stack.Screen name={routes.Review} component={TakeReviewScreen} />
         <Stack.Screen name={routes.Export} component={ExportScreen} />
+        <Stack.Screen
+          name={routes.MultiViewSetup}
+          component={MultiViewSetupScreen}
+        />
       </Stack.Navigator>
     </NavigationContainer>
   );

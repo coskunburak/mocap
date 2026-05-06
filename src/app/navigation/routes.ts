@@ -1,5 +1,6 @@
 export const routes = {
   Capture: "Capture",
+  MultiViewSetup: "MultiViewSetup",
   ReviewHub: "ReviewHub",
   Projects: "Projects",
   ProjectDetail: "ProjectDetail",

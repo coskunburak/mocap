@@ -44,6 +44,7 @@ type CaptureState = {
 
   setSmoothing: (v: boolean) => void;
   setThresholds: (joint: number, bone: number) => void;
+  setTrackingProfile: (profile: "pose" | "holistic") => void;
 };
 
 const INITIAL_TRACKING_HINT = "Tap Start to boot the model and wait for a clean skeleton lock.";
@@ -121,4 +122,5 @@ export const useCaptureStore = create<CaptureState>((set) => ({
       jointThreshold: Math.max(0, Math.min(1, joint)),
       boneThreshold: Math.max(0, Math.min(1, bone)),
     }),
+  setTrackingProfile: (trackingProfile) => set({ trackingProfile }),
 }));

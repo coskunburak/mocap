@@ -3,6 +3,7 @@ import { MP33, mp33ToJointPose } from "../../models/MediapipePose33";
 import type { PoseFrame } from "../../models/PoseFrame";
 import type { TakePostProcess } from "../../models/Take";
 import { clamp } from "../../models/Skeleton";
+import { PoseSmoother } from "../filter/PoseSmoother";
 
 type BufferKey =
   | "landmarks"
@@ -239,40 +240,38 @@ function rejectOutliers(frames: MutableFrame[], key: BufferKey, confidenceGate: 
   return fixes;
 }
 
-function smoothTrajectories(frames: MutableFrame[], key: BufferKey, confidenceGate: number) {
+function applyEuroFilter(frames: MutableFrame[], key: BufferKey, confidenceGate: number) {
   const template = frames.find((frame) => frame[key])?.[key] as Float32Array | undefined;
   if (!template) return 0;
 
   const landmarkTotal = template.length / STRIDE;
+  const smoother = new PoseSmoother(landmarkTotal, {
+    minCutoff: 0.1,    // More aggressive cutoff for jitter removal post-process
+    beta: 0.05,        // Less responsiveness to high speed (more smoothed)
+    dCutoff: 1.0,
+    confidenceGate,
+  });
+
   let fixes = 0;
+  
+  // Calculate average dt for smoother frequency
+  const dt = frames.length > 1 ? Math.max(0.001, (frames[frames.length - 1].ts - frames[0].ts) / frames.length) : 33.3;
 
-  for (let frameIndex = 1; frameIndex < frames.length - 1; frameIndex += 1) {
-    const previous = frames[frameIndex - 1][key] as Float32Array | undefined;
+  for (let frameIndex = 0; frameIndex < frames.length; frameIndex += 1) {
     const current = frames[frameIndex][key] as Float32Array | undefined;
-    const next = frames[frameIndex + 1][key] as Float32Array | undefined;
-    if (!previous || !current || !next) continue;
+    if (!current) continue;
 
-    for (let landmarkIndex = 0; landmarkIndex < landmarkTotal; landmarkIndex += 1) {
-      if (!isValidPoint(current, landmarkIndex, confidenceGate)) continue;
+    // We pass the entire buffer into the smoother
+    const smoothedBuffer = smoother.filter(current, frames[frameIndex].ts);
 
-      const offset = landmarkIndex * STRIDE;
-      const x = previous[offset] * 0.2 + current[offset] * 0.6 + next[offset] * 0.2;
-      const y = previous[offset + 1] * 0.2 + current[offset + 1] * 0.6 + next[offset + 1] * 0.2;
-      const z = previous[offset + 2] * 0.2 + current[offset + 2] * 0.6 + next[offset + 2] * 0.2;
-      const delta =
-        Math.abs(x - current[offset]) +
-        Math.abs(y - current[offset + 1]) +
-        Math.abs(z - current[offset + 2]);
-
-      if (delta > 0.0004) {
-        current[offset] = x;
-        current[offset + 1] = y;
-        current[offset + 2] = z;
-        fixes += 1;
-      }
+    for (let i = 0; i < current.length; i++) {
+      // Just track if values actually changed
+      if (Math.abs(current[i] - smoothedBuffer[i]) > 0.0001) fixes++;
+      current[i] = smoothedBuffer[i];
     }
   }
 
+  // SmoothTrajectories is a simple moving average, EuroFilter replaces/enhances it.
   return fixes;
 }
 
@@ -525,7 +524,7 @@ export const PoseCleanupPipeline = {
     for (const key of BODY_BUFFER_KEYS) {
       gapFillCount += fillShortGaps(mutable, key, confidenceGate, maxSpan);
       outlierFixCount += rejectOutliers(mutable, key, confidenceGate);
-      trajectoryFixCount += smoothTrajectories(mutable, key, confidenceGate);
+      trajectoryFixCount += applyEuroFilter(mutable, key, confidenceGate);
     }
 
     const contactLockCount = applyFootLocks(mutable, confidenceGate);

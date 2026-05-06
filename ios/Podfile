@@ -22,7 +22,8 @@ prepare_react_native_project!
 
 target 'MocapExpo' do
   use_expo_modules!
-  pod 'MediaPipeTasksVision', '~> 0.10.0'
+  pod 'MediaPipeTasksVision', '~> 0.10.14'
+
   if ENV['EXPO_USE_COMMUNITY_AUTOLINKING'] == '1'
     config_command = ['node', '-e', "process.argv=['', '', 'config'];require('@react-native-community/cli').run()"];
   else
@@ -56,5 +57,26 @@ target 'MocapExpo' do
       :mac_catalyst_enabled => false,
       :ccache_enabled => ccache_enabled?(podfile_properties),
     )
+
+    installer.pods_project.targets.each do |target|
+      next unless target.name == 'ExpoGL'
+
+      target.build_configurations.each do |config|
+        definitions = config.build_settings['GCC_PREPROCESSOR_DEFINITIONS'] || ['$(inherited)']
+        definitions = [definitions] if definitions.is_a?(String)
+        definitions << 'STB_IMAGE_STATIC=1' unless definitions.include?('STB_IMAGE_STATIC=1')
+        config.build_settings['GCC_PREPROCESSOR_DEFINITIONS'] = definitions
+      end
+    end
+
+    installer.pods_project.targets.each do |target|
+      next unless target.name == 'hermes-engine'
+
+      target.shell_script_build_phases.each do |phase|
+        next unless phase.name == '[CP-User] [Hermes] Replace Hermes for the right configuration, if needed'
+
+        phase.always_out_of_date = '1'
+      end
+    end
   end
 end
