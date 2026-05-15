@@ -19,6 +19,7 @@ import {
   validateBvhText,
   validateSolvedMotion,
 } from "./export/exportValidation";
+import { trySolvePremiumMotion, type PremiumSolveAttempt } from "./export/premiumMotionSolver";
 import { solveMotion } from "./export/solveMotion";
 import { detectPoseFrames } from "./pose/poseDetector";
 import { reconstructDualCameraPose } from "./reconstruction/dualCameraReconstruction";
@@ -27,6 +28,7 @@ import { normalizeVideo, probeVideo } from "./video/videoPipeline";
 import type {
   DualCameraReconstructionArtifact,
   MultiViewReconstructionArtifact,
+  MotionPipelineReport,
   PoseFramesArtifact,
 } from "./types";
 
@@ -374,6 +376,13 @@ export class WorkerJobProcessor {
         );
       }
 
+      const motionSource =
+        reconstruction?.schema === "mocap.multi_view_reconstruction.v1"
+          ? "multi_view"
+          : reconstruction?.schema === "mocap.dual_reconstruction.v1"
+            ? "dual_camera"
+            : "single_camera";
+
       await this.jobs.updateState({
         jobId: job.id,
         state: "solving_motion",
@@ -389,16 +398,45 @@ export class WorkerJobProcessor {
         },
       });
 
-      const rawSolved = solveMotion(poseArtifact, {
+      let premiumAttempt: PremiumSolveAttempt = {
+        attempted: false,
+        solver: "wham",
+        skippedReason: "Premium solver was not requested.",
+      };
+      premiumAttempt = await trySolvePremiumMotion({
+        takeId: job.takeId,
+        jobId: job.id,
+        poseArtifact,
+        source: motionSource,
         presetId: job.preset,
-        source:
-          reconstruction?.schema === "mocap.multi_view_reconstruction.v1"
-            ? "multi_view"
-            : reconstruction?.schema === "mocap.dual_reconstruction.v1"
-              ? "dual_camera"
-              : "single_camera",
+        outputDir: path.join(dir, "premium_solver"),
+        normalizedVideoPaths: processedSources.map((source) => source.normalizedPath),
       });
-      const rawSolvedValidation = validateSolvedMotion(rawSolved);
+
+      let rawSolved =
+        premiumAttempt.attempted && "motion" in premiumAttempt
+          ? premiumAttempt.motion
+          : solveMotion(poseArtifact, {
+              presetId: job.preset,
+              source: motionSource,
+            });
+      let rawSolvedValidation = validateSolvedMotion(rawSolved);
+      if (
+        !rawSolvedValidation.ok &&
+        rawSolved.solver?.premium &&
+        !config.worker.requirePremiumMotion
+      ) {
+        premiumAttempt = {
+          attempted: true,
+          solver: "wham",
+          failedReason: `Premium solve failed validation: ${rawSolvedValidation.errors.join(", ")}`,
+        };
+        rawSolved = solveMotion(poseArtifact, {
+          presetId: job.preset,
+          source: motionSource,
+        });
+        rawSolvedValidation = validateSolvedMotion(rawSolved);
+      }
       if (!rawSolvedValidation.ok) {
         throw new WorkerProcessingError(
           "Solved motion failed validation.",
@@ -571,6 +609,72 @@ export class WorkerJobProcessor {
         fileSizeBytes: previewFile.sizeBytes,
       });
 
+      const motionFallbackReason =
+        "failedReason" in premiumAttempt
+          ? premiumAttempt.failedReason
+          : "skippedReason" in premiumAttempt
+            ? premiumAttempt.skippedReason === "MOTION_SOLVER is set to builtin."
+              ? undefined
+              : premiumAttempt.skippedReason
+            : undefined;
+      const pipelineReasons = [
+        poseArtifact.detector.fallbackReason,
+        motionFallbackReason,
+      ].filter((reason): reason is string => Boolean(reason));
+      const pipelineReport: MotionPipelineReport = {
+        schema: "mocap.motion_pipeline_report.v1",
+        takeId: job.takeId,
+        jobId: job.id,
+        profile: "mobile_fast_backend_premium_hybrid",
+        engines: {
+          mobilePreview: "mediapipe_full_heavy",
+          backendPose: `${poseArtifact.detector.name}@${poseArtifact.detector.version}`,
+          backendMotion: solved.solver
+            ? `${solved.solver.name}@${solved.solver.version}`
+            : "builtin_humanoid",
+          reconstruction: motionSource,
+          cleanup: "cleanup_quality_v1_5",
+        },
+        fallback: {
+          poseFallbackUsed: Boolean(poseArtifact.detector.fallbackReason),
+          motionFallbackUsed: Boolean(motionFallbackReason),
+          reasons: pipelineReasons,
+        },
+        artifacts: {
+          poseFrames: poseKey,
+          rawSolvedMotion: rawSolvedKey,
+          solvedMotion: solvedKey,
+          cleanupReport: cleanupKey,
+          reconstruction: reconstructionKey,
+          qualityReport: qualityKey,
+          previewSummary: previewKey,
+          bvh: bvhKey,
+        },
+        quality: {
+          score: quality.score,
+          grade: quality.grade,
+          warnings: quality.warnings.slice(0, 12),
+          errors: quality.errors,
+        },
+        createdAt: new Date().toISOString(),
+      };
+      const pipelineKey = artifactStorageKey(
+        job.takeId,
+        job.id,
+        "motion_pipeline_report.json",
+      );
+      const pipelineFile = await this.storage.putJson(pipelineKey, pipelineReport);
+      await this.exports.create({
+        userId: job.userId,
+        projectId: job.projectId,
+        takeId: job.takeId,
+        jobId: job.id,
+        preset: job.preset,
+        format: "motion_pipeline_report_json",
+        storageKey: pipelineFile.storageKey,
+        fileSizeBytes: pipelineFile.sizeBytes,
+      });
+
       await this.jobs.updateState({
         jobId: job.id,
         state: "succeeded",
@@ -588,6 +692,7 @@ export class WorkerJobProcessor {
             bvh: bvhKey,
             qualityReport: qualityKey,
             previewSummary: previewKey,
+            motionPipelineReport: pipelineKey,
           },
         },
       });

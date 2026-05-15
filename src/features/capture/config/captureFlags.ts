@@ -7,9 +7,16 @@ function readEnv(name: string) {
   return maybeProcess?.env?.[name];
 }
 
-export const captureFlags = {
-  localFrameRecording:
-    readEnv("EXPO_PUBLIC_MOCAP_LOCAL_FRAME_RECORDING") === "debug" ||
-    readEnv("MOCAP_LOCAL_FRAME_RECORDING") === "debug",
-};
+function readPreviewFrameRecording() {
+  const value =
+    readEnv("EXPO_PUBLIC_MOCAP_LOCAL_FRAME_RECORDING") ??
+    readEnv("MOCAP_LOCAL_FRAME_RECORDING");
 
+  if (!value) return true;
+  const normalized = value.trim().toLowerCase();
+  return normalized !== "0" && normalized !== "false" && normalized !== "off";
+}
+
+export const captureFlags = {
+  localFrameRecording: readPreviewFrameRecording(),
+};

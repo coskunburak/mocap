@@ -1,0 +1,5 @@
+joblib==1.4.2
+loguru==0.7.3
+opencv-python-headless==4.10.0.84
+numpy==1.26.4
+runpod>=1.7,<2

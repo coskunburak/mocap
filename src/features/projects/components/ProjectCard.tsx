@@ -84,10 +84,10 @@ const styles = StyleSheet.create({
   countBadge: {
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.xs,
-    borderRadius: radii.pill,
+    borderRadius: 8,
     borderWidth: 1,
     borderColor: colors.borderAccent,
-    backgroundColor: colors.accentSoft,
+    backgroundColor: "rgba(108, 242, 214, 0.12)",
   },
   countText: {
     ...typography.label.sm,
@@ -101,10 +101,10 @@ const styles = StyleSheet.create({
   metric: {
     minWidth: 96,
     flexGrow: 1,
-    borderRadius: radii.md,
+    borderRadius: 8,
     padding: spacing.md,
     gap: spacing.xxs,
-    backgroundColor: "rgba(9, 20, 35, 0.66)",
+    backgroundColor: "rgba(255, 255, 255, 0.045)",
     borderWidth: 1,
     borderColor: colors.line,
   },

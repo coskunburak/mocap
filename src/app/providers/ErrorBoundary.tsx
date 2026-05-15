@@ -53,7 +53,7 @@ const styles = StyleSheet.create({
   panel: {
     width: "100%",
     maxWidth: 420,
-    borderRadius: radii.xl,
+    borderRadius: 8,
     padding: spacing.xl,
     gap: spacing.md,
     backgroundColor: colors.surfaceGlass,

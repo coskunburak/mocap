@@ -384,7 +384,7 @@ const styles = StyleSheet.create({
   },
   input: {
     minHeight: 54,
-    borderRadius: radii.md,
+    borderRadius: 8,
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.sm,
     borderWidth: 1,
@@ -403,10 +403,10 @@ const styles = StyleSheet.create({
   },
   presetCard: {
     padding: spacing.md,
-    borderRadius: radii.md,
+    borderRadius: 8,
     borderWidth: 1,
     borderColor: colors.line,
-    backgroundColor: "rgba(9, 20, 35, 0.72)",
+    backgroundColor: "rgba(255, 255, 255, 0.045)",
     gap: spacing.xs,
   },
   presetCardActive: {
@@ -431,8 +431,8 @@ const styles = StyleSheet.create({
   pill: {
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.sm,
-    borderRadius: radii.pill,
-    backgroundColor: "rgba(9, 20, 35, 0.72)",
+    borderRadius: 8,
+    backgroundColor: "rgba(255, 255, 255, 0.045)",
     borderWidth: 1,
     borderColor: colors.border,
   },
@@ -454,10 +454,10 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
   },
   recentItem: {
-    borderRadius: radii.md,
+    borderRadius: 8,
     padding: spacing.md,
     gap: spacing.xxs,
-    backgroundColor: "rgba(9, 20, 35, 0.72)",
+    backgroundColor: "rgba(255, 255, 255, 0.045)",
     borderWidth: 1,
     borderColor: colors.line,
   },

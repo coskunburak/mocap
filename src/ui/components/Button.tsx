@@ -50,11 +50,11 @@ const VARIANTS: Record<ButtonVariant, ViewStyle> = {
     borderColor: colors.accent,
   },
   secondary: {
-    backgroundColor: colors.surfaceRaised,
+    backgroundColor: "rgba(255, 255, 255, 0.075)",
     borderColor: colors.borderStrong,
   },
   ghost: {
-    backgroundColor: colors.transparent,
+    backgroundColor: "rgba(0, 0, 0, 0.26)",
     borderColor: colors.border,
   },
   danger: {

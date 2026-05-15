@@ -127,6 +127,17 @@ function presetSummary(preset: MotionRetargetPreset): NonNullable<SolvedMotionAr
   };
 }
 
+function solverSummary(
+  source: SolveMotionOptions["source"],
+): NonNullable<SolvedMotionArtifact["solver"]> {
+  return {
+    name: "builtin_humanoid",
+    version: "builtin_humanoid_solver_v1",
+    source: source ?? "single_camera",
+    premium: false,
+  };
+}
+
 function clampEulerWithPreset(
   jointName: string,
   rotation: Euler,
@@ -258,6 +269,7 @@ export function solveMotion(
       schema: "mocap.solved_motion.v1",
       takeId: artifact.takeId,
       jobId: artifact.jobId,
+      solver: solverSummary(options.source),
       preset: presetSummary(preset),
       ik: {
         enabled: preset.constraints.length > 0,
@@ -301,6 +313,7 @@ export function solveMotion(
     schema: "mocap.solved_motion.v1",
     takeId: artifact.takeId,
     jobId: artifact.jobId,
+    solver: solverSummary(options.source),
     preset: presetSummary(preset),
     ik: {
       enabled: preset.constraints.length > 0,

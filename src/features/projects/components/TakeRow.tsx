@@ -109,10 +109,10 @@ const styles = StyleSheet.create({
   badge: {
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.xs,
-    borderRadius: radii.pill,
+    borderRadius: 8,
     borderWidth: 1,
     borderColor: colors.borderStrong,
-    backgroundColor: "rgba(9, 20, 35, 0.72)",
+    backgroundColor: "rgba(0, 0, 0, 0.52)",
   },
   badgeText: {
     ...typography.label.sm,

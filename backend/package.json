@@ -9,8 +9,12 @@
     "start": "node dist/index.js",
     "worker:dev": "tsx src/worker/index.ts",
     "worker:start": "node dist/worker/index.js",
+    "worker:preflight:wham": "node dist/worker/whamDeploymentPreflight.js",
+    "worker:preflight:wham:dev": "tsx src/worker/whamDeploymentPreflight.ts",
     "qa:golden": "tsx src/qa/goldenE2e.ts",
-    "migrate": "psql \"$DATABASE_URL\" -f migrations/001_initial_schema.sql && psql \"$DATABASE_URL\" -f migrations/002_dual_camera_sessions.sql",
+    "qa:wham-fixture": "tsx src/qa/whamFixtureJob.ts",
+    "qa:wham-live-api": "tsx src/qa/whamLiveApiJob.ts",
+    "migrate": "node scripts/migrate.cjs",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {

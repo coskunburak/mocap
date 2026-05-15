@@ -228,11 +228,19 @@ export default function ProjectsListScreen() {
                 badge={takeBadge(take)}
                 tone={takeTone(take)}
                 onPress={() =>
-                  navigation.navigate(routes.Review, {
+                  navigation.navigate(routes.MotionPreview, {
                     takeId: take.id,
                   })
                 }
                 actions={[
+                  {
+                    label: "Preview",
+                    variant: "primary",
+                    onPress: () =>
+                      navigation.navigate(routes.MotionPreview, {
+                        takeId: take.id,
+                      }),
+                  },
                   {
                     label: "Review",
                     variant: "secondary",
@@ -243,7 +251,7 @@ export default function ProjectsListScreen() {
                   },
                   {
                     label: "Export",
-                    variant: "primary",
+                    variant: "secondary",
                     onPress: () =>
                       navigation.navigate(routes.Export, {
                         takeId: take.id,
@@ -321,10 +329,10 @@ const styles = StyleSheet.create({
   statCard: {
     minWidth: 140,
     flexGrow: 1,
-    borderRadius: radii.md,
+    borderRadius: 8,
     padding: spacing.md,
     gap: spacing.xs,
-    backgroundColor: "rgba(16, 29, 44, 0.78)",
+    backgroundColor: "rgba(255, 255, 255, 0.045)",
     borderWidth: 1,
     borderColor: colors.border,
   },

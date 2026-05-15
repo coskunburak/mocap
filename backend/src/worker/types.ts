@@ -11,6 +11,11 @@ export type PoseFrameArtifactFrame = {
   timestampMs: number;
   landmarks: PoseLandmark[];
   worldLandmarks?: PoseLandmark[];
+  landmarkSchema?: "mediapipe_pose_33" | "coco_wholebody_133" | "custom";
+  wholeBodyLandmarks?: PoseLandmark[];
+  faceLandmarks?: PoseLandmark[];
+  leftHandLandmarks?: PoseLandmark[];
+  rightHandLandmarks?: PoseLandmark[];
   poseConfidence: number;
   detectorVersion: string;
 };
@@ -30,6 +35,8 @@ export type PoseFramesArtifact = {
   detector: {
     name: string;
     version: string;
+    landmarkSchema?: "mediapipe_pose_33" | "coco_wholebody_133" | "custom";
+    fallbackReason?: string;
   };
   frames: PoseFrameArtifactFrame[];
   quality: {
@@ -51,6 +58,14 @@ export type SolvedMotionArtifact = {
   schema: "mocap.solved_motion.v1";
   takeId: string;
   jobId: string;
+  solver?: {
+    name: "builtin_humanoid" | "wham" | "external_premium";
+    version: string;
+    source: "single_camera" | "dual_camera" | "multi_view";
+    premium: boolean;
+    fallbackReason?: string;
+    metrics?: Record<string, number | string | boolean>;
+  };
   preset?: {
     id: string;
     label: string;
@@ -138,6 +153,42 @@ export type PreviewSummary = {
   };
   contactFrames: number;
   warnings: string[];
+};
+
+export type MotionPipelineReport = {
+  schema: "mocap.motion_pipeline_report.v1";
+  takeId: string;
+  jobId: string;
+  profile: "mobile_fast_backend_premium_hybrid";
+  engines: {
+    mobilePreview: "mediapipe_full_heavy";
+    backendPose: string;
+    backendMotion: string;
+    reconstruction: "single_camera" | "dual_camera" | "multi_view";
+    cleanup: "cleanup_quality_v1_5";
+  };
+  fallback: {
+    poseFallbackUsed: boolean;
+    motionFallbackUsed: boolean;
+    reasons: string[];
+  };
+  artifacts: {
+    poseFrames: string;
+    rawSolvedMotion: string;
+    solvedMotion: string;
+    cleanupReport: string;
+    reconstruction?: string;
+    qualityReport: string;
+    previewSummary: string;
+    bvh: string;
+  };
+  quality: {
+    score: number;
+    grade: QualityReport["grade"];
+    warnings: string[];
+    errors: string[];
+  };
+  createdAt: string;
 };
 
 export type DualCameraReconstructionArtifact = {

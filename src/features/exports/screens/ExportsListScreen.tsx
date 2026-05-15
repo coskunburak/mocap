@@ -316,10 +316,10 @@ const styles = StyleSheet.create({
   statCard: {
     minWidth: 140,
     flexGrow: 1,
-    borderRadius: radii.md,
+    borderRadius: 8,
     padding: spacing.md,
     gap: spacing.xs,
-    backgroundColor: "rgba(16, 29, 44, 0.78)",
+    backgroundColor: "rgba(255, 255, 255, 0.045)",
     borderWidth: 1,
     borderColor: colors.border,
   },

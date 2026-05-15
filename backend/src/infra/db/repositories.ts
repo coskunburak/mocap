@@ -17,6 +17,29 @@ function id(prefix: string) {
   return `${prefix}_${randomUUID().replaceAll("-", "")}`;
 }
 
+function nullableNumber(value: unknown) {
+  if (value == null) return null;
+  const parsed = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function rowToExportFile(row: Record<string, unknown>): ExportFile {
+  const item = rowToIso(row) as ExportFile;
+  return {
+    ...item,
+    fileSizeBytes: nullableNumber(item.fileSizeBytes),
+  };
+}
+
+function rowToCaptureVideo(row: Record<string, unknown>): CaptureVideo {
+  const item = rowToIso(row) as CaptureVideo;
+  return {
+    ...item,
+    fileSizeBytes: nullableNumber(item.fileSizeBytes),
+    metadataSizeBytes: nullableNumber(item.metadataSizeBytes),
+  };
+}
+
 export class ProjectRepository {
   async create(userId: string, name: string): Promise<Project> {
     const result = await pool.query(
@@ -579,7 +602,7 @@ export class UploadRepository {
       await client.query("commit");
       return {
         uploadSession: rowToIso(upload.rows[0]),
-        captureVideo: rowToIso(video.rows[0]),
+        captureVideo: rowToCaptureVideo(video.rows[0]),
       };
     } catch (error) {
       await client.query("rollback");
@@ -623,7 +646,7 @@ export class UploadRepository {
       `,
       [userId, takeId],
     );
-    return result.rows.map(rowToIso);
+    return result.rows.map(rowToCaptureVideo);
   }
 
   async complete(input: {
@@ -683,7 +706,7 @@ export class UploadRepository {
       await client.query("commit");
       return {
         uploadSession: rowToIso(upload.rows[0]),
-        captureVideo: rowToIso(video.rows[0]),
+        captureVideo: rowToCaptureVideo(video.rows[0]),
       };
     } catch (error) {
       await client.query("rollback");
@@ -756,6 +779,35 @@ export class JobRepository {
           j.state, j.preset, j.progress, j.message, j.error_code as "errorCode",
           j.retry_of_job_id as "retryOfJobId", j.created_at as "createdAt", j.updated_at as "updatedAt"
       `,
+    );
+    if (!result.rowCount) return null;
+    const job = rowToIso(result.rows[0]);
+    await this.appendTimeline(job.id, job.state, job.message, null);
+    return job;
+  }
+
+  async claimQueuedById(jobId: string): Promise<ProcessingJob | null> {
+    const result = await pool.query(
+      `
+        with target_job as (
+          select id
+          from processing_jobs
+          where id = $1 and state = 'queued'
+          for update skip locked
+        )
+        update processing_jobs j
+        set state = 'ingesting',
+          progress = 5,
+          message = 'RunPod worker claimed job.',
+          error_code = null,
+          updated_at = now()
+        from target_job
+        where j.id = target_job.id
+        returning j.id, j.user_id as "userId", j.project_id as "projectId", j.take_id as "takeId",
+          j.state, j.preset, j.progress, j.message, j.error_code as "errorCode",
+          j.retry_of_job_id as "retryOfJobId", j.created_at as "createdAt", j.updated_at as "updatedAt"
+      `,
+      [jobId],
     );
     if (!result.rowCount) return null;
     const job = rowToIso(result.rows[0]);
@@ -864,7 +916,7 @@ export class ExportRepository {
         input.fileSizeBytes,
       ],
     );
-    return rowToIso(result.rows[0]);
+    return rowToExportFile(result.rows[0]);
   }
 
   async listByTake(userId: string, takeId: string): Promise<ExportFile[]> {
@@ -879,7 +931,7 @@ export class ExportRepository {
       `,
       [userId, takeId],
     );
-    return result.rows.map(rowToIso);
+    return result.rows.map(rowToExportFile);
   }
 
   async get(userId: string, exportId: string): Promise<ExportFile> {
@@ -894,6 +946,6 @@ export class ExportRepository {
       [userId, exportId],
     );
     if (!result.rowCount) throw notFound("Export not found");
-    return rowToIso(result.rows[0]);
+    return rowToExportFile(result.rows[0]);
   }
 }

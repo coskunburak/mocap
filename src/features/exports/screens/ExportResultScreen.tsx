@@ -55,6 +55,49 @@ type PreviewSummary = {
   warnings: string[];
 };
 
+type MotionPipelineReport = {
+  schema: "mocap.motion_pipeline_report.v1";
+  profile: "mobile_fast_backend_premium_hybrid";
+  engines: {
+    mobilePreview: string;
+    backendPose: string;
+    backendMotion: string;
+    reconstruction: "single_camera" | "dual_camera" | "multi_view";
+    cleanup: string;
+  };
+  fallback: {
+    poseFallbackUsed: boolean;
+    motionFallbackUsed: boolean;
+    reasons: string[];
+  };
+  quality: {
+    score: number;
+    grade: string;
+    warnings: string[];
+    errors: string[];
+  };
+};
+
+type SolvedMotionArtifact = {
+  schema: "mocap.solved_motion.v1";
+  fps: number;
+  frameCount: number;
+  durationMs: number;
+  solver?: {
+    name: "builtin_humanoid" | "wham" | "external_premium";
+    version: string;
+    source: "single_camera" | "dual_camera" | "multi_view";
+    premium: boolean;
+    fallbackReason?: string;
+    metrics?: Record<string, number | string | boolean>;
+  };
+  validation?: {
+    ok: boolean;
+    warnings: string[];
+    errors: string[];
+  };
+};
+
 type DualReconstruction = {
   schema: "mocap.dual_reconstruction.v1";
   sync: {
@@ -153,6 +196,22 @@ function metricPercent(value: number | undefined) {
   return `${Math.round(Math.max(0, Math.min(1, value)) * 100)}%`;
 }
 
+function metricText(value: unknown) {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return Number.isInteger(value) ? String(value) : value.toFixed(1);
+  }
+  if (typeof value === "boolean") return value ? "yes" : "no";
+  if (typeof value === "string" && value.length > 0) return value;
+  return "-";
+}
+
+function solverTitle(motion: SolvedMotionArtifact | null) {
+  if (!motion?.solver) return "Motion Solve";
+  if (motion.solver.name === "wham") return "WHAM Premium Solve";
+  if (motion.solver.premium) return "Premium Motion Solve";
+  return "Built-in Motion Solve";
+}
+
 async function readExportJson<T>(file: ApiExportFile): Promise<T> {
   const signed = await container.exportService.getDownloadUrl(file.id);
   const response = await fetch(signed.downloadUrl);
@@ -172,6 +231,8 @@ export default function ExportResultScreen() {
   const [job, setJob] = useState<ApiProcessingJob | null>(null);
   const [quality, setQuality] = useState<QualityReport | null>(null);
   const [preview, setPreview] = useState<PreviewSummary | null>(null);
+  const [motionPipeline, setMotionPipeline] = useState<MotionPipelineReport | null>(null);
+  const [solvedMotion, setSolvedMotion] = useState<SolvedMotionArtifact | null>(null);
   const [dualReconstruction, setDualReconstruction] = useState<DualReconstruction | null>(null);
   const [multiViewReconstruction, setMultiViewReconstruction] =
     useState<MultiViewReconstruction | null>(null);
@@ -202,10 +263,18 @@ export default function ExportResultScreen() {
       }
       const qualityFile = list.find((file) => file.format === "quality_report_json");
       const previewFile = list.find((file) => file.format === "preview_summary_json");
+      const pipelineFile = list.find((file) => file.format === "motion_pipeline_report_json");
+      const solvedMotionFile = list.find((file) => file.format === "solved_motion_json");
       const dualFile = list.find((file) => file.format === "dual_reconstruction_json");
       const multiViewFile = list.find((file) => file.format === "multi_view_reconstruction_json");
       setQuality(qualityFile ? await readExportJson<QualityReport>(qualityFile) : null);
       setPreview(previewFile ? await readExportJson<PreviewSummary>(previewFile) : null);
+      setMotionPipeline(
+        pipelineFile ? await readExportJson<MotionPipelineReport>(pipelineFile) : null,
+      );
+      setSolvedMotion(
+        solvedMotionFile ? await readExportJson<SolvedMotionArtifact>(solvedMotionFile) : null,
+      );
       setDualReconstruction(dualFile ? await readExportJson<DualReconstruction>(dualFile) : null);
       setMultiViewReconstruction(
         multiViewFile ? await readExportJson<MultiViewReconstruction>(multiViewFile) : null,
@@ -319,6 +388,90 @@ export default function ExportResultScreen() {
             <PreviewBar label="root travel" value={`${preview.rootTravel.toFixed(1)}u`} />
             <PreviewBar label="contact" value={String(preview.contactFrames)} />
           </View>
+        </Card>
+      ) : null}
+
+      {motionPipeline ? (
+        <Card
+          tone={
+            motionPipeline.fallback.poseFallbackUsed ||
+            motionPipeline.fallback.motionFallbackUsed
+              ? "default"
+              : "accent"
+          }
+          style={styles.card}
+        >
+          <View style={styles.listHeader}>
+            <Text style={styles.label}>Motion Pipeline</Text>
+            <Text style={styles.meta}>
+              {motionPipeline.quality.score}% {motionPipeline.quality.grade}
+            </Text>
+          </View>
+          <View style={styles.pipelineList}>
+            <PipelineRow label="mobile" value={motionPipeline.engines.mobilePreview} />
+            <PipelineRow label="pose" value={motionPipeline.engines.backendPose} />
+            <PipelineRow label="motion" value={motionPipeline.engines.backendMotion} />
+            <PipelineRow label="source" value={motionPipeline.engines.reconstruction} />
+            <PipelineRow label="cleanup" value={motionPipeline.engines.cleanup} />
+          </View>
+          {motionPipeline.fallback.reasons.slice(0, 3).map((reason) => (
+            <Text key={reason} style={styles.warningText}>{reason}</Text>
+          ))}
+        </Card>
+      ) : null}
+
+      {solvedMotion ? (
+        <Card tone={solvedMotion.solver?.premium ? "accent" : "default"} style={styles.card}>
+          <View style={styles.listHeader}>
+            <Text style={styles.label}>{solverTitle(solvedMotion)}</Text>
+            <Text style={styles.meta}>
+              {solvedMotion.validation?.ok === false ? "check" : "valid"}
+            </Text>
+          </View>
+          <View style={styles.metricGrid}>
+            <QualityMetric
+              label="frames"
+              value={`${solvedMotion.frameCount} @ ${solvedMotion.fps.toFixed(1)}fps`}
+            />
+            <QualityMetric
+              label="duration"
+              value={formatDuration(solvedMotion.durationMs)}
+            />
+            <QualityMetric
+              label="source"
+              value={solvedMotion.solver?.source.replace(/_/g, " ") ?? "-"}
+            />
+            <QualityMetric
+              label="version"
+              value={solvedMotion.solver?.version ?? "-"}
+            />
+          </View>
+          {solvedMotion.solver?.metrics ? (
+            <View style={styles.pipelineList}>
+              <PipelineRow
+                label="subject"
+                value={metricText(solvedMotion.solver.metrics.whamSubjectId)}
+              />
+              <PipelineRow
+                label="wham frames"
+                value={metricText(solvedMotion.solver.metrics.whamFrameCount)}
+              />
+              <PipelineRow
+                label="source frames"
+                value={metricText(solvedMotion.solver.metrics.sourceVideoFrameCount)}
+              />
+              <PipelineRow
+                label="tracked subjects"
+                value={metricText(solvedMotion.solver.metrics.trackingSubjectCount)}
+              />
+            </View>
+          ) : null}
+          {solvedMotion.solver?.fallbackReason ? (
+            <Text style={styles.warningText}>{solvedMotion.solver.fallbackReason}</Text>
+          ) : null}
+          {solvedMotion.validation?.warnings.slice(0, 3).map((warning) => (
+            <Text key={warning} style={styles.warningText}>{warning}</Text>
+          ))}
         </Card>
       ) : null}
 
@@ -613,6 +766,15 @@ function QualityMetric({ label, value }: { label: string; value: string }) {
   );
 }
 
+function PipelineRow({ label, value }: { label: string; value: string }) {
+  return (
+    <View style={styles.pipelineRow}>
+      <Text style={styles.meta}>{label}</Text>
+      <Text style={styles.pipelineValue} numberOfLines={2}>{value}</Text>
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
   container: {
     gap: spacing.md,
@@ -682,6 +844,25 @@ const styles = StyleSheet.create({
   },
   metricValue: {
     ...typography.label.lg,
+    color: colors.textPrimary,
+  },
+  pipelineList: {
+    gap: spacing.xs,
+  },
+  pipelineRow: {
+    minHeight: 44,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: spacing.md,
+    paddingVertical: spacing.xs,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+  },
+  pipelineValue: {
+    ...typography.label.sm,
+    flex: 1,
+    textAlign: "right",
     color: colors.textPrimary,
   },
   actionItem: {

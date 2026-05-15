@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Alert, Pressable, StyleSheet, Text, View } from "react-native";
 import { useNavigation } from "@react-navigation/native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -76,6 +76,9 @@ try {
 type Nav = any;
 type CaptureModel = "lite" | "full";
 type CaptureView = "front" | "back";
+
+const RECORD_COUNTDOWN_SECONDS = 5;
+const RECORD_COUNTDOWN_TICK_MS = 100;
 
 function trackingLabel(state: "waiting" | "searching" | "stabilizing" | "ready" | "lost") {
   switch (state) {
@@ -190,15 +193,13 @@ export default function CaptureScreen() {
   } = useCaptureStore();
 
   const [size, setSize] = useState({ w: 0, h: 0 });
-  const [show3DAvatar, setShow3DAvatar] = useState(true);
   const [navOpen, setNavOpen] = useState(false);
   const [captureModel, setCaptureModel] = useState<CaptureModel>("full");
   const [captureView, setCaptureView] = useState<CaptureView>("front");
   const [countdown, setCountdown] = useState<number | null>(null);
   const [recordStartedAt, setRecordStartedAt] = useState<number | null>(null);
   const [elapsedMs, setElapsedMs] = useState(0);
-  const [LiveAvatarViewer, setLiveAvatarViewer] =
-    useState<React.ComponentType<{ modelUrl?: string; frame?: PoseFrame }> | null>(null);
+  const countdownEndsAtRef = useRef<number | null>(null);
 
   const { processLocalFrame, sendFrameToHost, state: mvState } = useMultiViewCapture();
 
@@ -262,29 +263,6 @@ export default function CaptureScreen() {
         ? "ready"
         : trackingLabel(trackingState)
       : status;
-
-  const ensureAvatarViewer = useCallback(() => {
-    if (LiveAvatarViewer) return true;
-
-    try {
-      const viewer = require("../components/LiveAvatarViewer")
-        .LiveAvatarViewer as React.ComponentType<{ modelUrl?: string; frame?: PoseFrame }>;
-      setLiveAvatarViewer(() => viewer);
-      return true;
-    } catch (e: any) {
-      console.warn("[CaptureScreen] 3D avatar viewer failed to load", e);
-      setError?.(e?.message ?? "3D avatar viewer failed to load.");
-      return false;
-    }
-  }, [LiveAvatarViewer, setError]);
-
-  const onToggleAvatar = useCallback(() => {
-    if (!show3DAvatar && !ensureAvatarViewer()) {
-      return;
-    }
-
-    setShow3DAvatar((value) => !value);
-  }, [ensureAvatarViewer, show3DAvatar]);
 
   const onStartCapture = useCallback(async () => {
     await startCapture({
@@ -368,6 +346,59 @@ export default function CaptureScreen() {
     mvState.captureMode,
     mvState.sessionId,
   ]);
+  const onStartRecordRef = useRef(onStartRecord);
+  const countdownGuardsRef = useRef({
+    isRecording,
+    readyForRecording,
+    status,
+    trackingHint,
+  });
+
+  useEffect(() => {
+    onStartRecordRef.current = onStartRecord;
+  }, [onStartRecord]);
+
+  useEffect(() => {
+    countdownGuardsRef.current = {
+      isRecording,
+      readyForRecording,
+      status,
+      trackingHint,
+    };
+  }, [isRecording, readyForRecording, status, trackingHint]);
+
+  const beginRecordingCountdown = useCallback(() => {
+    if (isEngineBusy || recorderState.status === "stopping" || countdown != null) {
+      return;
+    }
+    if (isRecording) {
+      return;
+    }
+    if (status !== "capturing") {
+      setError?.("Start capture before recording.");
+      return;
+    }
+    if (!readyForRecording) {
+      setError?.(trackingHint);
+      return;
+    }
+    if (recorderState.status !== "idle") {
+      return;
+    }
+
+    setError?.(undefined);
+    countdownEndsAtRef.current = Date.now() + RECORD_COUNTDOWN_SECONDS * 1000;
+    setCountdown(RECORD_COUNTDOWN_SECONDS);
+  }, [
+    countdown,
+    isEngineBusy,
+    isRecording,
+    readyForRecording,
+    recorderState.status,
+    setError,
+    status,
+    trackingHint,
+  ]);
 
   const onStopRecord = useCallback(async () => {
     try {
@@ -380,11 +411,10 @@ export default function CaptureScreen() {
         return;
       }
 
-      if (env.enableBackendCaptureFlow) {
-        navigation.navigate(routes.UploadProgress as never, { takeId } as never);
-      } else {
-        navigation.navigate(routes.Review as never, { takeId } as never);
-      }
+      navigation.navigate(routes.MotionPreview as never, {
+        takeId,
+        continueBackend: env.enableBackendCaptureFlow,
+      } as never);
     } catch (e: any) {
       console.error("[CaptureScreen] stopRecording error", e);
       Alert.alert("Stop hata", e?.message ?? "Stop recording failed");
@@ -410,23 +440,15 @@ export default function CaptureScreen() {
       return;
     }
 
-    if (!readyForRecording) {
-      setError?.(trackingHint);
-      return;
-    }
-
-    setError?.(undefined);
-    setCountdown(4);
+    beginRecordingCountdown();
   }, [
+    beginRecordingCountdown,
     isEngineBusy,
     isRecording,
     onStartCapture,
     onStopRecord,
-    readyForRecording,
     recorderState.status,
-    setError,
     status,
-    trackingHint,
   ]);
 
   const go = useCallback(
@@ -442,17 +464,11 @@ export default function CaptureScreen() {
       onCommand: (action) => {
         if (action === "start_capture") void onStartCapture();
         if (action === "stop_capture") void stopCapture();
-        if (action === "start_recording") setCountdown(4);
+        if (action === "start_recording") beginRecordingCountdown();
         if (action === "stop_recording") void stopRecording();
       },
     });
-  }, [onStartCapture, stopCapture, stopRecording]);
-
-  useEffect(() => {
-    if (show3DAvatar) {
-      ensureAvatarViewer();
-    }
-  }, [ensureAvatarViewer, show3DAvatar]);
+  }, [beginRecordingCountdown, onStartCapture, stopCapture, stopRecording]);
 
   useEffect(() => {
     if (!isRecording) {
@@ -473,30 +489,55 @@ export default function CaptureScreen() {
     return () => clearInterval(interval);
   }, [isRecording, recordStartedAt]);
 
+  const countdownActive = countdown != null;
+
   useEffect(() => {
-    if (countdown == null) {
-      return;
-    }
-    if (status !== "capturing" || isRecording) {
-      setCountdown(null);
-      return;
-    }
-    if (!readyForRecording) {
-      setCountdown(null);
-      setError?.(trackingHint);
-      return;
-    }
-    if (countdown <= 0) {
-      setCountdown(null);
-      void onStartRecord();
+    if (!countdownActive) {
       return;
     }
 
-    const timeout = setTimeout(() => {
-      setCountdown((value) => (value == null ? null : value - 1));
-    }, 1000);
-    return () => clearTimeout(timeout);
-  }, [countdown, isRecording, onStartRecord, readyForRecording, setError, status, trackingHint]);
+    const tick = () => {
+      const { status, isRecording, readyForRecording, trackingHint } =
+        countdownGuardsRef.current;
+
+      if (status !== "capturing" || isRecording) {
+        countdownEndsAtRef.current = null;
+        setCountdown(null);
+        return;
+      }
+
+      if (!readyForRecording) {
+        countdownEndsAtRef.current = null;
+        setCountdown(null);
+        setError?.(trackingHint);
+        return;
+      }
+
+      const endsAt = countdownEndsAtRef.current;
+      if (endsAt == null) {
+        setCountdown(null);
+        return;
+      }
+
+      const remainingMs = endsAt - Date.now();
+      if (remainingMs <= 0) {
+        countdownEndsAtRef.current = null;
+        setCountdown(null);
+        void onStartRecordRef.current();
+        return;
+      }
+
+      const nextCountdown = Math.max(
+        1,
+        Math.min(RECORD_COUNTDOWN_SECONDS, Math.ceil(remainingMs / 1000)),
+      );
+      setCountdown((value) => (value === nextCountdown ? value : nextCountdown));
+    };
+
+    tick();
+    const interval = setInterval(tick, RECORD_COUNTDOWN_TICK_MS);
+    return () => clearInterval(interval);
+  }, [countdownActive, setError]);
 
   const showInstruction =
     countdown != null ||
@@ -528,11 +569,7 @@ export default function CaptureScreen() {
     <View style={styles.root}>
       <View style={styles.cameraLayer}>
         <CameraView rounded={false} onLayoutSize={(w, h) => setSize({ w, h })} />
-        {show3DAvatar && LiveAvatarViewer ? (
-          <LiveAvatarViewer frame={avatarFrame} />
-        ) : (
-          <OverlaySkeleton width={size.w} height={size.h} frame={lastFrame} />
-        )}
+        <OverlaySkeleton width={size.w} height={size.h} frame={avatarFrame} />
       </View>
 
       <View pointerEvents="none" style={styles.vignette} />
@@ -645,9 +682,6 @@ export default function CaptureScreen() {
           <Pressable style={styles.navChip} onPress={() => go(routes.MultiViewSetup)}>
             <Text style={styles.navChipText}>Dual</Text>
           </Pressable>
-          <Pressable style={styles.navChip} onPress={onToggleAvatar}>
-            <Text style={styles.navChipText}>{show3DAvatar ? "2D" : "3D"}</Text>
-          </Pressable>
         </View>
       ) : null}
 
@@ -667,7 +701,8 @@ export default function CaptureScreen() {
           style={[
             styles.shutterButton,
             isRecording && styles.shutterRecording,
-            (isEngineBusy || recorderState.status === "stopping") && styles.shutterDisabled,
+            (isEngineBusy || recorderState.status === "stopping" || countdown != null) &&
+              styles.shutterDisabled,
           ]}
           onPress={onPrimaryPress}
         >

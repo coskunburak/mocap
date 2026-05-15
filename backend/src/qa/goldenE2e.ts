@@ -301,6 +301,9 @@ async function run() {
         manifest.thresholds.minBoneLengthConsistency,
       noErrors: quality.errors.length === 0,
       hasBvh: exportList.exports.some((file) => file.format === "bvh"),
+      hasMotionPipelineReport: exportList.exports.some(
+        (file) => file.format === "motion_pipeline_report_json",
+      ),
       hasExpectedReconstruction:
         preparedVideos.length < 2 ||
         exportList.exports.some((file) =>

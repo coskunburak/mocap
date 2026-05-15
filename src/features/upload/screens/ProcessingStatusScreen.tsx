@@ -87,6 +87,8 @@ export default function ProcessingStatusScreen() {
   const copy = statusCopy(job?.state);
   const progress = progressFor(job);
   const active = job ? ACTIVE_STATES.includes(job.state) : true;
+  const retryableTerminal =
+    job?.state === "failed" || job?.state === "canceled";
 
   const updateLocal = useCallback(
     async (nextJob: ApiProcessingJob) => {
@@ -194,7 +196,7 @@ export default function ProcessingStatusScreen() {
   return (
     <Screen
       scroll
-      background={job?.state === "failed" ? "danger" : "accent"}
+      background={retryableTerminal ? "danger" : "accent"}
       contentContainerStyle={styles.container}
     >
       <ScreenHeader
@@ -204,7 +206,7 @@ export default function ProcessingStatusScreen() {
         right={<Button label="Back" variant="ghost" size="sm" onPress={() => navigation.goBack()} />}
       />
 
-      <Card tone={job?.state === "failed" ? "danger" : "accent"} style={styles.card}>
+      <Card tone={retryableTerminal ? "danger" : "accent"} style={styles.card}>
         <View style={styles.progressHeader}>
           <View>
             <Text style={styles.stage}>{copy.label}</Text>
@@ -259,11 +261,11 @@ export default function ProcessingStatusScreen() {
         </Card>
       ) : null}
 
-      {job?.state === "failed" ? (
+      {retryableTerminal ? (
         <Card tone="danger" style={styles.card}>
           <Text style={styles.label}>Recovery</Text>
           <Text style={styles.message}>
-            The original upload remains in object storage. Retry creates a new idempotent worker job.
+            The original upload remains in object storage. Retry creates a new worker job from the same source files.
           </Text>
           <Button label="Retry processing" loading={busy} onPress={onRetry} />
         </Card>

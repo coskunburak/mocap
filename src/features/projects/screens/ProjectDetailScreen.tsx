@@ -8,6 +8,7 @@ import {
 } from "react-native";
 import {
   useFocusEffect,
+  useIsFocused,
   useNavigation,
   useRoute,
 } from "@react-navigation/native";
@@ -67,7 +68,7 @@ export default function ProjectDetailScreen() {
           if (active) setLoading(false);
         }
       })();
-
+      
       return () => {
         active = false;
       };
@@ -163,11 +164,19 @@ export default function ProjectDetailScreen() {
               badge={takeBadge(take)}
               tone={takeTone(take)}
               onPress={() =>
-                navigation.navigate(routes.Review, {
+                navigation.navigate(routes.MotionPreview, {
                   takeId: take.id,
                 })
               }
               actions={[
+                {
+                  label: "Preview",
+                  variant: "primary",
+                  onPress: () =>
+                    navigation.navigate(routes.MotionPreview, {
+                      takeId: take.id,
+                    }),
+                },
                 {
                   label: "Review",
                   variant: "secondary",
@@ -177,35 +186,12 @@ export default function ProjectDetailScreen() {
                     }),
                 },
                 {
-                  label:
-                    take.remote?.status === "completed"
-                      ? "Result"
-                      : take.remote?.jobId
-                        ? "Status"
-                        : "Upload",
-                  variant: "primary",
-                  disabled: !take.remote?.jobId && (!take.video || !take.captureMetadata),
-                  onPress: () => {
-                    if (take.remote?.status === "completed" && take.remote.takeId) {
-                      navigation.navigate(routes.ExportResult, {
-                        localTakeId: take.id,
-                        remoteTakeId: take.remote.takeId,
-                        jobId: take.remote.jobId,
-                      });
-                      return;
-                    }
-                    if (take.remote?.jobId) {
-                      navigation.navigate(routes.ProcessingStatus, {
-                        localTakeId: take.id,
-                        remoteTakeId: take.remote.takeId,
-                        jobId: take.remote.jobId,
-                      });
-                      return;
-                    }
-                    navigation.navigate(routes.UploadProgress, {
+                  label: "Export",
+                  variant: "secondary",
+                  onPress: () =>
+                    navigation.navigate(routes.Export, {
                       takeId: take.id,
-                    });
-                  },
+                    }),
                 },
               ]}
             />
@@ -273,10 +259,10 @@ const styles = StyleSheet.create({
   metricCard: {
     minWidth: 140,
     flexGrow: 1,
-    borderRadius: radii.md,
+    borderRadius: 8,
     padding: spacing.md,
     gap: spacing.xs,
-    backgroundColor: "rgba(16, 29, 44, 0.78)",
+    backgroundColor: "rgba(255, 255, 255, 0.045)",
     borderWidth: 1,
     borderColor: colors.border,
   },

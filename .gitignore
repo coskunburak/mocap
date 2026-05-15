@@ -3,3 +3,14 @@ dist
 backend/dist
 __pycache__/
 *.pyc
+node_modules/
+android/.gradle/
+android/build/
+ios/Pods/
+ios/build/
+.local-artifacts/
+
+.venv/
+backend/.venv/
+.env
+backend/.env

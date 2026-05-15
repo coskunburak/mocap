@@ -10,6 +10,7 @@ import ExportScreen from "../../features/exports/screens/ExportScreen";
 import ExportsListScreen from "../../features/exports/screens/ExportsListScreen";
 import ProjectDetailScreen from "../../features/projects/screens/ProjectDetailScreen";
 import ProjectsListScreen from "../../features/projects/screens/ProjectsListScreen";
+import MotionPreviewScreen from "../../features/review/screens/MotionPreviewScreen";
 import ReviewHubScreen from "../../features/review/screens/ReviewHubScreen";
 import TakeReviewScreen from "../../features/review/screens/TakeReviewScreen";
 import ProcessingStatusScreen from "../../features/upload/screens/ProcessingStatusScreen";
@@ -103,7 +104,7 @@ function Tabs() {
                 paddingHorizontal: spacing.xs,
                 borderRadius: radii.pill,
                 borderTopWidth: 0,
-                backgroundColor: "rgba(0,0,0,0.88)",
+                backgroundColor: colors.tabBar,
                 shadowColor: colors.black,
                 shadowOpacity: 0.34,
                 shadowRadius: 18,
@@ -134,6 +135,10 @@ export default function RootNavigator() {
         <Stack.Screen
           name={routes.ProjectDetail}
           component={ProjectDetailScreen}
+        />
+        <Stack.Screen
+          name={routes.MotionPreview}
+          component={MotionPreviewScreen}
         />
         <Stack.Screen name={routes.Review} component={TakeReviewScreen} />
         <Stack.Screen

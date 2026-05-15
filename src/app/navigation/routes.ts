@@ -2,6 +2,7 @@ export const routes = {
   Capture: "Capture",
   MultiViewSetup: "MultiViewSetup",
   ReviewHub: "ReviewHub",
+  MotionPreview: "MotionPreview",
   Projects: "Projects",
   ProjectDetail: "ProjectDetail",
   Review: "Review",

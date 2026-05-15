@@ -1,0 +1,55 @@
+ARG NODE_BUILD_IMAGE=node:20-bookworm-slim
+ARG WHAM_BASE_IMAGE=yusun9/wham-vitpose-dpvo-cuda11.3-python3.9
+ARG WHAM_PLATFORM=linux/amd64
+ARG CONDA_NODEJS_VERSION=20
+
+FROM --platform=${WHAM_PLATFORM} ${NODE_BUILD_IMAGE} AS backend-build
+WORKDIR /build
+COPY package.json package-lock.json tsconfig.json ./
+RUN npm ci
+COPY src ./src
+RUN npm run build
+RUN npm prune --omit=dev
+
+FROM --platform=${WHAM_PLATFORM} ${WHAM_BASE_IMAGE}
+ARG CONDA_NODEJS_VERSION=20
+
+ENV NODE_ENV=production \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PATH=/opt/conda/envs/mocap-node/bin:${PATH} \
+    PORT=4010 \
+    POSE_ENGINE=mediapipe \
+    ALLOW_POSE_FALLBACK=false \
+    MOTION_SOLVER=wham \
+    REQUIRE_PREMIUM_MOTION=true \
+    WHAM_SOLVER_SCRIPT=worker/model_adapters/wham_solver.py \
+    WHAM_SOLVER_VERSION=wham_official_api_v1 \
+    WHAM_REPO_DIR=/workspace/WHAM \
+    WHAM_CONFIG_PATH=configs/yamls/demo.yaml \
+    WHAM_ROOT_SCALE=100 \
+    WHAM_REQUIRE_CUDA=true \
+    WHAM_PREFLIGHT_REQUIRED_PATHS=checkpoints/wham_vit_bedlam_w_3dpw.pth.tar,checkpoints/hmr2a.ckpt \
+    WHAM_SMPL_ASSET_DIR=/workspace/WHAM/data/smpl \
+    WORKER_TEMP_DIR=/tmp/mocapexpo-worker \
+    FFMPEG_PATH=ffmpeg \
+    FFPROBE_PATH=ffprobe \
+    PYTHON_PATH=/opt/conda/bin/python \
+    WHAM_LD_LIBRARY_PATH=/opt/conda/lib/python3.9/site-packages/torch/lib:/opt/conda/lib
+
+WORKDIR /app/backend
+RUN conda create -y -n mocap-node -c conda-forge "nodejs=${CONDA_NODEJS_VERSION}" && \
+    conda clean -afy
+COPY --from=backend-build /build/dist ./dist
+COPY --from=backend-build /build/node_modules ./node_modules
+COPY package.json package-lock.json ./
+COPY worker ./worker
+
+ARG WHAM_PIP=/opt/conda/bin/pip
+RUN if [ -x "${WHAM_PIP}" ]; then \
+      "${WHAM_PIP}" install --no-cache-dir -r worker/requirements.model-wham-adapter.txt; \
+    else \
+      pip install --no-cache-dir -r worker/requirements.model-wham-adapter.txt; \
+    fi
+
+ENTRYPOINT ["sh", "worker/docker/wham-worker-entrypoint.sh"]

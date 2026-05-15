@@ -731,8 +731,8 @@ const styles = StyleSheet.create({
     minWidth: 150,
     flexGrow: 1,
     padding: spacing.md,
-    borderRadius: radii.md,
-    backgroundColor: "rgba(13, 27, 41, 0.84)",
+    borderRadius: 8,
+    backgroundColor: "rgba(255, 255, 255, 0.045)",
     borderWidth: 1,
     borderColor: colors.line,
     gap: spacing.xs,
@@ -740,7 +740,7 @@ const styles = StyleSheet.create({
   metricDot: {
     width: 10,
     height: 10,
-    borderRadius: radii.pill,
+    borderRadius: 8,
   },
   metricLabel: {
     ...typography.label.sm,
@@ -794,7 +794,7 @@ const styles = StyleSheet.create({
   },
   stageSurface: {
     minHeight: 420,
-    borderRadius: radii.lg,
+    borderRadius: 8,
     overflow: "hidden",
     backgroundColor: colors.backgroundDeep,
     borderWidth: 1,
@@ -803,7 +803,7 @@ const styles = StyleSheet.create({
   stageGrid: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: colors.backgroundDeep,
-    borderRadius: radii.lg,
+    borderRadius: 8,
     opacity: 0.65,
   },
   stageOverlay: {
@@ -812,8 +812,8 @@ const styles = StyleSheet.create({
     left: spacing.md,
     paddingHorizontal: spacing.sm,
     paddingVertical: spacing.xs,
-    borderRadius: radii.md,
-    backgroundColor: "rgba(7, 12, 18, 0.7)",
+    borderRadius: 8,
+    backgroundColor: "rgba(0, 0, 0, 0.72)",
     borderWidth: 1,
     borderColor: colors.line,
     gap: 2,
@@ -895,8 +895,8 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     gap: spacing.sm,
     padding: spacing.sm,
-    borderRadius: radii.md,
-    backgroundColor: "rgba(255, 255, 255, 0.03)",
+    borderRadius: 8,
+    backgroundColor: "rgba(255, 255, 255, 0.045)",
     borderWidth: 1,
     borderColor: colors.line,
   },
@@ -934,7 +934,7 @@ const styles = StyleSheet.create({
   },
   noteInput: {
     minHeight: 118,
-    borderRadius: radii.md,
+    borderRadius: 8,
     borderWidth: 1,
     borderColor: colors.line,
     backgroundColor: colors.input,

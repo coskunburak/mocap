@@ -183,11 +183,16 @@ export default function ReviewHubScreen() {
             highlight={takeHighlight(item)}
             badge={takeBadge(item)}
             tone={takeTone(item)}
-            onPress={() => navigation.navigate(routes.Review, { takeId: item.id })}
+            onPress={() => navigation.navigate(routes.MotionPreview, { takeId: item.id })}
             actions={[
               {
-                label: "Open review",
+                label: "Preview",
                 variant: "primary",
+                onPress: () => navigation.navigate(routes.MotionPreview, { takeId: item.id }),
+              },
+              {
+                label: "Review",
+                variant: "secondary",
                 onPress: () => navigation.navigate(routes.Review, { takeId: item.id }),
               },
               {
@@ -258,10 +263,10 @@ const styles = StyleSheet.create({
   statCard: {
     minWidth: 120,
     flexGrow: 1,
-    borderRadius: radii.md,
+    borderRadius: 8,
     padding: spacing.md,
     gap: spacing.xs,
-    backgroundColor: "rgba(16, 29, 44, 0.78)",
+    backgroundColor: "rgba(255, 255, 255, 0.045)",
     borderWidth: 1,
     borderColor: colors.border,
   },

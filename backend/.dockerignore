@@ -1,0 +1,17 @@
+.env
+.env.*
+!.env.example
+!.env.model-worker.example
+!.env.wham-worker.production.example
+
+node_modules
+dist
+.venv
+.local-artifacts
+qa
+
+__pycache__/
+*.pyc
+*.pyo
+*.log
+.DS_Store

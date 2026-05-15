@@ -57,12 +57,12 @@ export function Modal({
 const styles = StyleSheet.create({
   overlay: {
     flex: 1,
-    backgroundColor: "rgba(3, 8, 14, 0.72)",
+    backgroundColor: "rgba(0, 0, 0, 0.78)",
     padding: spacing.xl,
     justifyContent: "center",
   },
   sheet: {
-    borderRadius: radii.xl,
+    borderRadius: 8,
     gap: spacing.lg,
   },
   header: {

@@ -6,10 +6,10 @@ job queued
   -> download original video + capture metadata
   -> normalize video
   -> extract frames
-  -> run pose detection
-  -> solve skeleton/root motion
+  -> run pose detection (RTMW/WholeBody when configured, MediaPipe fallback)
+  -> solve skeleton/root motion (WHAM premium when configured, builtin fallback)
   -> cleanup and quality report
-  -> export artifacts
+  -> export artifacts and motion pipeline report
   -> mark job succeeded or failed
 ```
 
@@ -20,4 +20,3 @@ Sprint 2 does not implement the worker. It freezes the contract the worker will 
 3. Job timeline events are append-only.
 4. Worker output must register `ExportFile` rows through the backend or a controlled service account path.
 5. Worker artifacts use the same take-scoped storage key layout as uploads.
-

@@ -1,4 +1,4 @@
-import { config } from "../config";
+import { assertWorkerRuntimeConfig, config } from "../config";
 import { closeDb } from "../infra/db/postgres";
 import { JobRepository } from "../infra/db/repositories";
 import { WorkerJobProcessor } from "./processJob";
@@ -24,6 +24,7 @@ function sleep(ms: number) {
 }
 
 async function main() {
+  assertWorkerRuntimeConfig();
   const jobs = new JobRepository();
   const processor = new WorkerJobProcessor({ jobs });
   let lastIdleLog = 0;

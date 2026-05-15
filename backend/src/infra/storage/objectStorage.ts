@@ -29,6 +29,30 @@ export class ObjectStorage {
     },
   });
 
+  private async withStorageTimeout<T>(
+    operation: string,
+    run: (abortSignal: AbortSignal) => Promise<T>,
+  ): Promise<T> {
+    const controller = new AbortController();
+    const timeout = setTimeout(
+      () => controller.abort(),
+      config.storage.requestTimeoutMs,
+    );
+
+    try {
+      return await run(controller.signal);
+    } catch (error) {
+      if (controller.signal.aborted) {
+        throw new Error(
+          `${operation} timed out after ${config.storage.requestTimeoutMs}ms`,
+        );
+      }
+      throw error;
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
   async signedPutUrl(storageKey: string, contentType: string): Promise<SignedUpload> {
     const command = new PutObjectCommand({
       Bucket: config.storage.bucket,
@@ -67,11 +91,14 @@ export class ObjectStorage {
 
   async assertObject(storageKey: string, expectedSizeBytes?: number) {
     if (config.storage.skipObjectHeadValidation) return;
-    const result = await this.client.send(
-      new HeadObjectCommand({
-        Bucket: config.storage.bucket,
-        Key: storageKey,
-      }),
+    const result = await this.withStorageTimeout("Storage object validation", (abortSignal) =>
+      this.client.send(
+        new HeadObjectCommand({
+          Bucket: config.storage.bucket,
+          Key: storageKey,
+        }),
+        { abortSignal },
+      ),
     );
     if (
       expectedSizeBytes != null &&
@@ -83,11 +110,14 @@ export class ObjectStorage {
   }
 
   async downloadToFile(storageKey: string, destinationPath: string) {
-    const result = await this.client.send(
-      new GetObjectCommand({
-        Bucket: config.storage.bucket,
-        Key: storageKey,
-      }),
+    const result = await this.withStorageTimeout("Storage object download", (abortSignal) =>
+      this.client.send(
+        new GetObjectCommand({
+          Bucket: config.storage.bucket,
+          Key: storageKey,
+        }),
+        { abortSignal },
+      ),
     );
     if (!(result.Body instanceof Readable)) {
       throw new Error(`Storage object body is not readable: ${storageKey}`);
@@ -103,38 +133,47 @@ export class ObjectStorage {
     contentType: string;
   }) {
     const info = await stat(input.filePath);
-    await this.client.send(
-      new PutObjectCommand({
-        Bucket: config.storage.bucket,
-        Key: input.storageKey,
-        Body: createReadStream(input.filePath),
-        ContentType: input.contentType,
-      }),
+    await this.withStorageTimeout("Storage file upload", (abortSignal) =>
+      this.client.send(
+        new PutObjectCommand({
+          Bucket: config.storage.bucket,
+          Key: input.storageKey,
+          Body: createReadStream(input.filePath),
+          ContentType: input.contentType,
+        }),
+        { abortSignal },
+      ),
     );
     return { storageKey: input.storageKey, sizeBytes: info.size };
   }
 
   async putJson(storageKey: string, payload: unknown) {
     const body = JSON.stringify(payload);
-    await this.client.send(
-      new PutObjectCommand({
-        Bucket: config.storage.bucket,
-        Key: storageKey,
-        Body: body,
-        ContentType: "application/json",
-      }),
+    await this.withStorageTimeout("Storage JSON upload", (abortSignal) =>
+      this.client.send(
+        new PutObjectCommand({
+          Bucket: config.storage.bucket,
+          Key: storageKey,
+          Body: body,
+          ContentType: "application/json",
+        }),
+        { abortSignal },
+      ),
     );
     return { storageKey, sizeBytes: Buffer.byteLength(body, "utf8") };
   }
 
   async putText(storageKey: string, text: string, contentType = "text/plain") {
-    await this.client.send(
-      new PutObjectCommand({
-        Bucket: config.storage.bucket,
-        Key: storageKey,
-        Body: text,
-        ContentType: contentType,
-      }),
+    await this.withStorageTimeout("Storage text upload", (abortSignal) =>
+      this.client.send(
+        new PutObjectCommand({
+          Bucket: config.storage.bucket,
+          Key: storageKey,
+          Body: text,
+          ContentType: contentType,
+        }),
+        { abortSignal },
+      ),
     );
     return { storageKey, sizeBytes: Buffer.byteLength(text, "utf8") };
   }
