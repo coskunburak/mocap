@@ -41,7 +41,7 @@ upload
 | `WHAM_ESTIMATE_LOCAL_ONLY` | `false` | Skips global SLAM when true. |
 | `WHAM_ROOT_SCALE` | `100` | Converts WHAM meter-scale translation into exporter units. |
 | `WHAM_REQUIRE_CUDA` | production WHAM: `true`, otherwise `false` | Preflight requires `torch.cuda.is_available()` before the worker starts. |
-| `WHAM_PREFLIGHT_REQUIRED_MODULES` | `torch,cv2,joblib,smplx,mmcv,mmpose,loguru` | Python modules checked by the production WHAM preflight. |
+| `WHAM_PREFLIGHT_REQUIRED_MODULES` | `torch,cv2,joblib,smplx,mmcv,mmpose,loguru,mediapipe` | Python modules checked by the production WHAM preflight. |
 | `WHAM_PREFLIGHT_REQUIRED_PATHS` | WHAM/HMR2 checkpoints | Comma-separated checkpoint/asset files; relative paths resolve inside `WHAM_REPO_DIR`. |
 | `WHAM_SMPL_ASSET_DIR` | empty | Optional SMPL asset directory checked by the WHAM preflight. |
 | `PREMIUM_MOTION_TIMEOUT_MS` | `1800000` | Premium solver timeout per job. |
