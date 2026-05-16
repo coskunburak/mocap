@@ -194,7 +194,6 @@ async function main() {
     "mmcv",
     "mmpose",
     "loguru",
-    "mediapipe",
   ]);
   const probe = await runCommand(
     worker.pythonPath,

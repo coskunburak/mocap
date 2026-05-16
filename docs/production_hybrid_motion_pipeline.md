@@ -9,8 +9,9 @@ mobile capture/preview
   -> MediaPipe Pose Full/Heavy + existing 3D avatar
 upload
   -> backend worker
-  -> RTMW/RTMPose WholeBody adapter when configured
-  -> MediaPipe fallback when allowed
+  -> strict single-camera WHAM jobs run WHAM directly from normalized video
+  -> dual/multi-view jobs use RTMW/RTMPose WholeBody adapter when configured
+  -> MediaPipe fallback when allowed for external pose paths
   -> WHAM premium motion adapter when configured
   -> builtin humanoid fallback when allowed
   -> cleanup_quality_v1_5: temporal smoothing + outlier rejection + foot lock
@@ -41,7 +42,7 @@ upload
 | `WHAM_ESTIMATE_LOCAL_ONLY` | `false` | Skips global SLAM when true. |
 | `WHAM_ROOT_SCALE` | `100` | Converts WHAM meter-scale translation into exporter units. |
 | `WHAM_REQUIRE_CUDA` | production WHAM: `true`, otherwise `false` | Preflight requires `torch.cuda.is_available()` before the worker starts. |
-| `WHAM_PREFLIGHT_REQUIRED_MODULES` | `torch,cv2,joblib,smplx,mmcv,mmpose,loguru,mediapipe` | Python modules checked by the production WHAM preflight. |
+| `WHAM_PREFLIGHT_REQUIRED_MODULES` | `torch,cv2,joblib,smplx,mmcv,mmpose,loguru` | Python modules checked by the production WHAM preflight. |
 | `WHAM_PREFLIGHT_REQUIRED_PATHS` | WHAM/HMR2 checkpoints | Comma-separated checkpoint/asset files; relative paths resolve inside `WHAM_REPO_DIR`. |
 | `WHAM_SMPL_ASSET_DIR` | empty | Optional SMPL asset directory checked by the WHAM preflight. |
 | `PREMIUM_MOTION_TIMEOUT_MS` | `1800000` | Premium solver timeout per job. |
@@ -82,7 +83,12 @@ python <WHAM_SOLVER_SCRIPT> \
   --video <normalized-video>
 ```
 
-The WHAM adapter must output `mocap.solved_motion.v1` compatible frames: `frameIndex`, `timestampMs`, `rootTranslation`, and a `joints` map using the worker skeleton joint names.
+For strict single-camera WHAM jobs, the worker skips external backend pose
+detection and passes a metadata-only pose artifact into the adapter. WHAM still
+derives the actual body track from the normalized video through its own
+ViTPose/DPVO pipeline. The WHAM adapter must output `mocap.solved_motion.v1`
+compatible frames: `frameIndex`, `timestampMs`, `rootTranslation`, and a
+`joints` map using the worker skeleton joint names.
 
 Included adapter: `backend/worker/model_adapters/wham_solver.py`. It imports the official WHAM `demo.py` pipeline from `WHAM_REPO_DIR`, runs inference on the primary normalized video, selects the longest tracked subject from `wham_output.pkl`, and maps SMPL joints into the MocapExpo humanoid skeleton.
 

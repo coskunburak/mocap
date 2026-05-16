@@ -29,7 +29,7 @@ ENV NODE_ENV=production \
     WHAM_CONFIG_PATH=configs/yamls/demo.yaml \
     WHAM_ROOT_SCALE=100 \
     WHAM_REQUIRE_CUDA=true \
-    WHAM_PREFLIGHT_REQUIRED_MODULES=torch,cv2,joblib,smplx,mmcv,mmpose,loguru,mediapipe \
+    WHAM_PREFLIGHT_REQUIRED_MODULES=torch,cv2,joblib,smplx,mmcv,mmpose,loguru \
     WHAM_PREFLIGHT_REQUIRED_PATHS=checkpoints/wham_vit_bedlam_w_3dpw.pth.tar,checkpoints/hmr2a.ckpt \
     WHAM_SMPL_ASSET_DIR=/workspace/WHAM/dataset/body_models/smpl \
     WORKER_TEMP_DIR=/tmp/mocapexpo-worker \
@@ -48,10 +48,8 @@ COPY worker ./worker
 
 ARG WHAM_PIP=/opt/conda/bin/pip
 RUN if [ -x "${WHAM_PIP}" ]; then \
-      "${WHAM_PIP}" install --no-cache-dir -r worker/requirements.txt; \
       "${WHAM_PIP}" install --no-cache-dir -r worker/requirements.model-wham-adapter.txt; \
     else \
-      pip install --no-cache-dir -r worker/requirements.txt; \
       pip install --no-cache-dir -r worker/requirements.model-wham-adapter.txt; \
     fi
 

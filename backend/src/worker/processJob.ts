@@ -30,6 +30,7 @@ import type {
   MultiViewReconstructionArtifact,
   MotionPipelineReport,
   PoseFramesArtifact,
+  SolvedMotionArtifact,
 } from "./types";
 
 type Deps = {
@@ -67,6 +68,71 @@ function workerDir(jobId: string) {
 
 async function safeRm(dir: string) {
   await rm(dir, { recursive: true, force: true }).catch(() => undefined);
+}
+
+function shouldUseDirectWhamSolve(usesMultiSourceReconstruction: boolean) {
+  return (
+    !usesMultiSourceReconstruction &&
+    (config.worker.motionSolver === "wham" || config.worker.requirePremiumMotion)
+  );
+}
+
+function whamMetadataPoseArtifact(input: {
+  takeId: string;
+  jobId: string;
+  sourceVideo: PoseFramesArtifact["sourceVideo"];
+}): PoseFramesArtifact {
+  return {
+    schema: "mocap.pose_frames.v1",
+    takeId: input.takeId,
+    jobId: input.jobId,
+    sourceVideo: input.sourceVideo,
+    detector: {
+      name: "wham_video_metadata",
+      version: config.worker.whamSolverVersion,
+      landmarkSchema: "custom",
+    },
+    frames: [],
+    quality: {
+      frameCount: 0,
+      detectedFrameCount: 0,
+      lowConfidenceFrameCount: 0,
+      averagePoseConfidence: 0,
+    },
+  };
+}
+
+function whamSolvedPoseArtifact(input: {
+  takeId: string;
+  jobId: string;
+  sourceVideo: PoseFramesArtifact["sourceVideo"];
+  solved: SolvedMotionArtifact;
+}): PoseFramesArtifact {
+  return {
+    schema: "mocap.pose_frames.v1",
+    takeId: input.takeId,
+    jobId: input.jobId,
+    sourceVideo: input.sourceVideo,
+    detector: {
+      name: "wham_internal_vitpose",
+      version: config.worker.whamSolverVersion,
+      landmarkSchema: "custom",
+    },
+    frames: input.solved.frames.map((frame) => ({
+      frameIndex: frame.frameIndex,
+      timestampMs: frame.timestampMs,
+      landmarks: [],
+      landmarkSchema: "custom",
+      poseConfidence: 1,
+      detectorVersion: config.worker.whamSolverVersion,
+    })),
+    quality: {
+      frameCount: input.solved.frameCount,
+      detectedFrameCount: input.solved.frameCount,
+      lowConfidenceFrameCount: 0,
+      averagePoseConfidence: input.solved.frameCount > 0 ? 1 : 0,
+    },
+  };
 }
 
 export class WorkerJobProcessor {
@@ -120,6 +186,7 @@ export class WorkerJobProcessor {
       const useMultiViewReconstruction =
         take.captureMode === "pro_4_camera" && uploadedSources.length >= 4;
       const usesMultiSourceReconstruction = useDualReconstruction || useMultiViewReconstruction;
+      const useDirectWhamSolve = shouldUseDirectWhamSolve(usesMultiSourceReconstruction);
       const sources = useMultiViewReconstruction
         ? uploadedSources.slice(0, 4)
         : useDualReconstruction
@@ -176,63 +243,73 @@ export class WorkerJobProcessor {
           contentType: "video/mp4",
         });
 
-        await this.jobs.updateState({
-          jobId: job.id,
-          state: "detecting_pose",
-          progress: usesMultiSourceReconstruction ? 34 + source.deviceIndex * 6 : 45,
-          message: `Detecting body landmarks for device ${source.deviceIndex}.`,
-          metrics: {
-            deviceIndex: source.deviceIndex,
-            probe: normalizedProbe,
-          },
-        });
-
-        const cameraPoseArtifact = await detectPoseFrames({
-          takeId: job.takeId,
-          jobId: job.id,
-          normalizedVideoPath: normalizedPath,
-          sourceStorageKey: source.videoStorageKey,
+        const sourceVideo = {
+          storageKey: source.videoStorageKey,
           normalizedStorageKey: normalizedKey,
-          outputDir: deviceDir,
-          sourceVideo: {
-            storageKey: source.videoStorageKey,
-            normalizedStorageKey: normalizedKey,
-            fps: normalizedProbe.fps,
-            width: normalizedProbe.width,
-            height: normalizedProbe.height,
-            durationMs: normalizedProbe.durationMs,
-          },
-        });
-        if (cameraPoseArtifact.quality.detectedFrameCount === 0) {
-          throw new WorkerProcessingError(
-            `No body was detected in device ${source.deviceIndex} video.`,
-            "pose_not_detected",
-            {
+          fps: normalizedProbe.fps,
+          width: normalizedProbe.width,
+          height: normalizedProbe.height,
+          durationMs: normalizedProbe.durationMs,
+        };
+        let cameraPoseArtifact: PoseFramesArtifact;
+        if (useDirectWhamSolve) {
+          cameraPoseArtifact = whamMetadataPoseArtifact({
+            takeId: job.takeId,
+            jobId: job.id,
+            sourceVideo,
+          });
+        } else {
+          await this.jobs.updateState({
+            jobId: job.id,
+            state: "detecting_pose",
+            progress: usesMultiSourceReconstruction ? 34 + source.deviceIndex * 6 : 45,
+            message: `Detecting body landmarks for device ${source.deviceIndex}.`,
+            metrics: {
               deviceIndex: source.deviceIndex,
-              quality: cameraPoseArtifact.quality,
+              probe: normalizedProbe,
             },
+          });
+
+          cameraPoseArtifact = await detectPoseFrames({
+            takeId: job.takeId,
+            jobId: job.id,
+            normalizedVideoPath: normalizedPath,
+            sourceStorageKey: source.videoStorageKey,
+            normalizedStorageKey: normalizedKey,
+            outputDir: deviceDir,
+            sourceVideo,
+          });
+          if (cameraPoseArtifact.quality.detectedFrameCount === 0) {
+            throw new WorkerProcessingError(
+              `No body was detected in device ${source.deviceIndex} video.`,
+              "pose_not_detected",
+              {
+                deviceIndex: source.deviceIndex,
+                quality: cameraPoseArtifact.quality,
+              },
+            );
+          }
+          const cameraPoseKey = artifactStorageKey(
+            job.takeId,
+            job.id,
+            usesMultiSourceReconstruction
+              ? `pose_frames_device_${source.deviceIndex}.json`
+              : "pose_frames.json",
           );
+          const cameraPoseFile = await this.storage.putJson(cameraPoseKey, cameraPoseArtifact);
+          await this.exports.create({
+            userId: job.userId,
+            projectId: job.projectId,
+            takeId: job.takeId,
+            jobId: job.id,
+            preset: job.preset,
+            format: usesMultiSourceReconstruction
+              ? `pose_frames_device_${source.deviceIndex}_json`
+              : "pose_frames_json",
+            storageKey: cameraPoseFile.storageKey,
+            fileSizeBytes: cameraPoseFile.sizeBytes,
+          });
         }
-        const cameraPoseKey = artifactStorageKey(
-          job.takeId,
-          job.id,
-          usesMultiSourceReconstruction
-            ? `pose_frames_device_${source.deviceIndex}.json`
-            : "pose_frames.json",
-        );
-        const cameraPoseFile = await this.storage.putJson(cameraPoseKey, cameraPoseArtifact);
-        await this.exports.create({
-          userId: job.userId,
-          projectId: job.projectId,
-          takeId: job.takeId,
-          jobId: job.id,
-          preset: job.preset,
-          format: usesMultiSourceReconstruction
-            ? `pose_frames_device_${source.deviceIndex}_json`
-            : "pose_frames_json",
-          storageKey: cameraPoseFile.storageKey,
-          fileSizeBytes: cameraPoseFile.sizeBytes,
-        });
         processedSources.push({
           video: source,
           inputPath,
@@ -368,7 +445,7 @@ export class WorkerJobProcessor {
         });
       }
 
-      if (poseArtifact.quality.detectedFrameCount === 0) {
+      if (!useDirectWhamSolve && poseArtifact.quality.detectedFrameCount === 0) {
         throw new WorkerProcessingError(
           "No body was detected in the uploaded video.",
           "pose_not_detected",
@@ -391,7 +468,9 @@ export class WorkerJobProcessor {
           ? "Solving humanoid skeleton from pro multi-view landmarks."
           : useDualReconstruction
           ? "Solving humanoid skeleton from triangulated landmarks."
-          : "Solving humanoid skeleton.",
+          : useDirectWhamSolve
+            ? "Running WHAM directly from normalized video."
+            : "Solving humanoid skeleton.",
         metrics: {
           ...poseArtifact.quality,
           reconstruction: reconstruction?.quality,
@@ -443,6 +522,25 @@ export class WorkerJobProcessor {
           "solved_motion_invalid",
           rawSolvedValidation,
         );
+      }
+      if (useDirectWhamSolve) {
+        poseArtifact = whamSolvedPoseArtifact({
+          takeId: job.takeId,
+          jobId: job.id,
+          sourceVideo: poseArtifact.sourceVideo,
+          solved: rawSolved,
+        });
+        const poseFile = await this.storage.putJson(poseKey, poseArtifact);
+        await this.exports.create({
+          userId: job.userId,
+          projectId: job.projectId,
+          takeId: job.takeId,
+          jobId: job.id,
+          preset: job.preset,
+          format: "pose_frames_json",
+          storageKey: poseFile.storageKey,
+          fileSizeBytes: poseFile.sizeBytes,
+        });
       }
       const rawSolvedKey = artifactStorageKey(job.takeId, job.id, "raw_solved_motion.json");
       const rawSolvedFile = await this.storage.putJson(rawSolvedKey, {

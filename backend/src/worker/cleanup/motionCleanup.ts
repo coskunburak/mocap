@@ -228,11 +228,15 @@ function rejectOutliers(frames: SolvedMotionFrame[]) {
 function smoothFrames(frames: SolvedMotionFrame[], pose: PoseFramesArtifact) {
   if (frames.length < 2) return { frames, smoothingStrength: 0 };
   const poseByFrame = new Map(pose.frames.map((frame) => [frame.frameIndex, frame]));
+  const usesWhamInternalPose = pose.detector.name === "wham_internal_vitpose";
   const next = frames.map(cloneFrame);
   let smoothingSum = 0;
 
   for (let index = 1; index < next.length; index += 1) {
-    const confidence = confidenceForPoseFrame(poseByFrame.get(next[index].frameIndex));
+    const poseFrame = poseByFrame.get(next[index].frameIndex);
+    const confidence = usesWhamInternalPose
+      ? clamp01(poseFrame?.poseConfidence ?? 1)
+      : confidenceForPoseFrame(poseFrame);
     const alpha = 0.28 + (1 - confidence) * 0.42;
     smoothingSum += alpha;
     next[index].rootTranslation = lerpVec(
@@ -420,6 +424,9 @@ export function cleanupSolvedMotion(
     pose.quality.frameCount > 0
       ? 1 - pose.quality.detectedFrameCount / pose.quality.frameCount
       : 1;
+  const hasPoseLandmarks = pose.frames.some(
+    (frame) => frame.landmarks.length > 0 || Boolean(frame.worldLandmarks?.length),
+  );
   const metrics: CleanupReport["metrics"] = {
     sourceFrameCount: pose.quality.frameCount,
     solvedFrameCount: solved.frameCount,
@@ -443,7 +450,7 @@ export function cleanupSolvedMotion(
   const warnings = [
     ...(metrics.interpolatedFrameCount > 0 ? [`Interpolated ${metrics.interpolatedFrameCount} missing solve frames.`] : []),
     ...(metrics.outlierFrameCount > 0 ? [`Rejected ${metrics.outlierFrameCount} root outlier frames.`] : []),
-    ...(metrics.footLockFrameCount === 0 ? ["No reliable foot contact found for locking."] : []),
+    ...(hasPoseLandmarks && metrics.footLockFrameCount === 0 ? ["No reliable foot contact found for locking."] : []),
   ];
   const report: CleanupReport = {
     schema: "mocap.cleanup_report.v1",
