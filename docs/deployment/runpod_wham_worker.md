@@ -81,6 +81,23 @@ uses RunPod's Python serverless handler API. A test request of
 RunPod request output. A production request with a real backend processing job
 id claims that queued job and processes it once.
 
+For DB-free serverless validation, send:
+
+```json
+{
+  "input": {
+    "mode": "benchmark",
+    "videoPath": "/workspace/WHAM/examples/IMG_9732_5s.mov",
+    "outputDir": "/workspace/WHAM/output/runpod_benchmark",
+    "timeoutSeconds": 3600
+  }
+}
+```
+
+This runs the WHAM adapter directly without Postgres or object storage and
+returns timing plus the output paths for `solved_motion.json` and, when
+`WHAM_RENDER_OVERLAY_PREVIEW=true`, `wham_work/output.mp4`.
+
 ## Required Runtime Paths
 
 The preflight checks these paths inside the worker container/pod:
