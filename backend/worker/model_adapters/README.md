@@ -57,7 +57,7 @@ WHAM_CONFIG_PATH=configs/yamls/demo.yaml
 WHAM_LD_LIBRARY_PATH=/opt/conda/lib/python3.9/site-packages/torch/lib:/opt/conda/lib
 WHAM_REQUIRE_CUDA=true
 WHAM_PREFLIGHT_REQUIRED_PATHS=checkpoints/wham_vit_bedlam_w_3dpw.pth.tar,checkpoints/hmr2a.ckpt
-WHAM_SMPL_ASSET_DIR=/workspace/WHAM/data/smpl
+WHAM_SMPL_ASSET_DIR=/workspace/WHAM/dataset/body_models/smpl
 REQUIRE_PREMIUM_MOTION=true
 ```
 

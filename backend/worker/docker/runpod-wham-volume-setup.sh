@@ -54,7 +54,7 @@ check_file "$WHAM_DIR/demo.py"
 check_file "$WHAM_DIR/configs/yamls/demo.yaml"
 check_file "$WHAM_DIR/checkpoints/wham_vit_bedlam_w_3dpw.pth.tar"
 check_file "$WHAM_DIR/checkpoints/hmr2a.ckpt"
-check_dir "$WHAM_DIR/data/smpl"
+check_dir "$WHAM_DIR/dataset/body_models/smpl"
 
 if [ "$missing" -ne 0 ]; then
   log "WHAM volume is not ready for production preflight."
