@@ -180,6 +180,7 @@ export type MotionPipelineReport = {
     reconstruction?: string;
     qualityReport: string;
     previewSummary: string;
+    overlayPreview?: string;
     bvh: string;
   };
   quality: {

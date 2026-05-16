@@ -186,7 +186,8 @@ async function main() {
     env: whamChildEnv(worker),
   });
 
-  const requiredModules = splitList(worker.whamPreflightRequiredModules, [
+  const requiredModules = Array.from(new Set([
+    ...splitList(worker.whamPreflightRequiredModules, [
     "torch",
     "cv2",
     "joblib",
@@ -194,7 +195,9 @@ async function main() {
     "mmcv",
     "mmpose",
     "loguru",
-  ]);
+    ]),
+    ...(worker.whamRenderOverlayPreview ? ["pytorch3d"] : []),
+  ]));
   const probe = await runCommand(
     worker.pythonPath,
     ["-c", pythonProbe(requiredModules, worker.whamRequireCuda)],

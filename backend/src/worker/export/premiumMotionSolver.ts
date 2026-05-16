@@ -1,4 +1,4 @@
-import { mkdir, readFile, writeFile } from "fs/promises";
+import { mkdir, readFile, stat, writeFile } from "fs/promises";
 import path from "path";
 import { config } from "../../config";
 import type { PoseFramesArtifact, SolvedMotionArtifact, SolvedMotionFrame } from "../types";
@@ -21,6 +21,7 @@ export type PremiumSolveAttempt =
       attempted: true;
       solver: "wham";
       motion: SolvedMotionArtifact;
+      overlayPreviewPath?: string;
     }
   | {
       attempted: false;
@@ -150,6 +151,9 @@ function optionalWhamArgs() {
   if (config.worker.whamEstimateLocalOnly) {
     args.push("--estimate-local-only");
   }
+  if (config.worker.whamRenderOverlayPreview) {
+    args.push("--render-overlay-preview");
+  }
   args.push("--root-scale", String(config.worker.whamRootScale));
   return args;
 }
@@ -186,6 +190,7 @@ export async function trySolvePremiumMotion(
   await mkdir(input.outputDir, { recursive: true });
   const posePath = path.join(input.outputDir, "premium_solver_pose_frames.json");
   const outputPath = path.join(input.outputDir, "premium_solved_motion.json");
+  const overlayPreviewPath = path.join(input.outputDir, "wham_work", "output.mp4");
   await writeFile(posePath, JSON.stringify(input.poseArtifact), "utf8");
 
   try {
@@ -216,10 +221,14 @@ export async function trySolvePremiumMotion(
       },
     );
     const raw = JSON.parse(await readFile(outputPath, "utf8"));
+    const overlayPreviewExists = await stat(overlayPreviewPath)
+      .then((item) => item.isFile())
+      .catch(() => false);
     return {
       attempted: true,
       solver: "wham",
       motion: normalizePremiumMotion(raw, input),
+      overlayPreviewPath: overlayPreviewExists ? overlayPreviewPath : undefined,
     };
   } catch (error) {
     const failedReason =

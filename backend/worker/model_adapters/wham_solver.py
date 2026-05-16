@@ -332,6 +332,24 @@ def run_wham(args: argparse.Namespace, output_dir: Path) -> tuple[Any, dict[str,
         results = joblib.load(output_dir / "wham_output.pkl")
         tracking_results = joblib.load(output_dir / "tracking_results.pth")
         slam_results = joblib.load(output_dir / "slam_results.pth")
+        overlay_preview_generated = False
+        overlay_preview_error = None
+        if args.render_overlay_preview:
+            try:
+                from lib.vis.run_vis import run_vis_on_demo
+
+                with __import__("torch").no_grad():
+                    run_vis_on_demo(
+                        cfg,
+                        video,
+                        results,
+                        str(output_dir),
+                        network.smpl,
+                        vis_global=not args.estimate_local_only,
+                    )
+                overlay_preview_generated = (output_dir / "output.mp4").exists()
+            except Exception as exc:  # pragma: no cover - optional preview renderer
+                overlay_preview_error = str(exc)
     except Exception as exc:  # pragma: no cover - depends on WHAM image
         fail(f"WHAM inference failed: {exc}")
     finally:
@@ -342,6 +360,9 @@ def run_wham(args: argparse.Namespace, output_dir: Path) -> tuple[Any, dict[str,
         "slamFrameCount": len(slam_results) if hasattr(slam_results, "__len__") else 0,
         "runGlobal": not args.estimate_local_only,
         "whamConfig": str(config_path),
+        "overlayPreviewRequested": args.render_overlay_preview,
+        "overlayPreviewGenerated": overlay_preview_generated,
+        **({"overlayPreviewError": overlay_preview_error} if overlay_preview_error else {}),
     }
     return results, metadata
 
@@ -375,6 +396,7 @@ def main() -> None:
     parser.add_argument("--wham-output-pkl")
     parser.add_argument("--calib")
     parser.add_argument("--estimate-local-only", action="store_true")
+    parser.add_argument("--render-overlay-preview", action="store_true")
     parser.add_argument("--root-scale", type=float, default=100.0)
     parser.add_argument("--take-id", default="manual_take")
     parser.add_argument("--job-id", default="manual_job")

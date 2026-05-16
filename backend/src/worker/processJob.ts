@@ -542,6 +542,33 @@ export class WorkerJobProcessor {
           fileSizeBytes: poseFile.sizeBytes,
         });
       }
+      let overlayPreviewKey: string | undefined;
+      if (
+        premiumAttempt.attempted &&
+        "motion" in premiumAttempt &&
+        premiumAttempt.overlayPreviewPath
+      ) {
+        overlayPreviewKey = artifactStorageKey(
+          job.takeId,
+          job.id,
+          "wham_overlay_preview.mp4",
+        );
+        const overlayPreviewFile = await this.storage.putFile({
+          storageKey: overlayPreviewKey,
+          filePath: premiumAttempt.overlayPreviewPath,
+          contentType: "video/mp4",
+        });
+        await this.exports.create({
+          userId: job.userId,
+          projectId: job.projectId,
+          takeId: job.takeId,
+          jobId: job.id,
+          preset: job.preset,
+          format: "wham_overlay_preview_mp4",
+          storageKey: overlayPreviewFile.storageKey,
+          fileSizeBytes: overlayPreviewFile.sizeBytes,
+        });
+      }
       const rawSolvedKey = artifactStorageKey(job.takeId, job.id, "raw_solved_motion.json");
       const rawSolvedFile = await this.storage.putJson(rawSolvedKey, {
         ...rawSolved,
@@ -746,6 +773,7 @@ export class WorkerJobProcessor {
           reconstruction: reconstructionKey,
           qualityReport: qualityKey,
           previewSummary: previewKey,
+          overlayPreview: overlayPreviewKey,
           bvh: bvhKey,
         },
         quality: {
@@ -790,6 +818,7 @@ export class WorkerJobProcessor {
             bvh: bvhKey,
             qualityReport: qualityKey,
             previewSummary: previewKey,
+            overlayPreview: overlayPreviewKey,
             motionPipelineReport: pipelineKey,
           },
         },

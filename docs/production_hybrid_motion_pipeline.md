@@ -40,6 +40,7 @@ upload
 | `WHAM_CALIBRATION_PATH` | empty | Optional camera intrinsics file passed to WHAM. |
 | `WHAM_LD_LIBRARY_PATH` | empty | Optional library path passed only to the WHAM child process, useful for conda PyTorch/DPVO libs such as `.../torch/lib:.../env/lib`. |
 | `WHAM_ESTIMATE_LOCAL_ONLY` | `false` | Skips global SLAM when true. |
+| `WHAM_RENDER_OVERLAY_PREVIEW` | `false` | Renders a WHAM SMPL mesh overlay MP4 for the mobile result preview when enabled. |
 | `WHAM_ROOT_SCALE` | `100` | Converts WHAM meter-scale translation into exporter units. |
 | `WHAM_REQUIRE_CUDA` | production WHAM: `true`, otherwise `false` | Preflight requires `torch.cuda.is_available()` before the worker starts. |
 | `WHAM_PREFLIGHT_REQUIRED_MODULES` | `torch,cv2,joblib,smplx,mmcv,mmpose,loguru` | Python modules checked by the production WHAM preflight. |
@@ -89,6 +90,11 @@ derives the actual body track from the normalized video through its own
 ViTPose/DPVO pipeline. The WHAM adapter must output `mocap.solved_motion.v1`
 compatible frames: `frameIndex`, `timestampMs`, `rootTranslation`, and a
 `joints` map using the worker skeleton joint names.
+
+When `WHAM_RENDER_OVERLAY_PREVIEW=true`, the worker also exports
+`wham_overlay_preview_mp4`, a video of the WHAM SMPL mesh rendered over the
+source footage. This is intended for the first mobile result preview; BVH
+remains the animation handoff artifact.
 
 Included adapter: `backend/worker/model_adapters/wham_solver.py`. It imports the official WHAM `demo.py` pipeline from `WHAM_REPO_DIR`, runs inference on the primary normalized video, selects the longest tracked subject from `wham_output.pkl`, and maps SMPL joints into the MocapExpo humanoid skeleton.
 

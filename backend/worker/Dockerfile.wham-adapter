@@ -29,6 +29,7 @@ ENV NODE_ENV=production \
     WHAM_CONFIG_PATH=configs/yamls/demo.yaml \
     WHAM_ROOT_SCALE=100 \
     WHAM_REQUIRE_CUDA=true \
+    WHAM_RENDER_OVERLAY_PREVIEW=true \
     WHAM_PREFLIGHT_REQUIRED_MODULES=torch,cv2,joblib,smplx,mmcv,mmpose,loguru \
     WHAM_PREFLIGHT_REQUIRED_PATHS=checkpoints/wham_vit_bedlam_w_3dpw.pth.tar,checkpoints/hmr2a.ckpt \
     WHAM_SMPL_ASSET_DIR=/workspace/WHAM/dataset/body_models/smpl \
@@ -40,6 +41,7 @@ ENV NODE_ENV=production \
 
 WORKDIR /app/backend
 RUN conda create -y -n mocap-node -c conda-forge "nodejs=${CONDA_NODEJS_VERSION}" && \
+    conda install -y -c conda-forge libstdcxx-ng && \
     conda clean -afy
 COPY --from=backend-build /build/dist ./dist
 COPY --from=backend-build /build/node_modules ./node_modules
@@ -49,8 +51,14 @@ COPY worker ./worker
 ARG WHAM_PIP=/opt/conda/bin/pip
 RUN if [ -x "${WHAM_PIP}" ]; then \
       "${WHAM_PIP}" install --no-cache-dir -r worker/requirements.model-wham-adapter.txt; \
+      "${WHAM_PIP}" install --no-cache-dir iopath fvcore; \
+      "${WHAM_PIP}" install --no-index --no-cache-dir pytorch3d \
+        -f https://dl.fbaipublicfiles.com/pytorch3d/packaging/wheels/py39_cu113_pyt1110/download.html; \
     else \
       pip install --no-cache-dir -r worker/requirements.model-wham-adapter.txt; \
+      pip install --no-cache-dir iopath fvcore; \
+      pip install --no-index --no-cache-dir pytorch3d \
+        -f https://dl.fbaipublicfiles.com/pytorch3d/packaging/wheels/py39_cu113_pyt1110/download.html; \
     fi
 
 ENTRYPOINT ["sh", "worker/docker/wham-worker-entrypoint.sh"]

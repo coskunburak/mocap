@@ -106,6 +106,7 @@ export const config = {
     whamCalibrationPath: optionalEnv("WHAM_CALIBRATION_PATH"),
     whamLibraryPath: optionalEnv("WHAM_LD_LIBRARY_PATH"),
     whamEstimateLocalOnly: booleanEnv("WHAM_ESTIMATE_LOCAL_ONLY", false),
+    whamRenderOverlayPreview: booleanEnv("WHAM_RENDER_OVERLAY_PREVIEW", false),
     whamRootScale: numberEnv("WHAM_ROOT_SCALE", 100),
     whamRequireCuda: booleanEnv(
       "WHAM_REQUIRE_CUDA",
