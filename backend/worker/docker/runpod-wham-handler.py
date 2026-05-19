@@ -88,12 +88,61 @@ def handler(job: dict[str, Any]) -> dict[str, Any]:
         }
 
     if mode == "benchmark":
+        source_video_path = payload.get("sourceVideoPath")
+        clip_seconds = payload.get("clipSeconds")
         video_path = payload.get("videoPath") or "/workspace/WHAM/examples/IMG_9732_5s.mov"
         output_dir = payload.get("outputDir") or "/workspace/WHAM/output/runpod_benchmark"
         if not isinstance(video_path, str) or not video_path.startswith("/"):
             return {"ok": False, "mode": "benchmark", "error": "videoPath must be absolute."}
         if not isinstance(output_dir, str) or not output_dir.startswith("/"):
             return {"ok": False, "mode": "benchmark", "error": "outputDir must be absolute."}
+        if source_video_path is not None:
+            if not isinstance(source_video_path, str) or not source_video_path.startswith("/"):
+                return {
+                    "ok": False,
+                    "mode": "benchmark",
+                    "error": "sourceVideoPath must be absolute.",
+                }
+            try:
+                clip_seconds = float(clip_seconds or 5)
+            except (TypeError, ValueError):
+                return {
+                    "ok": False,
+                    "mode": "benchmark",
+                    "error": "clipSeconds must be numeric.",
+                }
+            if clip_seconds <= 0:
+                return {
+                    "ok": False,
+                    "mode": "benchmark",
+                    "error": "clipSeconds must be positive.",
+                }
+            os.makedirs(output_dir, exist_ok=True)
+            video_path = os.path.join(output_dir, "benchmark_input.mp4")
+            clip = _run_command(
+                [
+                    os.environ.get("FFMPEG_PATH", "ffmpeg"),
+                    "-y",
+                    "-ss",
+                    "0",
+                    "-t",
+                    str(clip_seconds),
+                    "-i",
+                    source_video_path,
+                    "-c",
+                    "copy",
+                    video_path,
+                ],
+                timeout_s,
+            )
+            if clip["returncode"] != 0:
+                return {
+                    "ok": False,
+                    "mode": "benchmark",
+                    "stage": "clip-video",
+                    "videoPath": video_path,
+                    **clip,
+                }
         output_path = os.path.join(output_dir, "solved_motion.json")
         solver = os.environ.get("WHAM_SOLVER_SCRIPT", "worker/model_adapters/wham_solver.py")
         python_path = os.environ.get("PYTHON_PATH", "python")
@@ -126,6 +175,7 @@ def handler(job: dict[str, Any]) -> dict[str, Any]:
             "ok": result["returncode"] == 0,
             "mode": "benchmark",
             "videoPath": video_path,
+            "sourceVideoPath": source_video_path,
             "outputPath": output_path,
             "overlayPreviewPath": os.path.join(output_dir, "wham_work", "output.mp4"),
             **result,

@@ -87,16 +87,19 @@ For DB-free serverless validation, send:
 {
   "input": {
     "mode": "benchmark",
-    "videoPath": "/workspace/WHAM/examples/IMG_9732_5s.mov",
+    "sourceVideoPath": "/workspace/WHAM/examples/IMG_9732.mov",
+    "clipSeconds": 5,
     "outputDir": "/workspace/WHAM/output/runpod_benchmark",
     "timeoutSeconds": 3600
   }
 }
 ```
 
-This runs the WHAM adapter directly without Postgres or object storage and
-returns timing plus the output paths for `solved_motion.json` and, when
-`WHAM_RENDER_OVERLAY_PREVIEW=true`, `wham_work/output.mp4`.
+This creates a 5-second benchmark clip, runs the WHAM adapter directly without
+Postgres or object storage, and returns timing plus the output paths for
+`solved_motion.json` and, when `WHAM_RENDER_OVERLAY_PREVIEW=true`,
+`wham_work/output.mp4`. If a prepared short clip already exists, pass
+`videoPath` instead of `sourceVideoPath` and `clipSeconds`.
 
 ## Required Runtime Paths
 
