@@ -12,7 +12,7 @@ Backend'e yuklenen videodan pose artifact uretmek. Bu sprintin ana ciktisi `pose
 - Object storage download.
 - FFmpeg normalize.
 - Frame extraction.
-- MediaPipe Python `PoseDetector`.
+- removed pose runtime Python `PoseDetector`.
 - `pose_frames.json` artifact.
 - Job progress update.
 - Structured error handling.
@@ -28,7 +28,7 @@ Backend'e yuklenen videodan pose artifact uretmek. Bu sprintin ana ciktisi `pose
 
 - [WP11 - Worker Queue ve Job Consumer](../work_packages/wp-11-worker-queue-job-consumer.md)
 - [WP12 - Video Normalization ve Frame Extraction](../work_packages/wp-12-video-normalization-frame-extraction.md)
-- [WP13 - MediaPipe Pose Extraction](../work_packages/wp-13-mediapipe-pose-extraction.md)
+- [WP13 - removed pose runtime Pose Extraction](../work_packages/wp-13-removed_pose_runtime-pose-extraction.md)
 - [WP20 - Cost, Operations ve Observability](../work_packages/wp-20-cost-operations-observability.md)
 
 ## Ciktilar
@@ -49,7 +49,7 @@ uploaded video -> normalized video -> frames -> pose_frames.json
 ## Riskler
 
 - Video orientation/timebase normalize edilmezse pose frame timestamp'leri bozulur.
-- MediaPipe Python output'u native mobil output ile schema olarak uyumsuz kalabilir.
+- removed pose runtime Python output'u native mobil output ile schema olarak uyumsuz kalabilir.
 - Uzun videolarda CPU maliyeti ve sure artar.
 
 ## Sprint Cikis Karari

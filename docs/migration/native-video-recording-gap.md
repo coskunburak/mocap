@@ -2,7 +2,7 @@
 
 ## Gap
 
-Before Sprint 1, `PoseCameraSession` produced camera preview frames for MediaPipe inference but did not write durable video files. This blocked the backend-core architecture because the backend worker requires original video, not estimated pose frames.
+Before Sprint 1, `PoseCameraSession` produced camera preview frames for removed pose runtime inference but did not write durable video files. This blocked the backend-core architecture because the backend worker requires original video, not estimated pose frames.
 
 ## Decision
 

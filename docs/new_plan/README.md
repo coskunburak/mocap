@@ -34,7 +34,7 @@ Detayli is paketleri:
 - [WP10 - Processing Status UX](./work_packages/wp-10-processing-status-ux.md)
 - [WP11 - Worker Queue ve Job Consumer](./work_packages/wp-11-worker-queue-job-consumer.md)
 - [WP12 - Video Normalization ve Frame Extraction](./work_packages/wp-12-video-normalization-frame-extraction.md)
-- [WP13 - MediaPipe Pose Extraction](./work_packages/wp-13-mediapipe-pose-extraction.md)
+- [WP13 - removed pose runtime Pose Extraction](./work_packages/wp-13-removed_pose_runtime-pose-extraction.md)
 - [WP14 - Backend Export Core V1](./work_packages/wp-14-backend-export-core-v1.md)
 - [WP15 - SkeletonDefinition ve Rotation Solve](./work_packages/wp-15-skeleton-definition-rotation-solve.md)
 - [WP16 - Cleanup, Foot Locking ve Quality Report](./work_packages/wp-16-cleanup-foot-locking-quality-report.md)

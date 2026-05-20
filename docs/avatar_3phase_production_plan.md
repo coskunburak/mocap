@@ -6,7 +6,7 @@
 
 ### Problem Analizi
 Mevcut kod basit bir `dict[name]` eşleştirmesi yapıyor. Bu production-ready DEĞİLDİR çünkü:
-- MediaPipe'ın 52 Blendshape ismi (`eyeBlinkLeft`) ile popüler 3D modellerin isim formatları (`EyeBlink_L`, `eye_blink_left`, `eyeBlink_L`) arasında **standart bir eşleşme yoktur**.
+- removed pose runtime'ın 52 Blendshape ismi (`eyeBlinkLeft`) ile popüler 3D modellerin isim formatları (`EyeBlink_L`, `eye_blink_left`, `eyeBlink_L`) arasında **standart bir eşleşme yoktur**.
 - Her `useFrame` çağrısında tüm mesh'ler ve tüm blendshape'ler üzerinde O(N×M) döngü çalışıyor — bu mobil GPU'da frame drop'a yol açabilir.
 - Blendshape skoru sıfırın altına düşebilir veya 1'i aşabilir (clamp eksik).
 

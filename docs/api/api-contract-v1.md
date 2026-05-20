@@ -32,10 +32,10 @@ pending -> failed
 Processing job:
 
 ```text
-queued -> ingesting -> extracting_frames -> detecting_pose -> solving_motion
+queued -> ingesting -> extracting_frames -> solving_motion
   -> cleaning -> exporting -> succeeded
 
-queued|ingesting|extracting_frames|detecting_pose|solving_motion|cleaning|exporting -> failed
+queued|ingesting|extracting_frames|solving_motion|cleaning|exporting -> failed
 queued -> canceled
 ```
 
@@ -245,4 +245,3 @@ Response `200`:
 | Upload URL TTL | 15 minutes |
 | Download URL TTL | 10 minutes |
 | Max expected videos | 4 |
-

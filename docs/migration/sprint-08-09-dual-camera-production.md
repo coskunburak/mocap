@@ -63,7 +63,7 @@ takes/{takeId}/jobs/{jobId}/quality_report.json
 
 ## QA
 
-The golden E2E harness supports single-camera and dual-camera samples. Dual samples use a `videos` array and assert that `dual_reconstruction_json` is produced.
+The golden E2E harness supports single-camera and dual-camera samples. Dual samples use a `videos` array and assert that `smpl_parameters_json` is produced.
 
 ```bash
 npm --prefix backend run qa:golden -- qa/golden-samples.example.json

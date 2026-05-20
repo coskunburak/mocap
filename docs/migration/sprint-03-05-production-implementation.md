@@ -11,7 +11,7 @@ Source plan:
 - `docs/new_plan/work_packages/wp-10-processing-status-ux.md`
 - `docs/new_plan/work_packages/wp-11-worker-queue-job-consumer.md`
 - `docs/new_plan/work_packages/wp-12-video-normalization-frame-extraction.md`
-- `docs/new_plan/work_packages/wp-13-mediapipe-pose-extraction.md`
+- `docs/new_plan/work_packages/wp-13-removed_pose_runtime-pose-extraction.md`
 - `docs/new_plan/work_packages/wp-14-backend-export-core-v1.md`
 - `docs/new_plan/work_packages/wp-15-skeleton-definition-rotation-solve.md`
 - `docs/new_plan/work_packages/wp-17-export-validation-blender-smoke-test.md`
@@ -29,7 +29,7 @@ Native recording stop
   -> Worker claims queued job from Postgres queue
   -> Worker downloads source video from object storage
   -> FFmpeg normalizes the video
-  -> MediaPipe Python detector emits pose_frames.json
+  -> removed pose runtime Python detector emits pose_frames.json
   -> Skeleton core emits solved_motion.json
   -> BVH writer emits result.bvh
   -> Quality report and validation artifacts are stored
@@ -45,7 +45,7 @@ Native recording stop
 | WP10 | `ProcessingStatusScreen`, backend status labels, polling, retry/cancel actions |
 | WP11 | Postgres-backed queue claim via `JobRepository.claimNextQueued()` and `backend/src/worker/index.ts` |
 | WP12 | `probeVideo()` and `normalizeVideo()` FFmpeg/FFprobe pipeline |
-| WP13 | `backend/worker/pose_detector.py` MediaPipe detector and `pose_frames.json` schema |
+| WP13 | `backend/worker/pose_detector.py` removed pose runtime detector and `pose_frames.json` schema |
 | WP14 | Worker export artifacts: `pose_frames.json`, `solved_motion.json`, `quality_report.json`, `result.bvh` |
 | WP15 | `mocap_humanoid_v1` skeleton definition, finite-guarded landmark-to-rotation solve |
 | WP17 | Lightweight BVH validation plus optional headless Blender smoke test via `BLENDER_PATH` |

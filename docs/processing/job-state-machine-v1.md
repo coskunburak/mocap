@@ -6,9 +6,8 @@
 | --- | --- | --- |
 | `queued` | Backend | Job accepted and waiting for a worker. |
 | `ingesting` | Worker | Original video and metadata are being fetched and validated. |
-| `extracting_frames` | Worker | Frames are being normalized/extracted. |
-| `detecting_pose` | Worker | Pose/landmark detection is running. |
-| `solving_motion` | Worker | 3D motion, root, and skeleton solve are running. |
+| `extracting_frames` | Worker | Source video is being normalized for WHAM. |
+| `solving_motion` | Worker | WHAM, SMPL, and SMPLify motion solve are running. |
 | `cleaning` | Worker | Jitter cleanup, foot locking, and validation are running. |
 | `exporting` | Worker | BVH/GLB/FBX/JSON artifacts are being written. |
 | `succeeded` | Worker | Exports and quality report are available. |
@@ -29,12 +28,10 @@
 | --- | --- |
 | `queued` | Waiting |
 | `ingesting` | Preparing video |
-| `extracting_frames` | Reading frames |
-| `detecting_pose` | Detecting body |
-| `solving_motion` | Solving motion |
+| `extracting_frames` | Normalizing video |
+| `solving_motion` | Running WHAM solve |
 | `cleaning` | Cleaning motion |
 | `exporting` | Creating exports |
 | `succeeded` | Ready |
 | `failed` | Failed |
 | `canceled` | Canceled |
-

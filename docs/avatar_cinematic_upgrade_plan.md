@@ -11,7 +11,7 @@ Projenin "Wow" faktörünü maksimize etmek. Avatar sadece hareket etmeyecek; **
 Avatar'ın sadece iskeletini değil, yüzündeki mimikleri (Blendshapes) de gerçek zamanlı aktaracağız.
 1. **Blendshape Yakalama:** `useCaptureStore` içindeki `lastFrame.faceBlendshapes` verisi 60 FPS döngüsünün içine dahil edilecek.
 2. **Mesh Traversing:** Three.js sahnesindeki `SkinnedMesh` objeleri taranarak `morphTargetDictionary` (Örn: `eyeBlink_L`, `jawOpen`) haritası çıkarılacak.
-3. **Weight Mapping:** Apple ARKit isimlendirmesindeki (MediaPipe'dan gelen) mimikler, 3D karakterin Morph Target indekslerine eşlenip `mesh.morphTargetInfluences[index] = score` şeklinde anlık uygulanacak.
+3. **Weight Mapping:** Apple ARKit isimlendirmesindeki (removed pose runtime'dan gelen) mimikler, 3D karakterin Morph Target indekslerine eşlenip `mesh.morphTargetInfluences[index] = score` şeklinde anlık uygulanacak.
 
 ---
 

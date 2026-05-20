@@ -17,7 +17,7 @@ Mevcut P2P katmanını stabilite ve hata toleransı açısından güçlendirmek.
   - Keepalive (Ping/Pong) mekanizması ile bağlantı takibi.
   - Otomatik reconnect ve session recovery.
   - Hata durumlarında (Wi-Fi kopması vb.) net kullanıcı uyarıları.
-- **Host Dashboard:** Guest'in FPS, latency, batarya durumu ve tracking state (MediaPipe kalitesi) canlı izlenir.
+- **Host Dashboard:** Guest'in FPS, latency, batarya durumu ve tracking state (removed pose runtime kalitesi) canlı izlenir.
 
 **Acceptance:** 10 dakika boyunca kopmadan 30 FPS landmark akışı.
 
@@ -66,7 +66,7 @@ Triangülasyonun doğruluğunu belirleyen en kritik aşama.
 2D iskelet yerine gerçek bir 3D humanoid karakterin (Robot) varsayılan olması.
 
 - **Asset Standardı:** Low-poly, humanoid rig, local bundle .glb.
-- **Retargeting:** MediaPipe landmark'larının robot kemiklerine (Hips, Spine, UpperArm vb.) aktarılması.
+- **Retargeting:** removed pose runtime landmark'larının robot kemiklerine (Hips, Spine, UpperArm vb.) aktarılması.
 - **Hands & Face:** El bileği orientasyonu ve temel kafa hareketlerinin eklenmesi.
 - **Smoothness:** Jitter (titreme) engelleyici One-Euro Filter gibi algoritmalar.
 

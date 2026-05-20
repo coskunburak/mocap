@@ -8,13 +8,13 @@ Mevcut MocapExpo kod tabaninin backend-core gecis acisindan nerede durdugunu net
 
 ## Incelenecek Alanlar
 
-- Native pose engine:
+- Native camera capture:
   - `ios/MocapExpo/pose/PoseEngineModule.swift`
   - `ios/MocapExpo/pose/PoseCameraSession.swift`
-  - `ios/MocapExpo/pose/PoseLandmarkerRunner.swift`
+  - `ios/MocapExpo/pose/RemovedPoseRunner.swift`
   - Android `pose` native package.
 - Capture flow:
-  - `src/features/capture/hooks/usePoseStream.ts`
+  - `src/features/capture/hooks/useWhamCapture.ts`
   - `src/features/capture/hooks/useRecorder.ts`
   - `src/features/capture/screens/CaptureScreen.tsx`
 - Local persistence:

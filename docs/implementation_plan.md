@@ -6,9 +6,9 @@ MocapExpo uygulamasına iki telefonun aynı anda aynı sahneyi farklı açılard
 
 ## Mevcut Durum
 
-- **Tek telefon** kamerayla MediaPipe Pose 33 landmark çıkarıyor (`PoseEngine.native.ts`)
-- Frame'ler `usePoseStream` → `useRecorder` → `takeRepoFs` zinciriyle kaydediliyor
-- Mevcut `worldLandmarks` MediaPipe'ın monoküler derinlik tahmini — gerçek metrik 3D değil
+- **Tek telefon** kamerayla removed pose runtime Pose 33 landmark çıkarıyor (`NativeCameraEngine.ts`)
+- Frame'ler `useWhamCapture` → `useRecorder` → `takeRepoFs` zinciriyle kaydediliyor
+- Mevcut `worldLandmarks` removed pose runtime'ın monoküler derinlik tahmini — gerçek metrik 3D değil
 - **P2P haberleşme veya multi-device altyapısı yok**
 
 ## Mimari Genel Bakış
@@ -156,7 +156,7 @@ Telefon-telefon haberleşme katmanı. Host bir WS server, Guest ona bağlanan cl
 - Start/stop komutlarını guest'e gönder
 - Kayıt sırasında `MultiViewPoseFrame`'leri recorder'a ilet
 
-#### [MODIFY] [usePoseStream.ts](file:///Users/burakcoskun/Mocapexpo/src/features/capture/hooks/usePoseStream.ts)
+#### [MODIFY] [useWhamCapture.ts](file:///Users/burakcoskun/Mocapexpo/src/features/capture/hooks/useWhamCapture.ts)
 - Multi-view mode flag eklenmesi
 - Guest modda: frame'leri lokal process + network'e gönder
 - Host modda: `useMultiViewCapture` ile entegre çalışma

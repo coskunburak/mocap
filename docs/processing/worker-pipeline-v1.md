@@ -5,9 +5,9 @@ job queued
   -> validate take ownership and upload completeness
   -> download original video + capture metadata
   -> normalize video
-  -> extract frames
-  -> run pose detection (RTMW/WholeBody when configured, MediaPipe fallback)
-  -> solve skeleton/root motion (WHAM premium when configured, builtin fallback)
+  -> run WHAM on normalized source video
+  -> generate SMPL parameters and SMPLify metadata
+  -> solve skeleton/root motion from WHAM/SMPL output
   -> cleanup and quality report
   -> export artifacts and motion pipeline report
   -> mark job succeeded or failed
@@ -20,3 +20,4 @@ Sprint 2 does not implement the worker. It freezes the contract the worker will 
 3. Job timeline events are append-only.
 4. Worker output must register `ExportFile` rows through the backend or a controlled service account path.
 5. Worker artifacts use the same take-scoped storage key layout as uploads.
+6. WHAM/SMPL/SMPLify is the only supported production motion pipeline.

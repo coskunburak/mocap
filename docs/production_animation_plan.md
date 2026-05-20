@@ -10,7 +10,7 @@ Basit hareketli ortalama (Moving Average) hızlı hareketlerde gecikme (lag) yar
 
 ## Phase 2: Kinematik Çözücü (Positions to Rotations)
 Blender ve Unreal Engine, noktaların nerede olduğuyla (x, y, z) ilgilenmez. Eklemlerin **hangi eksende kaç derece döndüğüyle (Rotations)** ilgilenir.
-1. **`SkeletonHierarchy.ts`**: MediaPipe'ın karmaşık 33 noktasını standart animasyon kemiklerine (Pelvis -> Spine -> Neck -> Head, Pelvis -> Femur -> Tibia -> Foot vb.) bağlayan ebeveyn-çocuk (parent-child) ağacı tanımlanacak.
+1. **`SkeletonHierarchy.ts`**: removed pose runtime'ın karmaşık 33 noktasını standart animasyon kemiklerine (Pelvis -> Spine -> Neck -> Head, Pelvis -> Femur -> Tibia -> Foot vb.) bağlayan ebeveyn-çocuk (parent-child) ağacı tanımlanacak.
 2. **`Math3D.ts`**: Saf TypeScript ile Quaternion, Vector3, Cross Product, Dot Product ve Euler dönüşüm matematiği eklenecek.
 3. **`KinematicsSolver.ts`**: Her bir frame için 3D nokta bulutunu alıp, kemik vektörlerini hesaplayıp bunları Parent kemiğine göre **Local Euler Acılarına (Z-X-Y)** veya **Quaternion'a** dönüştürecek.
 

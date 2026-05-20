@@ -25,7 +25,7 @@ Artık sistem uçtan uca çalışır durumda. Modüller birbirine tam entegre ed
 
 | İşlem | Çözüm |
 |---------|-------|
-| `usePoseStream` ↔ `useMultiViewCapture` entegrasyonu | `CaptureScreen` üzerinden `onFrame` callback'i ile iki sistem birbirine bağlandı. Host triangülasyon yaparken, Guest frame'leri Host'a iletiyor. |
+| `useWhamCapture` ↔ `useMultiViewCapture` entegrasyonu | `CaptureScreen` üzerinden `onFrame` callback'i ile iki sistem birbirine bağlandı. Host triangülasyon yaparken, Guest frame'leri Host'a iletiyor. |
 | `useRecorder` MultiViewPoseFrame desteği | `useRecorder`, `TakeRepo.fs.ts` ve reader güncellendi. `MultiViewPoseFrame`'in 3D verisi kayıt altına alınıyor ve geriye dönük uyumluluk için standart player tarafından da okunabiliyor. |
 | Guest Komut Yönetimi | Guest, Host'tan gelen `start_capture`, `stop_recording` gibi komutlara dinamik olarak yanıt verecek şekilde bağlandı. |
 | Local IP Adresi | `react-native-network-info` eklendi. Host kendi gerçek lokal IP'sini ekranda gösteriyor. |

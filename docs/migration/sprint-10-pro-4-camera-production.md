@@ -53,7 +53,7 @@ The result screen now surfaces pro multi-view feedback:
 
 ## QA
 
-The golden E2E manifest supports a `pro_4_camera` sample with four videos. The harness asserts `multi_view_reconstruction_json` for 4-camera samples.
+The golden E2E manifest supports a `pro_4_camera` sample with four videos. The harness asserts `smpl_parameters_json` for 4-camera samples.
 
 ```bash
 npm --prefix backend run qa:golden -- qa/golden-samples.example.json

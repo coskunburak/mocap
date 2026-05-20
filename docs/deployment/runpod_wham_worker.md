@@ -1,8 +1,8 @@
 # RunPod WHAM GPU Worker Deployment
 
-This deployment runs the real backend worker with `MOTION_SOLVER=wham`. It is
-the production path for the mobile Export Result screen's `WHAM Premium Solve`
-card. The QA-only `WHAM_PRECOMPUTED_OUTPUT_PKL` path must never be set here.
+This deployment runs the real backend WHAM/SMPL worker. It is the production
+path for the mobile Export Result screen's `WHAM Premium Solve` card. The
+QA-only `WHAM_PRECOMPUTED_OUTPUT_PKL` path must never be set here.
 
 ## Image Contract
 
@@ -145,10 +145,6 @@ The minimum production posture is:
 
 ```text
 NODE_ENV=production
-MOTION_SOLVER=wham
-REQUIRE_PREMIUM_MOTION=true
-ALLOW_POSE_FALLBACK=false
-MOCAP_ALLOW_SYNTHETIC_POSE=false
 WHAM_REQUIRE_CUDA=true
 ```
 

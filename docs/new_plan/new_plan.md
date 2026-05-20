@@ -36,7 +36,7 @@ Bu gecisten sonra mobil uygulama final animasyon motoru degil, guvenilir capture
 
 ### 1.1 Neden Backend-Core?
 
-Tek kamerali mobil MediaPipe preview, hizli MVP icin degerlidir ama production mocap kalitesi icin yeterli degildir. Tek kamera 3D verisi gercek reconstruction degil, model tahminidir. Su durumlarda veri bozulur:
+Tek kamerali mobil removed pose runtime preview, hizli MVP icin degerlidir ama production mocap kalitesi icin yeterli degildir. Tek kamera 3D verisi gercek reconstruction degil, model tahminidir. Su durumlarda veri bozulur:
 
 - Vucut kameraya yan dondugunde.
 - Kol ve govde ust uste geldiginde.
@@ -89,7 +89,7 @@ Repo bugun su teknolojilerle calisiyor:
 - Expo dev client.
 - iOS native Swift bridge.
 - Android native Kotlin bridge.
-- MediaPipe Tasks Vision native entegrasyonu.
+- removed native vision runtime native entegrasyonu.
 - Zustand state.
 - Local file persistence.
 - React Navigation.
@@ -101,10 +101,10 @@ Mevcut native katman:
 
 - `ios/MocapExpo/pose/PoseEngineModule.swift`
 - `ios/MocapExpo/pose/PoseCameraSession.swift`
-- `ios/MocapExpo/pose/PoseLandmarkerRunner.swift`
+- `ios/MocapExpo/pose/RemovedPoseRunner.swift`
 - `android/app/src/main/java/com/anonymous/MocapExpo/pose/PoseEngineModule.kt`
 - `android/app/src/main/java/com/anonymous/MocapExpo/pose/PoseCameraSession.kt`
-- `android/app/src/main/java/com/anonymous/MocapExpo/pose/PoseLandmarkerRunner.kt`
+- `android/app/src/main/java/com/anonymous/MocapExpo/pose/RemovedPoseRunner.kt`
 
 Mevcut `PoseCameraSession.swift` `AVCaptureVideoDataOutput` ile frame stream aliyor. Bu yapi live inference ve preview icin dogru, fakat production upload icin video dosyasi uretmiyor.
 
@@ -122,7 +122,7 @@ Mevcut kayit akisi video degil, pose frame kaydidir.
 
 Ilgili dosyalar:
 
-- `src/features/capture/hooks/usePoseStream.ts`
+- `src/features/capture/hooks/useWhamCapture.ts`
 - `src/features/capture/hooks/useRecorder.ts`
 - `src/infra/persistence/TakeRepo.fs.ts`
 - `src/infra/persistence/takeRepoFs.reader.ts`
@@ -132,7 +132,7 @@ Bugunku akis:
 ```text
 Camera preview baslar
   -> native PoseEngine frame event emit eder
-  -> usePoseStream frame'i smooth eder ve store'a yazar
+  -> useWhamCapture frame'i smooth eder ve store'a yazar
   -> kayit aktifse useRecorder.pushFrame calisir
   -> takeRepoFs chunk olarak JSONL pose frame yazar
   -> stopRecording local review/cleanup metasi uretir
@@ -721,7 +721,7 @@ Queue: Redis Queue, BullMQ, RabbitMQ veya SQS
 Storage: S3-compatible object storage
 Processing: Python 3.11+
 Video: FFmpeg
-Pose: MediaPipe Python V1, sonra RTMPose/ViTPose/Sapiens opsiyonlari
+Pose: removed pose runtime Python V1, sonra RTMPose/ViTPose/Sapiens opsiyonlari
 ```
 
 Ilk MVP icin API teknolojisi processing kalitesinden daha az kritik. Kritik olan API contract, storage layout ve job state machine'in dogru kurulmasidir.
@@ -984,7 +984,7 @@ processing-worker/
 
     pose/
       pose_detector.py
-      mediapipe_pose_detector.py
+      removed_pose_runtime_pose_detector.py
       pose_frame.py
 
     skeleton/
@@ -1031,7 +1031,7 @@ Pipeline:
   2. Validate checksum, duration, codec, resolution.
   3. Normalize orientation/fps/timebase with FFmpeg.
   4. Extract frames or stream decode.
-  5. Run MediaPipe Pose Landmarker Python.
+  5. Run removed pose runtime Pose Landmarker Python.
   6. Store pose_frames.json.
   7. Apply confidence-aware smoothing.
   8. Normalize skeleton bone lengths.
@@ -1555,7 +1555,7 @@ Yapilacaklar:
 - Object storage download.
 - FFmpeg normalize.
 - Frame extraction.
-- MediaPipe Python PoseDetector.
+- removed pose runtime Python PoseDetector.
 - `pose_frames.json` artifact.
 - Job progress update.
 - Error handling.
@@ -1824,7 +1824,7 @@ Ilk backend-core MVP:
 - Capture metadata.
 - Backend upload.
 - Processing job.
-- Backend MediaPipe pose extraction.
+- Backend removed pose runtime pose extraction.
 - Backend BVH + JSON export.
 - Blender-compatible preset.
 - Processing status screen.
@@ -1866,7 +1866,7 @@ Current codebase facts:
 Target:
 - Mobile becomes capture/quality/upload/status/result client.
 - Source of truth for production processing is original video + capture metadata.
-- On-device MediaPipe remains only for live skeleton preview and capture quality validation.
+- On-device removed pose runtime remains only for live skeleton preview and capture quality validation.
 - Backend owns final pose extraction, skeleton solve, cleanup, IK, foot locking, and export generation.
 
 Task:
@@ -1896,7 +1896,7 @@ Requirements:
 - Queue consumer architecture.
 - Object storage download/upload.
 - FFmpeg video normalization.
-- MediaPipe Pose Landmarker detector behind a PoseDetector interface.
+- removed pose runtime Pose Landmarker detector behind a PoseDetector interface.
 - Confidence-aware pose frame schema.
 - Temporal smoothing.
 - SkeletonDefinition v1.

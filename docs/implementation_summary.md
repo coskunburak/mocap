@@ -56,7 +56,7 @@ TypeScript compilation passes with **zero errors** (`npx tsc --noEmit`).
 ```mermaid
 graph TB
     subgraph "Phone A — Host"
-        A_PE[PoseEngine] --> A_PS[usePoseStream]
+        A_PE[PoseEngine] --> A_PS[useWhamCapture]
         A_PS --> A_MVC[useMultiViewCapture]
         A_MVC --> A_FM[FrameMatcher]
         A_FM --> A_TRI[Triangulator]
@@ -66,7 +66,7 @@ graph TB
     end
     
     subgraph "Phone B — Guest"
-        B_PE[PoseEngine] --> B_PS[usePoseStream]
+        B_PE[PoseEngine] --> B_PS[useWhamCapture]
         B_PS --> PG[PeerGuest TCP Client]
     end
     

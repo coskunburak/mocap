@@ -3,13 +3,13 @@
 Bu plan, uygulamanın mevcut iskelet takibi (Pose) yeteneklerini genişleterek **Yüz (52 ARKit Blendshapes)** ve **Parmak/El (21+21 = 42 Nokta)** takibini tam entegre etmeyi ve Hollywood standardında tam performans kopyalamayı amaçlar.
 
 ## Hedef ve Vizyon
-Mocap pazarında "Body-only" (sadece vücut) sistemler standarttır. Yüz ve parmak takibi sunan sistemler (Rokoko Smart Gloves + Faceware) binlerce dolarlık donanımlar gerektirir. Biz bunu sadece akıllı telefon kamerası ile, mevcut MediaPipe Holistic modelini kullanarak **ücretsiz ve mobil cihazda** gerçekleştireceğiz.
+Mocap pazarında "Body-only" (sadece vücut) sistemler standarttır. Yüz ve parmak takibi sunan sistemler (Rokoko Smart Gloves + Faceware) binlerce dolarlık donanımlar gerektirir. Biz bunu sadece akıllı telefon kamerası ile, mevcut removed pose runtime Holistic modelini kullanarak **ücretsiz ve mobil cihazda** gerçekleştireceğiz.
 
 ---
 
 ## 📅 Aşama 1: Native (C++/Kotlin/Swift) Katmanında Holistic Modelin Aktifleştirilmesi
 Mevcut kod tabanımızda veri yapısı (`PoseFrame.ts` içindeki `faceBlendshapes`, `leftHandLandmarks` vb.) zaten hazır. Ancak kameradan gelen görüntünün sadece vücut (Pose) değil, tüm detayları taraması için Native yapının güncellenmesi gerekiyor.
-1. **Model Değişimi:** MediaPipe'ın hafif `Pose` modeli yerine `Holistic` modelinin (veya bağımsız Hand/Face Mesh modellerinin) Native köprüye (JNI/Objective-C++) yüklenmesi.
+1. **Model Değişimi:** removed pose runtime'ın hafif `Pose` modeli yerine `Holistic` modelinin (veya bağımsız Hand/Face Mesh modellerinin) Native köprüye (JNI/Objective-C++) yüklenmesi.
 2. **Performans Optimizasyonu:** Vücut + Yüz + El takibi aynı anda ağır bir işlemdir. Frame Rate'i (FPS) 30'da tutmak için Asenkron Frame Processor (Worklets) ayarlamaları yapılacak.
 3. **Blendshape Çıkarımı:** Yüz mimikleri (göz kırpma, ağız açma, gülümseme) için Apple ARKit standartlarındaki 52 adet Blendshape (Morph Target) skorlarının çıkarılması.
 

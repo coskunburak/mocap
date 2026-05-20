@@ -4,7 +4,7 @@ Ilgili sprintler: [Sprint 1](../sprints/sprint-01-native-video-recording-foundat
 
 ## Amac
 
-On-device MediaPipe'i final animation kaynagi olmaktan cikarip preview ve capture quality validation motoru olarak konumlandirmak.
+On-device removed pose runtime'i final animation kaynagi olmaktan cikarip preview ve capture quality validation motoru olarak konumlandirmak.
 
 ## Yapilacaklar
 
@@ -13,7 +13,7 @@ On-device MediaPipe'i final animation kaynagi olmaktan cikarip preview ve captur
    - tracking lock
    - quality score
    - bad frame warnings
-2. `usePoseStream` icinde production recording ile debug pose-frame recording ayrimini yap.
+2. `useWhamCapture` icinde production recording ile debug pose-frame recording ayrimini yap.
 3. `MOCAP_LOCAL_FRAME_RECORDING=debug` gibi env/config flag tanimla.
 4. Flag kapaliyken `useRecorder` pose frame chunk yazmasin.
 5. Capture quality accumulator ekle.
