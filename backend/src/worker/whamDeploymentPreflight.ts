@@ -129,15 +129,6 @@ async function main() {
   assertWorkerRuntimeConfig();
 
   const worker = config.worker;
-  const strictWham = worker.motionSolver === "wham" || worker.requirePremiumMotion;
-  if (!strictWham) {
-    log("info", "WHAM runtime is not required by this worker configuration.", {
-      motionSolver: worker.motionSolver,
-      requirePremiumMotion: worker.requirePremiumMotion,
-    });
-    return;
-  }
-
   if (!worker.whamSolverScript || !worker.whamRepoDir) {
     throw new Error("WHAM_SOLVER_SCRIPT and WHAM_REPO_DIR must be configured.");
   }

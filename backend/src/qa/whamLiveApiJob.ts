@@ -39,7 +39,7 @@ type Check = {
 };
 
 const REQUIRED_EXPORT_FORMATS = [
-  "pose_frames_json",
+  "smpl_parameters_json",
   "raw_solved_motion_json",
   "solved_motion_json",
   "cleanup_report_json",

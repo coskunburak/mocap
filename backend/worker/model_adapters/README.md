@@ -4,40 +4,7 @@ These scripts are the production boundary between the Node worker and heavy
 model runtimes. They are called as local Python executables by the backend
 worker and must write the JSON contracts expected by `backend/src/worker`.
 
-## RTMW WholeBody
-
-Script:
-
-```text
-worker/model_adapters/rtmw_detector.py
-```
-
-Install:
-
-```bash
-pip install -r backend/worker/requirements.model-rtmw.txt
-```
-
-Worker env:
-
-```text
-POSE_ENGINE=rtmw
-RTMW_DETECTOR_SCRIPT=worker/model_adapters/rtmw_detector.py
-RTMW_DEVICE=cuda
-RTMW_BACKEND=onnxruntime
-RTMW_MODE=balanced
-ALLOW_POSE_FALLBACK=false
-```
-
-The adapter uses `rtmlib.Wholebody`, selects the most stable detected subject,
-stores 133 COCO-WholeBody landmarks, and lets the TypeScript worker map them
-into the existing 33-landmark body schema.
-
-The default requirement file installs CPU ONNX Runtime. In GPU images, replace
-`onnxruntime` with the CUDA-matched `onnxruntime-gpu` package and set
-`RTMW_DEVICE=cuda`.
-
-## WHAM Premium Solve
+## WHAM/SMPL Solve
 
 Script:
 
@@ -48,8 +15,6 @@ worker/model_adapters/wham_solver.py
 The WHAM repo and SMPL assets are not vendored here. Install the official WHAM
 checkout and assets in the model image, then point the backend worker to it:
 
-```text
-MOTION_SOLVER=wham
 WHAM_SOLVER_SCRIPT=worker/model_adapters/wham_solver.py
 PYTHON_PATH=/opt/conda/bin/python
 WHAM_REPO_DIR=/workspace/WHAM
@@ -58,13 +23,13 @@ WHAM_LD_LIBRARY_PATH=/opt/conda/lib/python3.9/site-packages/torch/lib:/opt/conda
 WHAM_REQUIRE_CUDA=true
 WHAM_PREFLIGHT_REQUIRED_PATHS=checkpoints/wham_vit_bedlam_w_3dpw.pth.tar,checkpoints/hmr2a.ckpt
 WHAM_SMPL_ASSET_DIR=/workspace/WHAM/dataset/body_models/smpl
-REQUIRE_PREMIUM_MOTION=true
 ```
 
 The adapter imports the official WHAM `demo.py` pipeline, runs inference on the
 primary normalized video with `save_pkl=True`, selects the longest tracked
 subject from `wham_output.pkl`, maps SMPL joints into the MocapExpo humanoid
-skeleton, and writes `mocap.solved_motion.v1` compatible frames.
+skeleton, and writes `mocap.solved_motion.v1` plus
+`mocap.smpl_parameters.v1` compatible artifacts.
 
 For a manual RunPod validation where WHAM has already produced
 `wham_output.pkl`, the same adapter can convert that cached result without
@@ -156,9 +121,7 @@ npm --prefix backend run qa:wham-live-api -- \
 The scripts should at least compile in the base Python environment:
 
 ```bash
-python3 -m py_compile \
-  backend/worker/model_adapters/rtmw_detector.py \
-  backend/worker/model_adapters/wham_solver.py
+python3 -m py_compile backend/worker/model_adapters/wham_solver.py
 ```
 
 Full inference checks require the model runtime, GPU driver, and model weights.

@@ -19,15 +19,9 @@ import {
   validateBvhText,
   validateSolvedMotion,
 } from "./export/exportValidation";
-import { trySolvePremiumMotion, type PremiumSolveAttempt } from "./export/premiumMotionSolver";
-import { solveMotion } from "./export/solveMotion";
-import { detectPoseFrames } from "./pose/poseDetector";
-import { reconstructDualCameraPose } from "./reconstruction/dualCameraReconstruction";
-import { reconstructMultiViewPose } from "./reconstruction/multiViewReconstruction";
+import { trySolvePremiumMotion } from "./export/premiumMotionSolver";
 import { normalizeVideo, probeVideo } from "./video/videoPipeline";
 import type {
-  DualCameraReconstructionArtifact,
-  MultiViewReconstructionArtifact,
   MotionPipelineReport,
   PoseFramesArtifact,
   SolvedMotionArtifact,
@@ -48,7 +42,6 @@ type ProcessedSource = {
   normalizedPath: string;
   normalizedKey: string;
   normalizedProbe: Awaited<ReturnType<typeof probeVideo>>;
-  poseArtifact: PoseFramesArtifact;
 };
 
 class WorkerProcessingError extends Error {
@@ -70,13 +63,6 @@ async function safeRm(dir: string) {
   await rm(dir, { recursive: true, force: true }).catch(() => undefined);
 }
 
-function shouldUseDirectWhamSolve(usesMultiSourceReconstruction: boolean) {
-  return (
-    !usesMultiSourceReconstruction &&
-    (config.worker.motionSolver === "wham" || config.worker.requirePremiumMotion)
-  );
-}
-
 function whamMetadataPoseArtifact(input: {
   takeId: string;
   jobId: string;
@@ -90,7 +76,7 @@ function whamMetadataPoseArtifact(input: {
     detector: {
       name: "wham_video_metadata",
       version: config.worker.whamSolverVersion,
-      landmarkSchema: "custom",
+      landmarkSchema: "wham_internal",
     },
     frames: [],
     quality: {
@@ -116,13 +102,13 @@ function whamSolvedPoseArtifact(input: {
     detector: {
       name: "wham_internal_vitpose",
       version: config.worker.whamSolverVersion,
-      landmarkSchema: "custom",
+      landmarkSchema: "wham_internal",
     },
     frames: input.solved.frames.map((frame) => ({
       frameIndex: frame.frameIndex,
       timestampMs: frame.timestampMs,
       landmarks: [],
-      landmarkSchema: "custom",
+      landmarkSchema: "wham_internal",
       poseConfidence: 1,
       detectorVersion: config.worker.whamSolverVersion,
     })),
@@ -182,14 +168,18 @@ export class WorkerJobProcessor {
           },
         );
       }
-      const useDualReconstruction = take.captureMode === "dual" && uploadedSources.length >= 2;
-      const useMultiViewReconstruction =
+      const useDualInput = take.captureMode === "dual" && uploadedSources.length >= 2;
+      const useMultiViewInput =
         take.captureMode === "pro_4_camera" && uploadedSources.length >= 4;
-      const usesMultiSourceReconstruction = useDualReconstruction || useMultiViewReconstruction;
-      const useDirectWhamSolve = shouldUseDirectWhamSolve(usesMultiSourceReconstruction);
-      const sources = useMultiViewReconstruction
+      const usesMultiSourceInput = useDualInput || useMultiViewInput;
+      const motionSource = useMultiViewInput
+        ? "multi_view"
+        : useDualInput
+          ? "dual_camera"
+          : "single_camera";
+      const sources = useMultiViewInput
         ? uploadedSources.slice(0, 4)
-        : useDualReconstruction
+        : useDualInput
           ? uploadedSources.slice(0, 2)
           : uploadedSources.slice(0, 1);
       const processedSources: ProcessedSource[] = [];
@@ -198,9 +188,9 @@ export class WorkerJobProcessor {
         jobId: job.id,
         state: "ingesting",
         progress: 10,
-        message: useMultiViewReconstruction
+        message: useMultiViewInput
           ? "Downloading pro multi-view source videos."
-          : useDualReconstruction
+          : useDualInput
             ? "Downloading dual-camera source videos."
             : "Downloading source video.",
         metrics: {
@@ -220,7 +210,7 @@ export class WorkerJobProcessor {
         await this.jobs.updateState({
           jobId: job.id,
           state: "extracting_frames",
-          progress: usesMultiSourceReconstruction ? 18 + source.deviceIndex * 4 : 25,
+          progress: usesMultiSourceInput ? 18 + source.deviceIndex * 4 : 25,
           message: `Normalizing device ${source.deviceIndex} video.`,
           metrics: {
             deviceIndex: source.deviceIndex,
@@ -233,7 +223,7 @@ export class WorkerJobProcessor {
         const normalizedKey = artifactStorageKey(
           job.takeId,
           job.id,
-          usesMultiSourceReconstruction
+          usesMultiSourceInput
             ? `normalized/device_${source.deviceIndex}.mp4`
             : "normalized.mp4",
         );
@@ -243,246 +233,44 @@ export class WorkerJobProcessor {
           contentType: "video/mp4",
         });
 
-        const sourceVideo = {
-          storageKey: source.videoStorageKey,
-          normalizedStorageKey: normalizedKey,
-          fps: normalizedProbe.fps,
-          width: normalizedProbe.width,
-          height: normalizedProbe.height,
-          durationMs: normalizedProbe.durationMs,
-        };
-        let cameraPoseArtifact: PoseFramesArtifact;
-        if (useDirectWhamSolve) {
-          cameraPoseArtifact = whamMetadataPoseArtifact({
-            takeId: job.takeId,
-            jobId: job.id,
-            sourceVideo,
-          });
-        } else {
-          await this.jobs.updateState({
-            jobId: job.id,
-            state: "detecting_pose",
-            progress: usesMultiSourceReconstruction ? 34 + source.deviceIndex * 6 : 45,
-            message: `Detecting body landmarks for device ${source.deviceIndex}.`,
-            metrics: {
-              deviceIndex: source.deviceIndex,
-              probe: normalizedProbe,
-            },
-          });
-
-          cameraPoseArtifact = await detectPoseFrames({
-            takeId: job.takeId,
-            jobId: job.id,
-            normalizedVideoPath: normalizedPath,
-            sourceStorageKey: source.videoStorageKey,
-            normalizedStorageKey: normalizedKey,
-            outputDir: deviceDir,
-            sourceVideo,
-          });
-          if (cameraPoseArtifact.quality.detectedFrameCount === 0) {
-            throw new WorkerProcessingError(
-              `No body was detected in device ${source.deviceIndex} video.`,
-              "pose_not_detected",
-              {
-                deviceIndex: source.deviceIndex,
-                quality: cameraPoseArtifact.quality,
-              },
-            );
-          }
-          const cameraPoseKey = artifactStorageKey(
-            job.takeId,
-            job.id,
-            usesMultiSourceReconstruction
-              ? `pose_frames_device_${source.deviceIndex}.json`
-              : "pose_frames.json",
-          );
-          const cameraPoseFile = await this.storage.putJson(cameraPoseKey, cameraPoseArtifact);
-          await this.exports.create({
-            userId: job.userId,
-            projectId: job.projectId,
-            takeId: job.takeId,
-            jobId: job.id,
-            preset: job.preset,
-            format: usesMultiSourceReconstruction
-              ? `pose_frames_device_${source.deviceIndex}_json`
-              : "pose_frames_json",
-            storageKey: cameraPoseFile.storageKey,
-            fileSizeBytes: cameraPoseFile.sizeBytes,
-          });
-        }
         processedSources.push({
           video: source,
           inputPath,
           normalizedPath,
           normalizedKey,
           normalizedProbe,
-          poseArtifact: cameraPoseArtifact,
         });
       }
 
-      let poseArtifact = processedSources[0].poseArtifact;
-      let poseKey = artifactStorageKey(job.takeId, job.id, "pose_frames.json");
-      let reconstruction:
-        | DualCameraReconstructionArtifact
-        | MultiViewReconstructionArtifact
-        | undefined;
-      let reconstructionKey: string | undefined;
-      if (useMultiViewReconstruction) {
-        await this.jobs.updateState({
-          jobId: job.id,
-          state: "solving_motion",
-          progress: 60,
-          message: "Synchronizing and reconstructing pro multi-view pose.",
-          metrics: {
-            sourceDeviceIndices: processedSources.map((source) => source.video.deviceIndex),
-          },
-        });
-        const multiView = await reconstructMultiViewPose({
-          takeId: job.takeId,
-          jobId: job.id,
-          cameras: processedSources.map((source) => ({
-            video: source.video,
-            inputPath: source.inputPath,
-            normalizedStorageKey: source.normalizedKey,
-            probe: source.normalizedProbe,
-            pose: source.poseArtifact,
-          })),
-          outputDir: path.join(dir, "multi_view_sync"),
-        });
-        poseArtifact = multiView.poseArtifact;
-        reconstruction = multiView.reconstruction;
-        const multiPoseFile = await this.storage.putJson(poseKey, poseArtifact);
-        await this.exports.create({
-          userId: job.userId,
-          projectId: job.projectId,
-          takeId: job.takeId,
-          jobId: job.id,
-          preset: job.preset,
-          format: "pose_frames_json",
-          storageKey: multiPoseFile.storageKey,
-          fileSizeBytes: multiPoseFile.sizeBytes,
-        });
-        reconstructionKey = artifactStorageKey(
-          job.takeId,
-          job.id,
-          "multi_view_reconstruction.json",
-        );
-        const reconstructionFile = await this.storage.putJson(
-          reconstructionKey,
-          reconstruction,
-        );
-        await this.exports.create({
-          userId: job.userId,
-          projectId: job.projectId,
-          takeId: job.takeId,
-          jobId: job.id,
-          preset: job.preset,
-          format: "multi_view_reconstruction_json",
-          storageKey: reconstructionFile.storageKey,
-          fileSizeBytes: reconstructionFile.sizeBytes,
-        });
-      } else if (useDualReconstruction) {
-        await this.jobs.updateState({
-          jobId: job.id,
-          state: "solving_motion",
-          progress: 60,
-          message: "Synchronizing and triangulating dual-camera pose.",
-          metrics: {
-            primaryDeviceIndex: processedSources[0].video.deviceIndex,
-            secondaryDeviceIndex: processedSources[1].video.deviceIndex,
-          },
-        });
-        const dual = await reconstructDualCameraPose({
-          takeId: job.takeId,
-          jobId: job.id,
-          primary: {
-            video: processedSources[0].video,
-            inputPath: processedSources[0].inputPath,
-            normalizedStorageKey: processedSources[0].normalizedKey,
-            probe: processedSources[0].normalizedProbe,
-            pose: processedSources[0].poseArtifact,
-          },
-          secondary: {
-            video: processedSources[1].video,
-            inputPath: processedSources[1].inputPath,
-            normalizedStorageKey: processedSources[1].normalizedKey,
-            probe: processedSources[1].normalizedProbe,
-            pose: processedSources[1].poseArtifact,
-          },
-          outputDir: path.join(dir, "dual_sync"),
-        });
-        poseArtifact = dual.poseArtifact;
-        reconstruction = dual.reconstruction;
-        const dualPoseFile = await this.storage.putJson(poseKey, poseArtifact);
-        await this.exports.create({
-          userId: job.userId,
-          projectId: job.projectId,
-          takeId: job.takeId,
-          jobId: job.id,
-          preset: job.preset,
-          format: "pose_frames_json",
-          storageKey: dualPoseFile.storageKey,
-          fileSizeBytes: dualPoseFile.sizeBytes,
-        });
-        reconstructionKey = artifactStorageKey(
-          job.takeId,
-          job.id,
-          "dual_reconstruction.json",
-        );
-        const reconstructionFile = await this.storage.putJson(
-          reconstructionKey,
-          reconstruction,
-        );
-        await this.exports.create({
-          userId: job.userId,
-          projectId: job.projectId,
-          takeId: job.takeId,
-          jobId: job.id,
-          preset: job.preset,
-          format: "dual_reconstruction_json",
-          storageKey: reconstructionFile.storageKey,
-          fileSizeBytes: reconstructionFile.sizeBytes,
-        });
+      const primarySource = processedSources[0];
+      if (!primarySource) {
+        throw new WorkerProcessingError("No source video was prepared.", "source_video_missing");
       }
-
-      if (!useDirectWhamSolve && poseArtifact.quality.detectedFrameCount === 0) {
-        throw new WorkerProcessingError(
-          "No body was detected in the uploaded video.",
-          "pose_not_detected",
-          poseArtifact.quality,
-        );
-      }
-
-      const motionSource =
-        reconstruction?.schema === "mocap.multi_view_reconstruction.v1"
-          ? "multi_view"
-          : reconstruction?.schema === "mocap.dual_reconstruction.v1"
-            ? "dual_camera"
-            : "single_camera";
+      let poseArtifact = whamMetadataPoseArtifact({
+        takeId: job.takeId,
+        jobId: job.id,
+        sourceVideo: {
+          storageKey: primarySource.video.videoStorageKey,
+          normalizedStorageKey: primarySource.normalizedKey,
+          fps: primarySource.normalizedProbe.fps,
+          width: primarySource.normalizedProbe.width,
+          height: primarySource.normalizedProbe.height,
+          durationMs: primarySource.normalizedProbe.durationMs,
+        },
+      });
 
       await this.jobs.updateState({
         jobId: job.id,
         state: "solving_motion",
         progress: 68,
-        message: useMultiViewReconstruction
-          ? "Solving humanoid skeleton from pro multi-view landmarks."
-          : useDualReconstruction
-          ? "Solving humanoid skeleton from triangulated landmarks."
-          : useDirectWhamSolve
-            ? "Running WHAM directly from normalized video."
-            : "Solving humanoid skeleton.",
+        message: "Running WHAM/SMPL solve from normalized source video.",
         metrics: {
-          ...poseArtifact.quality,
-          reconstruction: reconstruction?.quality,
+          source: motionSource,
+          normalizedVideos: processedSources.map((source) => source.normalizedKey),
         },
       });
 
-      let premiumAttempt: PremiumSolveAttempt = {
-        attempted: false,
-        solver: "wham",
-        skippedReason: "Premium solver was not requested.",
-      };
-      premiumAttempt = await trySolvePremiumMotion({
+      const premiumAttempt = await trySolvePremiumMotion({
         takeId: job.takeId,
         jobId: job.id,
         poseArtifact,
@@ -492,30 +280,8 @@ export class WorkerJobProcessor {
         normalizedVideoPaths: processedSources.map((source) => source.normalizedPath),
       });
 
-      let rawSolved =
-        premiumAttempt.attempted && "motion" in premiumAttempt
-          ? premiumAttempt.motion
-          : solveMotion(poseArtifact, {
-              presetId: job.preset,
-              source: motionSource,
-            });
-      let rawSolvedValidation = validateSolvedMotion(rawSolved);
-      if (
-        !rawSolvedValidation.ok &&
-        rawSolved.solver?.premium &&
-        !config.worker.requirePremiumMotion
-      ) {
-        premiumAttempt = {
-          attempted: true,
-          solver: "wham",
-          failedReason: `Premium solve failed validation: ${rawSolvedValidation.errors.join(", ")}`,
-        };
-        rawSolved = solveMotion(poseArtifact, {
-          presetId: job.preset,
-          source: motionSource,
-        });
-        rawSolvedValidation = validateSolvedMotion(rawSolved);
-      }
+      const rawSolved = premiumAttempt.motion;
+      const rawSolvedValidation = validateSolvedMotion(rawSolved);
       if (!rawSolvedValidation.ok) {
         throw new WorkerProcessingError(
           "Solved motion failed validation.",
@@ -523,31 +289,34 @@ export class WorkerJobProcessor {
           rawSolvedValidation,
         );
       }
-      if (useDirectWhamSolve) {
-        poseArtifact = whamSolvedPoseArtifact({
-          takeId: job.takeId,
-          jobId: job.id,
-          sourceVideo: poseArtifact.sourceVideo,
-          solved: rawSolved,
-        });
-        const poseFile = await this.storage.putJson(poseKey, poseArtifact);
-        await this.exports.create({
-          userId: job.userId,
-          projectId: job.projectId,
-          takeId: job.takeId,
-          jobId: job.id,
-          preset: job.preset,
-          format: "pose_frames_json",
-          storageKey: poseFile.storageKey,
-          fileSizeBytes: poseFile.sizeBytes,
-        });
+      if (!rawSolved.smpl) {
+        throw new WorkerProcessingError(
+          "WHAM did not return required SMPL body pose and global orientation parameters.",
+          "smpl_parameters_missing",
+        );
       }
+      poseArtifact = whamSolvedPoseArtifact({
+        takeId: job.takeId,
+        jobId: job.id,
+        sourceVideo: poseArtifact.sourceVideo,
+        solved: rawSolved,
+      });
+
+      const smplParametersKey = artifactStorageKey(job.takeId, job.id, "smpl_parameters.json");
+      const smplParametersFile = await this.storage.putJson(smplParametersKey, rawSolved.smpl);
+      await this.exports.create({
+        userId: job.userId,
+        projectId: job.projectId,
+        takeId: job.takeId,
+        jobId: job.id,
+        preset: job.preset,
+        format: "smpl_parameters_json",
+        storageKey: smplParametersFile.storageKey,
+        fileSizeBytes: smplParametersFile.sizeBytes,
+      });
+
       let overlayPreviewKey: string | undefined;
-      if (
-        premiumAttempt.attempted &&
-        "motion" in premiumAttempt &&
-        premiumAttempt.overlayPreviewPath
-      ) {
+      if (premiumAttempt.overlayPreviewPath) {
         overlayPreviewKey = artifactStorageKey(
           job.takeId,
           job.id,
@@ -705,7 +474,7 @@ export class WorkerJobProcessor {
           blenderOk: blender.ok,
           blenderSkipped: blender.skipped,
         },
-        reconstruction,
+        motionSource,
       );
       const qualityKey = artifactStorageKey(job.takeId, job.id, "quality_report.json");
       const qualityFile = await this.storage.putJson(qualityKey, quality);
@@ -734,43 +503,32 @@ export class WorkerJobProcessor {
         fileSizeBytes: previewFile.sizeBytes,
       });
 
-      const motionFallbackReason =
-        "failedReason" in premiumAttempt
-          ? premiumAttempt.failedReason
-          : "skippedReason" in premiumAttempt
-            ? premiumAttempt.skippedReason === "MOTION_SOLVER is set to builtin."
-              ? undefined
-              : premiumAttempt.skippedReason
-            : undefined;
-      const pipelineReasons = [
-        poseArtifact.detector.fallbackReason,
-        motionFallbackReason,
-      ].filter((reason): reason is string => Boolean(reason));
       const pipelineReport: MotionPipelineReport = {
         schema: "mocap.motion_pipeline_report.v1",
         takeId: job.takeId,
         jobId: job.id,
-        profile: "mobile_fast_backend_premium_hybrid",
+        profile: "wham_smpl_smplify_only",
         engines: {
-          mobilePreview: "mediapipe_full_heavy",
-          backendPose: `${poseArtifact.detector.name}@${poseArtifact.detector.version}`,
           backendMotion: solved.solver
             ? `${solved.solver.name}@${solved.solver.version}`
-            : "builtin_humanoid",
-          reconstruction: motionSource,
+            : `wham@${config.worker.whamSolverVersion}`,
+          mobileCapture: "video_upload",
+          smpl: "SMPL",
+          smplify: solved.smpl?.smplify.enabled
+            ? `enabled:${solved.smpl.smplify.status}`
+            : "not_run",
+          inputSource: motionSource,
           cleanup: "cleanup_quality_v1_5",
         },
         fallback: {
-          poseFallbackUsed: Boolean(poseArtifact.detector.fallbackReason),
-          motionFallbackUsed: Boolean(motionFallbackReason),
-          reasons: pipelineReasons,
+          motionFallbackUsed: false,
+          reasons: [],
         },
         artifacts: {
-          poseFrames: poseKey,
+          smplParameters: smplParametersKey,
           rawSolvedMotion: rawSolvedKey,
           solvedMotion: solvedKey,
           cleanupReport: cleanupKey,
-          reconstruction: reconstructionKey,
           qualityReport: qualityKey,
           previewSummary: previewKey,
           overlayPreview: overlayPreviewKey,
@@ -810,11 +568,10 @@ export class WorkerJobProcessor {
           qualityScore: quality.score,
           blender,
           artifacts: {
-            poseFrames: poseKey,
+            smplParameters: smplParametersKey,
             rawSolvedMotion: rawSolvedKey,
             solvedMotion: solvedKey,
             cleanupReport: cleanupKey,
-            reconstruction: reconstructionKey,
             bvh: bvhKey,
             qualityReport: qualityKey,
             previewSummary: previewKey,

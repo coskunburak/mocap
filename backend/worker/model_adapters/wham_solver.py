@@ -140,6 +140,24 @@ def coerce_array(value: Any) -> Any:
     return value
 
 
+def sanitize_numeric(value: Any) -> Any:
+    value = coerce_array(value)
+    if isinstance(value, dict):
+        return {str(key): sanitize_numeric(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [sanitize_numeric(item) for item in value]
+    if isinstance(value, (int, float)):
+        return finite(value)
+    if isinstance(value, bool) or value is None or isinstance(value, str):
+        return value
+    return None
+
+
+def sanitize_array(value: Any) -> list[Any]:
+    normalized = sanitize_numeric(value)
+    return normalized if isinstance(normalized, list) else []
+
+
 def first_present(mapping: dict[str, Any], *keys: str) -> Any:
     for key in keys:
         if key in mapping and mapping[key] is not None:
@@ -254,6 +272,107 @@ def extract_translations(subject: dict[str, Any], length: int, scale: float) -> 
     while len(translations) < length:
         translations.append([0.0, 0.0, 0.0])
     return translations
+
+
+def count_vertices(vertices: list[Any]) -> int:
+    if not vertices:
+        return 0
+    first = vertices[0]
+    if isinstance(first, list) and first and isinstance(first[0], list):
+        return len(first)
+    return len(vertices)
+
+
+def build_mesh_payload(subject: dict[str, Any]) -> dict[str, Any] | None:
+    vertices = sanitize_array(first_present(subject, "verts_world", "vertices_world", "verts", "vertices"))
+    faces = sanitize_array(first_present(subject, "faces", "smpl_faces"))
+    if not vertices and not faces:
+        return None
+    payload: dict[str, Any] = {}
+    if vertices:
+        payload["vertices"] = vertices
+        payload["vertexCount"] = count_vertices(vertices)
+    if faces:
+        payload["faces"] = faces
+        payload["faceCount"] = len(faces)
+    return payload
+
+
+def build_smpl_parameters(
+    subject: dict[str, Any],
+    fps: float,
+    root_scale: float,
+    frames: list[dict[str, Any]],
+) -> dict[str, Any]:
+    rotations = extract_rotations(subject)
+    frame_count = len(frames)
+    translations = extract_translations(subject, frame_count, root_scale)
+    body_pose = []
+    global_orient = []
+    for rotation_frame in rotations[:frame_count]:
+        global_orient.append(sanitize_array(rotation_frame[0] if rotation_frame else [0.0, 0.0, 0.0]))
+        body_pose.append([sanitize_array(item) for item in rotation_frame[1:24]])
+
+    joints3d = sanitize_array(
+        first_present(subject, "joints_world", "joints3d", "joints", "kp3d", "keypoints3d")
+    )
+    betas = sanitize_array(first_present(subject, "betas", "shape", "smpl_betas"))
+    if betas and isinstance(betas[0], list):
+        betas = betas[0]
+    camera = sanitize_numeric(
+        first_present(subject, "camera", "cam", "pred_cam", "cam_t", "intrinsics", "cam_intrinsics")
+    )
+    mesh = build_mesh_payload(subject)
+    smplify_payload = sanitize_numeric(subject.get("smplify"))
+    smplify_enabled = isinstance(smplify_payload, dict) and smplify_payload.get("enabled") is True
+
+    return {
+        "schema": "mocap.smpl_parameters.v1",
+        "source": "wham",
+        "model": {
+            "family": "SMPL",
+        },
+        "fps": fps,
+        "frameCount": frame_count,
+        "bodyPose": body_pose,
+        "globalOrient": global_orient,
+        "betas": betas,
+        "translation": translations,
+        "camera": camera if isinstance(camera, dict) else None,
+        "joints3d": joints3d if joints3d else None,
+        "mesh": mesh,
+        "smplify": {
+            "enabled": smplify_enabled,
+            "status": (
+                smplify_payload.get("status")
+                if isinstance(smplify_payload, dict) and smplify_payload.get("status")
+                else "not_run"
+            ),
+            "iterations": (
+                smplify_payload.get("iterations")
+                if isinstance(smplify_payload, dict) and smplify_payload.get("iterations") is not None
+                else None
+            ),
+            "finalLoss": (
+                smplify_payload.get("finalLoss")
+                if isinstance(smplify_payload, dict) and smplify_payload.get("finalLoss") is not None
+                else None
+            ),
+            "reason": None if smplify_enabled else "SMPLify was not enabled by the WHAM adapter runtime.",
+        },
+        "frames": [
+            {
+                "frameIndex": frame["frameIndex"],
+                "timestampMs": frame["timestampMs"],
+                "bodyPose": body_pose[index] if index < len(body_pose) else [],
+                "globalOrient": global_orient[index] if index < len(global_orient) else [],
+                "translation": translations[index] if index < len(translations) else frame["rootTranslation"],
+                "joints3d": joints3d[index] if isinstance(joints3d, list) and index < len(joints3d) else None,
+                "camera": camera if isinstance(camera, dict) else None,
+            }
+            for index, frame in enumerate(frames)
+        ],
+    }
 
 
 def build_frames(
@@ -435,6 +554,7 @@ def main() -> None:
         "source": args.source,
         **wham_metadata,
     }
+    smpl = build_smpl_parameters(subject, fps, args.root_scale, frames)
     payload = {
         "schema": "mocap.solved_motion.v1",
         "takeId": args.take_id,
@@ -457,6 +577,7 @@ def main() -> None:
         "adjustedJointRotationCount": 0,
         "warnings": [],
         "metrics": metrics,
+        "smpl": smpl,
         "frames": frames,
         "validation": {
             "ok": True,

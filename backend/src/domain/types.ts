@@ -34,7 +34,6 @@ export type ProcessingJobState =
   | "queued"
   | "ingesting"
   | "extracting_frames"
-  | "detecting_pose"
   | "solving_motion"
   | "cleaning"
   | "exporting"

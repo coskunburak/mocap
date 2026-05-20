@@ -304,13 +304,9 @@ async function run() {
       hasMotionPipelineReport: exportList.exports.some(
         (file) => file.format === "motion_pipeline_report_json",
       ),
-      hasExpectedReconstruction:
-        preparedVideos.length < 2 ||
-        exportList.exports.some((file) =>
-          preparedVideos.length >= 4
-            ? file.format === "multi_view_reconstruction_json"
-            : file.format === "dual_reconstruction_json",
-        ),
+      hasSmplParameters: exportList.exports.some(
+        (file) => file.format === "smpl_parameters_json",
+      ),
     };
     results.push({
       sample: sample.name,

@@ -1,7 +1,12 @@
 import { mkdir, readFile, stat, writeFile } from "fs/promises";
 import path from "path";
 import { config } from "../../config";
-import type { PoseFramesArtifact, SolvedMotionArtifact, SolvedMotionFrame } from "../types";
+import type {
+  PoseFramesArtifact,
+  SmplParametersArtifact,
+  SolvedMotionArtifact,
+  SolvedMotionFrame,
+} from "../types";
 import { runCommand } from "../runtime/command";
 import { resolveMotionRetargetPreset } from "./retargetPresets";
 import { ROTATION_ORDER, SKELETON, SKELETON_NAME } from "./skeletonDefinition";
@@ -22,16 +27,6 @@ export type PremiumSolveAttempt =
       solver: "wham";
       motion: SolvedMotionArtifact;
       overlayPreviewPath?: string;
-    }
-  | {
-      attempted: false;
-      solver: "wham";
-      skippedReason: string;
-    }
-  | {
-      attempted: true;
-      solver: "wham";
-      failedReason: string;
     };
 
 function resolveScript(script: string) {
@@ -42,6 +37,10 @@ function finite(value: unknown, fallback = 0) {
   return typeof value === "number" && Number.isFinite(value) ? value : fallback;
 }
 
+function optionalFinite(value: unknown) {
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
 function normalizeEuler(value: unknown): [number, number, number] {
   const item = Array.isArray(value) ? value : [];
   return [finite(item[0]), finite(item[1]), finite(item[2])];
@@ -50,6 +49,37 @@ function normalizeEuler(value: unknown): [number, number, number] {
 function normalizeRoot(value: unknown): [number, number, number] {
   const item = Array.isArray(value) ? value : [];
   return [finite(item[0]), finite(item[1]), finite(item[2])];
+}
+
+function normalizeNumberArray(value: unknown): number[] {
+  return Array.isArray(value) ? value.map((item) => finite(item)) : [];
+}
+
+function normalizeVectorArray(value: unknown): number[][] {
+  return Array.isArray(value) ? value.map(normalizeNumberArray) : [];
+}
+
+function normalizeFrameVectorArray(value: unknown): number[][][] {
+  return Array.isArray(value) ? value.map(normalizeVectorArray) : [];
+}
+
+function normalizeRootArray(value: unknown): Array<[number, number, number]> {
+  return Array.isArray(value) ? value.map(normalizeRoot) : [];
+}
+
+function normalizeCamera(value: unknown): Record<string, unknown> | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>).filter((entry) => {
+      const item = entry[1];
+      return (
+        typeof item === "number" ||
+        typeof item === "string" ||
+        typeof item === "boolean" ||
+        Array.isArray(item)
+      );
+    }),
+  );
 }
 
 function normalizeFrame(value: unknown, index: number): SolvedMotionFrame {
@@ -89,6 +119,7 @@ function normalizePremiumMotion(
           ),
         )
       : undefined;
+  const smpl = normalizeSmplParameters(item.smpl, input, frames, metrics);
 
   return {
     schema: "mocap.solved_motion.v1",
@@ -131,6 +162,94 @@ function normalizePremiumMotion(
       warnings,
       errors: [],
     },
+    smpl,
+  };
+}
+
+function normalizeSmplParameters(
+  raw: unknown,
+  input: PremiumSolveInput,
+  frames: SolvedMotionFrame[],
+  metrics: Record<string, number | string | boolean> | undefined,
+): SmplParametersArtifact | undefined {
+  if (!raw || typeof raw !== "object") {
+    return undefined;
+  }
+  const item = raw as Record<string, unknown>;
+  const model = item.model && typeof item.model === "object"
+    ? (item.model as Record<string, unknown>)
+    : {};
+  const bodyPose = normalizeFrameVectorArray(item.bodyPose);
+  const globalOrient = Array.isArray(item.globalOrient)
+    ? (item.globalOrient as unknown[]).map(normalizeNumberArray)
+    : [];
+  if (!bodyPose.length || !globalOrient.length) {
+    return undefined;
+  }
+  const translation = normalizeRootArray(item.translation);
+  const joints3d = normalizeFrameVectorArray(item.joints3d);
+  const mesh = item.mesh && typeof item.mesh === "object"
+    ? (item.mesh as Record<string, unknown>)
+    : {};
+  const smplify = item.smplify && typeof item.smplify === "object"
+    ? (item.smplify as Record<string, unknown>)
+    : {};
+
+  const normalizedFrames = frames.map((frame, index) => ({
+    frameIndex: frame.frameIndex,
+    timestampMs: frame.timestampMs,
+    bodyPose: bodyPose[index] ?? [],
+    globalOrient: globalOrient[index] ?? [],
+    translation: translation[index] ?? frame.rootTranslation,
+    joints3d: joints3d[index],
+    camera: normalizeCamera(item.camera),
+    mesh: undefined,
+  }));
+
+  return {
+    schema: "mocap.smpl_parameters.v1",
+    takeId: input.takeId,
+    jobId: input.jobId,
+    source: "wham",
+    model: {
+      family: "SMPL",
+      gender: typeof model.gender === "string" ? model.gender : undefined,
+      assetPath: typeof model.assetPath === "string" ? model.assetPath : undefined,
+    },
+    fps: finite(item.fps, input.poseArtifact.sourceVideo.fps),
+    frameCount: frames.length,
+    bodyPose,
+    globalOrient,
+    betas: normalizeNumberArray(item.betas),
+    translation,
+    camera: normalizeCamera(item.camera),
+    joints3d: joints3d.length ? joints3d : undefined,
+    mesh: Object.keys(mesh).length
+      ? {
+          vertexCount: optionalFinite(mesh.vertexCount),
+          faceCount: optionalFinite(mesh.faceCount),
+          vertices: normalizeFrameVectorArray(mesh.vertices),
+          faces: normalizeVectorArray(mesh.faces),
+          verticesStorageKey:
+            typeof mesh.verticesStorageKey === "string" ? mesh.verticesStorageKey : undefined,
+          facesStorageKey:
+            typeof mesh.facesStorageKey === "string" ? mesh.facesStorageKey : undefined,
+        }
+      : undefined,
+    smplify: {
+      enabled: smplify.enabled === true,
+      status:
+        smplify.status === "completed" ||
+        smplify.status === "failed" ||
+        smplify.status === "unknown"
+          ? smplify.status
+          : "not_run",
+      iterations: typeof smplify.iterations === "number" ? smplify.iterations : undefined,
+      finalLoss: typeof smplify.finalLoss === "number" ? smplify.finalLoss : undefined,
+      reason: typeof smplify.reason === "string" ? smplify.reason : undefined,
+    },
+    frames: normalizedFrames,
+    metrics,
   };
 }
 
@@ -171,20 +290,8 @@ function optionalWhamEnv() {
 export async function trySolvePremiumMotion(
   input: PremiumSolveInput,
 ): Promise<PremiumSolveAttempt> {
-  if (config.worker.motionSolver === "builtin") {
-    return {
-      attempted: false,
-      solver: "wham",
-      skippedReason: "MOTION_SOLVER is set to builtin.",
-    };
-  }
-
   if (!config.worker.whamSolverScript) {
-    const skippedReason = "WHAM_SOLVER_SCRIPT is not configured.";
-    if (config.worker.motionSolver === "wham" || config.worker.requirePremiumMotion) {
-      throw new Error(skippedReason);
-    }
-    return { attempted: false, solver: "wham", skippedReason };
+    throw new Error("WHAM_SOLVER_SCRIPT is not configured.");
   }
 
   await mkdir(input.outputDir, { recursive: true });
@@ -233,14 +340,6 @@ export async function trySolvePremiumMotion(
   } catch (error) {
     const failedReason =
       error instanceof Error ? error.message : "Premium WHAM motion solver failed.";
-    if (config.worker.motionSolver === "wham" || config.worker.requirePremiumMotion) {
-      throw error;
-    }
-    console.warn("[premiumMotionSolver] WHAM unavailable; falling back to builtin", error);
-    return {
-      attempted: true,
-      solver: "wham",
-      failedReason,
-    };
+    throw new Error(failedReason);
   }
 }

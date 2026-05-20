@@ -1,7 +1,5 @@
 import type {
   CleanupReport,
-  DualCameraReconstructionArtifact,
-  MultiViewReconstructionArtifact,
   PoseFramesArtifact,
   PreviewSummary,
   QualityReport,
@@ -72,7 +70,7 @@ export function buildQualityReport(
     blenderOk: boolean;
     blenderSkipped: boolean;
   },
-  reconstruction?: DualCameraReconstructionArtifact | MultiViewReconstructionArtifact,
+  inputSource: "single_camera" | "dual_camera" | "multi_view" = "single_camera",
 ): QualityReport {
   const detectedRatio =
     pose.quality.frameCount > 0
@@ -95,16 +93,7 @@ export function buildQualityReport(
       ),
     ),
   );
-  const reconstructionScore =
-    reconstruction?.schema === "mocap.dual_reconstruction.v1"
-      ? reconstruction.quality.dualQualityScore
-      : reconstruction?.schema === "mocap.multi_view_reconstruction.v1"
-        ? reconstruction.quality.multiViewQualityScore
-        : singleCameraScore;
-  const score =
-    reconstruction && reconstructionScore > singleCameraScore
-      ? Math.min(100, Math.round(singleCameraScore * 0.55 + reconstructionScore * 0.45))
-      : singleCameraScore;
+  const score = singleCameraScore;
   const grade =
     validation.errors.length > 0
       ? "failed"
@@ -140,40 +129,6 @@ export function buildQualityReport(
       lowConfidenceFrameCount: pose.quality.lowConfidenceFrameCount,
       averagePoseConfidence: pose.quality.averagePoseConfidence,
       solvedRatio,
-      ...(reconstruction?.schema === "mocap.dual_reconstruction.v1"
-        ? {
-            dualSingleCameraBaselineScore: reconstruction.quality.singleCameraBaselineScore,
-            dualQualityScore: reconstruction.quality.dualQualityScore,
-            dualQualityGain: reconstruction.quality.qualityGain,
-            syncOffsetMs: reconstruction.sync.offsetMs,
-            syncConfidence: reconstruction.sync.confidence,
-            matchedFrameCount: reconstruction.sync.matchedFrameCount,
-            averageTimeDeltaMs: reconstruction.sync.averageTimeDeltaMs,
-            reprojectionErrorPx: reconstruction.quality.averageReprojectionErrorPx,
-            reprojectionP95Px: reconstruction.quality.reprojectionP95Px,
-            triangulatedLandmarkRatio: reconstruction.quality.triangulatedLandmarkRatio,
-            fallbackLandmarkRatio: reconstruction.quality.fallbackLandmarkRatio,
-            calibrationQualityScore: reconstruction.calibration.qualityScore,
-          }
-        : reconstruction?.schema === "mocap.multi_view_reconstruction.v1"
-          ? {
-              multiViewSingleCameraBaselineScore:
-                reconstruction.quality.singleCameraBaselineScore,
-              multiViewQualityScore: reconstruction.quality.multiViewQualityScore,
-              multiViewQualityGain: reconstruction.quality.qualityGain,
-              cameraCount: reconstruction.cameraCount,
-              matchedFrameCount: reconstruction.sync.matchedFrameCount,
-              averageTimeDeltaMs: reconstruction.sync.averageTimeDeltaMs,
-              reprojectionErrorPx: reconstruction.quality.averageReprojectionErrorPx,
-              reprojectionP95Px: reconstruction.quality.reprojectionP95Px,
-              triangulatedLandmarkRatio: reconstruction.quality.triangulatedLandmarkRatio,
-            averageViewCount: reconstruction.quality.averageViewCount,
-            matchedViewCoverage: reconstruction.quality.matchedViewCoverage,
-            placementQualityScore: reconstruction.quality.placementQualityScore,
-            calibrationQualityScore: reconstruction.calibration.calibrationQualityScore,
-            occlusionRecoveryRatio: reconstruction.quality.occlusionRecoveryRatio,
-          }
-        : {}),
       ikAppliedConstraintCount: solved.ik?.appliedConstraintCount ?? 0,
       ikAdjustedJointRotationCount: solved.ik?.adjustedJointRotationCount ?? 0,
       retargetPresetEnabled: solved.preset ? 1 : 0,
@@ -182,7 +137,6 @@ export function buildQualityReport(
       ...validation.warnings,
       ...cleanup.warnings,
       ...(solved.ik?.warnings ?? []),
-      ...(reconstruction?.warnings ?? []),
     ],
     errors: validation.errors,
     actions: cleanup.actions,
@@ -191,28 +145,9 @@ export function buildQualityReport(
       blenderOk: validation.blenderOk,
       blenderSkipped: validation.blenderSkipped,
     },
-    reconstruction: reconstruction?.schema === "mocap.dual_reconstruction.v1"
-      ? {
-          source: "dual_camera",
-          syncOffsetMs: reconstruction.sync.offsetMs,
-          reprojectionErrorPx: reconstruction.quality.averageReprojectionErrorPx,
-          triangulatedLandmarkRatio: reconstruction.quality.triangulatedLandmarkRatio,
-          qualityGain: reconstruction.quality.qualityGain,
-        }
-      : reconstruction?.schema === "mocap.multi_view_reconstruction.v1"
-        ? {
-            source: "multi_view",
-            reprojectionErrorPx: reconstruction.quality.averageReprojectionErrorPx,
-            triangulatedLandmarkRatio: reconstruction.quality.triangulatedLandmarkRatio,
-            qualityGain: reconstruction.quality.qualityGain,
-            cameraCount: reconstruction.cameraCount,
-            placementQualityScore: reconstruction.quality.placementQualityScore,
-            occlusionRecoveryRatio: reconstruction.quality.occlusionRecoveryRatio,
-            calibrationQualityScore: reconstruction.calibration.calibrationQualityScore,
-          }
-      : {
-          source: "single_camera",
-        },
+    inputSource: {
+      source: inputSource,
+    },
   };
 }
 

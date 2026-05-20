@@ -16,17 +16,6 @@ function booleanEnv(name: string, fallback: boolean) {
   return raw === "true" || raw === "1";
 }
 
-function enumEnv<const T extends readonly string[]>(
-  name: string,
-  values: T,
-  fallback: T[number],
-) {
-  const raw = process.env[name];
-  if (!raw) return fallback;
-  if ((values as readonly string[]).includes(raw)) return raw as T[number];
-  throw new Error(`${name} must be one of: ${values.join(", ")}`);
-}
-
 function requiredEnv(name: string) {
   const value = process.env[name];
   if (!value) {
@@ -41,16 +30,9 @@ function optionalEnv(name: string) {
 }
 
 const nodeEnv = optionalEnv("NODE_ENV") ?? "development";
-const motionSolver = enumEnv(
-  "MOTION_SOLVER",
-  ["builtin", "wham", "auto"] as const,
-  "auto",
-);
 const explicitPythonPath = optionalEnv("PYTHON_PATH");
 const whamSolverScript = optionalEnv("WHAM_SOLVER_SCRIPT");
 const whamPrecomputedOutputPkl = optionalEnv("WHAM_PRECOMPUTED_OUTPUT_PKL");
-const requirePremiumMotion = booleanEnv("REQUIRE_PREMIUM_MOTION", false);
-const requiresWhamRuntime = motionSolver === "wham" || requirePremiumMotion;
 
 export const config = {
   nodeEnv,
@@ -83,21 +65,6 @@ export const config = {
     ffmpegPath: process.env.FFMPEG_PATH ?? "ffmpeg",
     ffprobePath: process.env.FFPROBE_PATH ?? "ffprobe",
     pythonPath: explicitPythonPath ?? "python3",
-    poseDetectorScript:
-      process.env.POSE_DETECTOR_SCRIPT ?? "worker/pose_detector.py",
-    detectorVersion: process.env.POSE_DETECTOR_VERSION ?? "mediapipe_pose_v1",
-    poseEngine: enumEnv(
-      "POSE_ENGINE",
-      ["mediapipe", "rtmw", "auto"] as const,
-      "auto",
-    ),
-    rtmwDetectorScript: process.env.RTMW_DETECTOR_SCRIPT,
-    rtmwDetectorVersion:
-      process.env.RTMW_DETECTOR_VERSION ?? "rtmw_wholebody_adapter_v1",
-    poseEngineTimeoutMs: numberEnv("POSE_ENGINE_TIMEOUT_MS", 900_000),
-    allowSyntheticPose: booleanEnv("MOCAP_ALLOW_SYNTHETIC_POSE", false),
-    allowPoseFallback: booleanEnv("ALLOW_POSE_FALLBACK", true),
-    motionSolver,
     whamSolverScript,
     whamSolverVersion: process.env.WHAM_SOLVER_VERSION ?? "wham_adapter_v1",
     whamRepoDir: optionalEnv("WHAM_REPO_DIR"),
@@ -110,43 +77,37 @@ export const config = {
     whamRootScale: numberEnv("WHAM_ROOT_SCALE", 100),
     whamRequireCuda: booleanEnv(
       "WHAM_REQUIRE_CUDA",
-      nodeEnv === "production" && requiresWhamRuntime,
+      nodeEnv === "production",
     ),
     whamSmplAssetDir: optionalEnv("WHAM_SMPL_ASSET_DIR"),
     whamPreflightRequiredModules: optionalEnv("WHAM_PREFLIGHT_REQUIRED_MODULES"),
     whamPreflightRequiredPaths: optionalEnv("WHAM_PREFLIGHT_REQUIRED_PATHS"),
     premiumMotionTimeoutMs: numberEnv("PREMIUM_MOTION_TIMEOUT_MS", 1_800_000),
-    requirePremiumMotion,
     blenderPath: optionalEnv("BLENDER_PATH"),
     requireBlenderSmokeTest: booleanEnv("REQUIRE_BLENDER_SMOKE_TEST", false),
   },
 };
 
 export function assertWorkerRuntimeConfig() {
-  const isProductionWhamWorker = config.nodeEnv === "production" && requiresWhamRuntime;
-
   if (config.nodeEnv === "production" && config.worker.whamPrecomputedOutputPkl) {
     throw new Error(
       "WHAM_PRECOMPUTED_OUTPUT_PKL is QA/demo-only and must not be set in production worker deployments.",
     );
   }
 
-  if (
-    isProductionWhamWorker &&
-    !config.worker.whamSolverScript
-  ) {
+  if (config.nodeEnv === "production" && !config.worker.whamSolverScript) {
     throw new Error(
-      "WHAM_SOLVER_SCRIPT is required in production when MOTION_SOLVER=wham or REQUIRE_PREMIUM_MOTION=true.",
+      "WHAM_SOLVER_SCRIPT is required in production WHAM worker deployments.",
     );
   }
 
-  if (isProductionWhamWorker && !config.worker.whamRepoDir) {
+  if (config.nodeEnv === "production" && !config.worker.whamRepoDir) {
     throw new Error(
-      "WHAM_REPO_DIR is required in production when MOTION_SOLVER=wham or REQUIRE_PREMIUM_MOTION=true.",
+      "WHAM_REPO_DIR is required in production WHAM worker deployments.",
     );
   }
 
-  if (isProductionWhamWorker && !explicitPythonPath) {
+  if (config.nodeEnv === "production" && !explicitPythonPath) {
     throw new Error(
       "PYTHON_PATH must explicitly point to the WHAM conda Python in production WHAM worker deployments.",
     );

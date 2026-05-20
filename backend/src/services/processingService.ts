@@ -12,7 +12,6 @@ const ACTIVE_STATES = new Set([
   "queued",
   "ingesting",
   "extracting_frames",
-  "detecting_pose",
   "solving_motion",
   "cleaning",
   "exporting",

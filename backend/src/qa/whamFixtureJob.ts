@@ -29,7 +29,7 @@ type FixtureCheck = {
 };
 
 const REQUIRED_EXPORT_FORMATS = [
-  "pose_frames_json",
+  "smpl_parameters_json",
   "raw_solved_motion_json",
   "solved_motion_json",
   "cleanup_report_json",
@@ -79,10 +79,6 @@ function setDefaultEnv(args: Args) {
   process.env.FFMPEG_PATH ??= "ffmpeg";
   process.env.FFPROBE_PATH ??= "ffprobe";
   process.env.PYTHON_PATH = args.pythonPath ?? process.env.PYTHON_PATH ?? "python3";
-  process.env.POSE_ENGINE ??= "mediapipe";
-  process.env.ALLOW_POSE_FALLBACK ??= "false";
-  process.env.MOTION_SOLVER = "wham";
-  process.env.REQUIRE_PREMIUM_MOTION = "true";
   process.env.WHAM_SOLVER_SCRIPT ??= "worker/model_adapters/wham_solver.py";
   process.env.WHAM_PRECOMPUTED_OUTPUT_PKL = args.whamOutputPkl;
   process.env.PREMIUM_MOTION_TIMEOUT_MS ??= "1800000";

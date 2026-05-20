@@ -4,7 +4,6 @@ const order: ProcessingJobState[] = [
   "queued",
   "ingesting",
   "extracting_frames",
-  "detecting_pose",
   "solving_motion",
   "cleaning",
   "exporting",
@@ -18,4 +17,3 @@ export function canTransitionJob(from: ProcessingJobState, to: ProcessingJobStat
   const toIndex = order.indexOf(to);
   return fromIndex >= 0 && toIndex >= 0 && toIndex >= fromIndex;
 }
-
