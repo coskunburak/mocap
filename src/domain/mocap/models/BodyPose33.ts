@@ -2,7 +2,7 @@ import { lmAt, type LandmarkBuffer } from "./Landmark";
 import type { Vec3, JointPose } from "./Skeleton";
 import { add, clamp, mul, sub, v3 } from "./Skeleton";
 
-// MediaPipe Pose 33 landmark indices
+// Generic 33-point body landmark indices used by legacy local preview utilities.
 export const MP33 = {
   NOSE: 0,
   LEFT_EYE_INNER: 1,
@@ -111,10 +111,10 @@ export function childrenOf(name: JointName): JointName[] {
 }
 
 /**
- * MediaPipe normalized coords -> our world coords (simple v1)
+ * Normalized body coords -> our world coords (simple v1)
  * - x: center at 0 (x-0.5)
  * - y: invert so up is positive (0.5 - y)
- * - z: invert (mediapipe z often negative towards camera)
+ * - z: invert camera-relative depth
  * scale: tune later (default 1.0)
  */
 export type MpWorldOptions = {

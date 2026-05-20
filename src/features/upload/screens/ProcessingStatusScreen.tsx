@@ -23,7 +23,6 @@ const ACTIVE_STATES: ProcessingJobState[] = [
   "queued",
   "ingesting",
   "extracting_frames",
-  "detecting_pose",
   "solving_motion",
   "cleaning",
   "exporting",
@@ -36,11 +35,9 @@ function statusCopy(state: ProcessingJobState | undefined) {
     case "ingesting":
       return { title: "Preparing video", label: "Ingest" };
     case "extracting_frames":
-      return { title: "Extracting motion frames", label: "Frames" };
-    case "detecting_pose":
-      return { title: "Detecting body movement", label: "Pose" };
+      return { title: "Normalizing video", label: "Video" };
     case "solving_motion":
-      return { title: "Solving skeleton", label: "Solve" };
+      return { title: "Running WHAM solve", label: "WHAM" };
     case "cleaning":
       return { title: "Cleaning animation", label: "Clean" };
     case "exporting":
@@ -202,7 +199,7 @@ export default function ProcessingStatusScreen() {
       <ScreenHeader
         eyebrow="Processing"
         title={copy.title}
-        subtitle="Backend worker turns uploaded video into pose frames, solved motion and export files."
+        subtitle="Backend worker turns uploaded video into WHAM, SMPL and export artifacts."
         right={<Button label="Back" variant="ghost" size="sm" onPress={() => navigation.goBack()} />}
       />
 

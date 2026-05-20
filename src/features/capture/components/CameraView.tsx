@@ -9,7 +9,7 @@ import {
 } from "react-native";
 import { useIsFocused } from "@react-navigation/native";
 import { useCameraPermission } from "react-native-vision-camera";
-import { PoseEngine } from "../../../domain/mocap/pipeline/pose/PoseEngine.native";
+import { NativeCameraEngine } from "../data/NativeCameraEngine";
 import { colors, radii, spacing, typography } from "../../../ui/theme";
 
 type Props = {
@@ -35,12 +35,15 @@ export function CameraView({ onLayoutSize, isActive = true, rounded = true }: Pr
   }, [hasPermission, requestPermission]);
 
   useEffect(() => {
-    void PoseEngine.setPreviewActive(previewEnabled).catch((error) => {
+    const task = previewEnabled
+      ? NativeCameraEngine.startPreview()
+      : NativeCameraEngine.stopPreview();
+    void task.catch((error) => {
       console.warn("[CameraView] setPreviewActive failed", error);
     });
 
     return () => {
-      void PoseEngine.setPreviewActive(false).catch((error) => {
+      void NativeCameraEngine.stopPreview().catch((error) => {
         console.warn("[CameraView] preview cleanup failed", error);
       });
     };
@@ -53,7 +56,7 @@ export function CameraView({ onLayoutSize, isActive = true, rounded = true }: Pr
           <Text style={styles.fallbackEyebrow}>Permission</Text>
           <Text style={styles.fallbackTitle}>Camera permission required.</Text>
           <Text style={styles.fallbackText}>
-            Markerless capture preview ve native inference icin kamera erisimi
+            Markerless capture preview ve WHAM upload akisi icin kamera erisimi
             gerekli.
           </Text>
           <Text onPress={() => Linking.openSettings()} style={styles.link}>

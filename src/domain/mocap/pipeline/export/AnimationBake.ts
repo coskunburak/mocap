@@ -2,7 +2,7 @@ import {
   JOINT_NAMES,
   RIG,
   type JointName,
-} from "../../models/MediapipePose33";
+} from "../../models/BodyPose33";
 import type { PoseFrame } from "../../models/PoseFrame";
 import type { CalibrationPose } from "../../models/Take";
 import type { JointPose, Vec3 } from "../../models/Skeleton";

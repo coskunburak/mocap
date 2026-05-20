@@ -1,4 +1,4 @@
-import { RIG, type JointName } from "../../models/MediapipePose33";
+import { RIG, type JointName } from "../../models/BodyPose33";
 
 export type RetargetPresetId =
   | "generic-humanoid"

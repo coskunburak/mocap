@@ -11,7 +11,7 @@ import {
   RIG_ROOT,
   childrenOf,
   type JointName,
-} from "../../../domain/mocap/models/MediapipePose33";
+} from "../../../domain/mocap/models/BodyPose33";
 import { lmAt, type LandmarkBuffer } from "../../../domain/mocap/models/Landmark";
 import type { PoseFrame } from "../../../domain/mocap/models/PoseFrame";
 import {

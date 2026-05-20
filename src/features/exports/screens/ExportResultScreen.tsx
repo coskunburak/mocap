@@ -32,16 +32,8 @@ type QualityReport = {
     blenderOk: boolean;
     blenderSkipped: boolean;
   };
-  reconstruction?: {
+  inputSource: {
     source: "single_camera" | "dual_camera" | "multi_view";
-    syncOffsetMs?: number;
-    reprojectionErrorPx?: number;
-    triangulatedLandmarkRatio?: number;
-    qualityGain?: number;
-    cameraCount?: number;
-    placementQualityScore?: number;
-    occlusionRecoveryRatio?: number;
-    calibrationQualityScore?: number;
   };
 };
 
@@ -58,16 +50,16 @@ type PreviewSummary = {
 
 type MotionPipelineReport = {
   schema: "mocap.motion_pipeline_report.v1";
-  profile: "mobile_fast_backend_premium_hybrid";
+  profile: "wham_smpl_smplify_only";
   engines: {
-    mobilePreview: string;
-    backendPose: string;
     backendMotion: string;
-    reconstruction: "single_camera" | "dual_camera" | "multi_view";
+    mobileCapture: "video_upload";
+    smpl: "SMPL";
+    smplify: string;
+    inputSource: "single_camera" | "dual_camera" | "multi_view";
     cleanup: string;
   };
   fallback: {
-    poseFallbackUsed: boolean;
     motionFallbackUsed: boolean;
     reasons: string[];
   };
@@ -85,11 +77,10 @@ type SolvedMotionArtifact = {
   frameCount: number;
   durationMs: number;
   solver?: {
-    name: "builtin_humanoid" | "wham" | "external_premium";
+    name: "wham";
     version: string;
     source: "single_camera" | "dual_camera" | "multi_view";
     premium: boolean;
-    fallbackReason?: string;
     metrics?: Record<string, number | string | boolean>;
   };
   validation?: {
@@ -99,72 +90,28 @@ type SolvedMotionArtifact = {
   };
 };
 
-type DualReconstruction = {
-  schema: "mocap.dual_reconstruction.v1";
-  sync: {
-    method: string;
-    offsetMs: number;
-    confidence: number;
-    matchedFrameCount: number;
-    averageTimeDeltaMs: number;
+type SmplParametersArtifact = {
+  schema: "mocap.smpl_parameters.v1";
+  frameCount: number;
+  bodyPose: unknown[];
+  globalOrient: unknown[];
+  betas: number[];
+  translation: unknown[];
+  camera?: Record<string, unknown>;
+  joints3d?: unknown[];
+  mesh?: {
+    vertexCount?: number;
+    faceCount?: number;
+    verticesStorageKey?: string;
+    facesStorageKey?: string;
   };
-  calibration: {
-    convergenceAngleDeg: number;
-    qualityScore: number;
+  smplify: {
+    enabled: boolean;
+    status: string;
+    iterations?: number;
+    finalLoss?: number;
+    reason?: string;
   };
-  quality: {
-    singleCameraBaselineScore: number;
-    dualQualityScore: number;
-    qualityGain: number;
-    averageReprojectionErrorPx: number;
-    reprojectionP95Px: number;
-    triangulatedLandmarkRatio: number;
-    fallbackLandmarkRatio: number;
-  };
-  warnings: string[];
-};
-
-type MultiViewReconstruction = {
-  schema: "mocap.multi_view_reconstruction.v1";
-  cameraCount: number;
-  cameras: Array<{
-    deviceIndex: number;
-    deviceRole: string;
-    approxAngleDeg: number;
-    calibrationClipId?: string | null;
-    intrinsicsSource?: "metadata" | "fallback_fov";
-    placementScore: number;
-    placementFeedback: string[];
-  }>;
-  sync: {
-    matchedFrameCount: number;
-    averageTimeDeltaMs: number;
-  };
-  calibration: {
-    calibrationReady?: boolean;
-    calibrationQualityScore?: number;
-    calibrationClipIds?: string[];
-    placementQualityScore: number;
-    coverageScore: number;
-    observedAnglesDeg: number[];
-    warnings: string[];
-  };
-  occlusionRecovery: {
-    recoveredLandmarkCount: number;
-    temporalHoldCount: number;
-    recoveryRatio: number;
-  };
-  quality: {
-    multiViewQualityScore: number;
-    qualityGain: number;
-    averageReprojectionErrorPx: number;
-    triangulatedLandmarkRatio: number;
-    averageViewCount: number;
-    matchedViewCoverage: number;
-    placementQualityScore: number;
-    occlusionRecoveryRatio: number;
-  };
-  warnings: string[];
 };
 
 const PRESETS = [
@@ -209,8 +156,7 @@ function metricText(value: unknown) {
 function solverTitle(motion: SolvedMotionArtifact | null) {
   if (!motion?.solver) return "Motion Solve";
   if (motion.solver.name === "wham") return "WHAM Premium Solve";
-  if (motion.solver.premium) return "Premium Motion Solve";
-  return "Built-in Motion Solve";
+  return "WHAM Motion Solve";
 }
 
 async function readExportJson<T>(file: ApiExportFile): Promise<T> {
@@ -234,9 +180,7 @@ export default function ExportResultScreen() {
   const [preview, setPreview] = useState<PreviewSummary | null>(null);
   const [motionPipeline, setMotionPipeline] = useState<MotionPipelineReport | null>(null);
   const [solvedMotion, setSolvedMotion] = useState<SolvedMotionArtifact | null>(null);
-  const [dualReconstruction, setDualReconstruction] = useState<DualReconstruction | null>(null);
-  const [multiViewReconstruction, setMultiViewReconstruction] =
-    useState<MultiViewReconstruction | null>(null);
+  const [smplParameters, setSmplParameters] = useState<SmplParametersArtifact | null>(null);
   const [overlayPreviewUrl, setOverlayPreviewUrl] = useState<string | null>(null);
   const [selectedPreset, setSelectedPreset] = useState<string>(PRESETS[1].id);
   const [busyExportId, setBusyExportId] = useState<string | null>(null);
@@ -267,9 +211,8 @@ export default function ExportResultScreen() {
       const previewFile = list.find((file) => file.format === "preview_summary_json");
       const pipelineFile = list.find((file) => file.format === "motion_pipeline_report_json");
       const solvedMotionFile = list.find((file) => file.format === "solved_motion_json");
+      const smplParametersFile = list.find((file) => file.format === "smpl_parameters_json");
       const overlayPreviewFile = list.find((file) => file.format === "wham_overlay_preview_mp4");
-      const dualFile = list.find((file) => file.format === "dual_reconstruction_json");
-      const multiViewFile = list.find((file) => file.format === "multi_view_reconstruction_json");
       setQuality(qualityFile ? await readExportJson<QualityReport>(qualityFile) : null);
       setPreview(previewFile ? await readExportJson<PreviewSummary>(previewFile) : null);
       setMotionPipeline(
@@ -278,14 +221,13 @@ export default function ExportResultScreen() {
       setSolvedMotion(
         solvedMotionFile ? await readExportJson<SolvedMotionArtifact>(solvedMotionFile) : null,
       );
+      setSmplParameters(
+        smplParametersFile ? await readExportJson<SmplParametersArtifact>(smplParametersFile) : null,
+      );
       setOverlayPreviewUrl(
         overlayPreviewFile
           ? (await container.exportService.getDownloadUrl(overlayPreviewFile.id)).downloadUrl
           : null,
-      );
-      setDualReconstruction(dualFile ? await readExportJson<DualReconstruction>(dualFile) : null);
-      setMultiViewReconstruction(
-        multiViewFile ? await readExportJson<MultiViewReconstruction>(multiViewFile) : null,
       );
       setErrorMessage(null);
     } catch (error: any) {
@@ -402,15 +344,7 @@ export default function ExportResultScreen() {
       ) : null}
 
       {motionPipeline ? (
-        <Card
-          tone={
-            motionPipeline.fallback.poseFallbackUsed ||
-            motionPipeline.fallback.motionFallbackUsed
-              ? "default"
-              : "accent"
-          }
-          style={styles.card}
-        >
+        <Card tone={motionPipeline.fallback.motionFallbackUsed ? "default" : "accent"} style={styles.card}>
           <View style={styles.listHeader}>
             <Text style={styles.label}>Motion Pipeline</Text>
             <Text style={styles.meta}>
@@ -418,10 +352,11 @@ export default function ExportResultScreen() {
             </Text>
           </View>
           <View style={styles.pipelineList}>
-            <PipelineRow label="mobile" value={motionPipeline.engines.mobilePreview} />
-            <PipelineRow label="pose" value={motionPipeline.engines.backendPose} />
+            <PipelineRow label="capture" value={motionPipeline.engines.mobileCapture} />
             <PipelineRow label="motion" value={motionPipeline.engines.backendMotion} />
-            <PipelineRow label="source" value={motionPipeline.engines.reconstruction} />
+            <PipelineRow label="smpl" value={motionPipeline.engines.smpl} />
+            <PipelineRow label="smplify" value={motionPipeline.engines.smplify} />
+            <PipelineRow label="source" value={motionPipeline.engines.inputSource} />
             <PipelineRow label="cleanup" value={motionPipeline.engines.cleanup} />
           </View>
           {motionPipeline.fallback.reasons.slice(0, 3).map((reason) => (
@@ -476,12 +411,52 @@ export default function ExportResultScreen() {
               />
             </View>
           ) : null}
-          {solvedMotion.solver?.fallbackReason ? (
-            <Text style={styles.warningText}>{solvedMotion.solver.fallbackReason}</Text>
-          ) : null}
           {solvedMotion.validation?.warnings.slice(0, 3).map((warning) => (
             <Text key={warning} style={styles.warningText}>{warning}</Text>
           ))}
+        </Card>
+      ) : null}
+
+      {smplParameters ? (
+        <Card tone="accent" style={styles.card}>
+          <View style={styles.listHeader}>
+            <Text style={styles.label}>SMPL Parameters</Text>
+            <Text style={styles.meta}>{smplParameters.frameCount} frames</Text>
+          </View>
+          <View style={styles.metricGrid}>
+            <QualityMetric label="body pose" value={String(smplParameters.bodyPose.length)} />
+            <QualityMetric label="global orient" value={String(smplParameters.globalOrient.length)} />
+            <QualityMetric label="betas" value={String(smplParameters.betas.length)} />
+            <QualityMetric label="translation" value={String(smplParameters.translation.length)} />
+            <QualityMetric
+              label="joints"
+              value={smplParameters.joints3d ? String(smplParameters.joints3d.length) : "-"}
+            />
+            <QualityMetric
+              label="mesh"
+              value={
+                smplParameters.mesh?.vertexCount
+                  ? `${smplParameters.mesh.vertexCount}v`
+                  : smplParameters.mesh?.verticesStorageKey
+                    ? "stored"
+                    : "-"
+              }
+            />
+          </View>
+          <View style={styles.pipelineList}>
+            <PipelineRow
+              label="smplify"
+              value={
+                smplParameters.smplify.enabled
+                  ? smplParameters.smplify.status
+                  : smplParameters.smplify.reason ?? "not_run"
+              }
+            />
+            <PipelineRow
+              label="camera"
+              value={smplParameters.camera ? Object.keys(smplParameters.camera).join(", ") : "-"}
+            />
+          </View>
         </Card>
       ) : null}
 
@@ -507,143 +482,6 @@ export default function ExportResultScreen() {
             </View>
           ))}
           {quality.warnings.slice(0, 3).map((warning) => (
-            <Text key={warning} style={styles.warningText}>{warning}</Text>
-          ))}
-        </Card>
-      ) : null}
-
-      {dualReconstruction || quality?.reconstruction?.source === "dual_camera" ? (
-        <Card tone="default" style={styles.card}>
-          <View style={styles.listHeader}>
-            <Text style={styles.label}>Dual Camera Solve</Text>
-            <Text style={styles.meta}>
-              {dualReconstruction?.sync.method ?? "dual"} sync
-            </Text>
-          </View>
-          <View style={styles.metricGrid}>
-            <QualityMetric
-              label="sync offset"
-              value={`${Math.round(
-                dualReconstruction?.sync.offsetMs ??
-                  quality?.reconstruction?.syncOffsetMs ??
-                  0,
-              )}ms`}
-            />
-            <QualityMetric
-              label="reprojection"
-              value={`${(
-                dualReconstruction?.quality.averageReprojectionErrorPx ??
-                quality?.reconstruction?.reprojectionErrorPx ??
-                0
-              ).toFixed(1)}px`}
-            />
-            <QualityMetric
-              label="triangulated"
-              value={metricPercent(
-                dualReconstruction?.quality.triangulatedLandmarkRatio ??
-                  quality?.reconstruction?.triangulatedLandmarkRatio,
-              )}
-            />
-            <QualityMetric
-              label="gain"
-              value={`+${Math.max(
-                0,
-                Math.round(
-                  dualReconstruction?.quality.qualityGain ??
-                    quality?.reconstruction?.qualityGain ??
-                    0,
-                ),
-              )}`}
-            />
-          </View>
-          {dualReconstruction ? (
-            <Text style={styles.meta}>
-              matched {dualReconstruction.sync.matchedFrameCount} frames · calibration{" "}
-              {metricPercent(dualReconstruction.calibration.qualityScore)}
-            </Text>
-          ) : null}
-          {dualReconstruction?.warnings.slice(0, 3).map((warning) => (
-            <Text key={warning} style={styles.warningText}>{warning}</Text>
-          ))}
-        </Card>
-      ) : null}
-
-      {multiViewReconstruction || quality?.reconstruction?.source === "multi_view" ? (
-        <Card tone="accent" style={styles.card}>
-          <View style={styles.listHeader}>
-            <Text style={styles.label}>Pro Multi-View Solve</Text>
-            <Text style={styles.meta}>
-              {multiViewReconstruction?.cameraCount ??
-                quality?.reconstruction?.cameraCount ??
-                4} cameras
-            </Text>
-          </View>
-          <View style={styles.metricGrid}>
-            <QualityMetric
-              label="placement"
-              value={metricPercent(
-                multiViewReconstruction?.quality.placementQualityScore ??
-                  quality?.reconstruction?.placementQualityScore,
-              )}
-            />
-            <QualityMetric
-              label="coverage"
-              value={metricPercent(multiViewReconstruction?.quality.matchedViewCoverage)}
-            />
-            <QualityMetric
-              label="calibration"
-              value={metricPercent(
-                multiViewReconstruction?.calibration.calibrationQualityScore ??
-                  quality?.reconstruction?.calibrationQualityScore,
-              )}
-            />
-            <QualityMetric
-              label="occlusion"
-              value={metricPercent(
-                multiViewReconstruction?.quality.occlusionRecoveryRatio ??
-                  quality?.reconstruction?.occlusionRecoveryRatio,
-              )}
-            />
-            <QualityMetric
-              label="gain"
-              value={`+${Math.max(
-                0,
-                Math.round(
-                  multiViewReconstruction?.quality.qualityGain ??
-                    quality?.reconstruction?.qualityGain ??
-                    0,
-                ),
-              )}`}
-            />
-          </View>
-          <Text style={styles.meta}>
-            reprojection{" "}
-            {(
-              multiViewReconstruction?.quality.averageReprojectionErrorPx ??
-              quality?.reconstruction?.reprojectionErrorPx ??
-              0
-            ).toFixed(1)}
-            px · triangulated{" "}
-            {metricPercent(
-              multiViewReconstruction?.quality.triangulatedLandmarkRatio ??
-                quality?.reconstruction?.triangulatedLandmarkRatio,
-            )}
-          </Text>
-          {multiViewReconstruction?.cameras.slice(0, 4).map((camera) => (
-            <Text key={camera.deviceIndex} style={styles.meta}>
-              {camera.deviceRole} · {Math.round(camera.approxAngleDeg)}deg ·{" "}
-              {metricPercent(camera.placementScore)} · {camera.intrinsicsSource ?? "metadata"}
-            </Text>
-          ))}
-          {multiViewReconstruction?.calibration.calibrationClipIds?.length ? (
-            <Text style={styles.meta}>
-              calibration clips {multiViewReconstruction.calibration.calibrationClipIds.length}/4
-            </Text>
-          ) : null}
-          {[
-            ...(multiViewReconstruction?.calibration.warnings ?? []),
-            ...(multiViewReconstruction?.warnings ?? []),
-          ].slice(0, 4).map((warning) => (
             <Text key={warning} style={styles.warningText}>{warning}</Text>
           ))}
         </Card>

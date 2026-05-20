@@ -290,7 +290,7 @@ export function useMultiViewCapture(callbacks?: MultiViewCaptureCallbacks) {
   // ─── Frame handling (Host) ──────────────────────────────────────
 
   /**
-   * Called by the host's usePoseStream when a local frame arrives.
+   * Legacy local-frame hook used by the host when a local frame arrives.
    * Tries to match with a remote frame and triangulate.
    */
   const processLocalFrame = useCallback(

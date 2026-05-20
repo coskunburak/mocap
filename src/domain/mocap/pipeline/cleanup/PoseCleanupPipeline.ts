@@ -1,5 +1,5 @@
 import { lmAt } from "../../models/Landmark";
-import { MP33, mp33ToJointPose } from "../../models/MediapipePose33";
+import { MP33, mp33ToJointPose } from "../../models/BodyPose33";
 import type { PoseFrame } from "../../models/PoseFrame";
 import type { TakePostProcess } from "../../models/Take";
 import { clamp } from "../../models/Skeleton";

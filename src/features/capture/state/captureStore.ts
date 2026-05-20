@@ -47,7 +47,7 @@ type CaptureState = {
   setTrackingProfile: (profile: "pose" | "holistic") => void;
 };
 
-const INITIAL_TRACKING_HINT = "Tap Start to boot the model and wait for a clean skeleton lock.";
+const INITIAL_TRACKING_HINT = "Tap Start to prepare video capture for WHAM processing.";
 
 export const useCaptureStore = create<CaptureState>((set) => ({
   status: "idle",

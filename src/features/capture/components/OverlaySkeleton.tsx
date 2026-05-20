@@ -164,23 +164,23 @@ function buildPoints(
 
 export function OverlaySkeleton({ width, height, frame }: Props) {
   const { jointThreshold, boneThreshold } = useCaptureStore();
-  const poseLandmarks = frame?.landmarks;
+  const bodyLandmarks = frame?.landmarks;
   const faceLandmarks = frame?.faceLandmarks;
   const leftHandLandmarks = frame?.leftHandLandmarks;
   const rightHandLandmarks = frame?.rightHandLandmarks;
 
-  const n = useMemo(() => count(poseLandmarks), [poseLandmarks]);
+  const n = useMemo(() => count(bodyLandmarks), [bodyLandmarks]);
   const faceThreshold = Math.max(0.18, jointThreshold * 0.5);
   const handThreshold = Math.max(0.22, jointThreshold * 0.65);
 
   const poseJoints = useMemo(
-    () => buildPoints(poseLandmarks, width, height, jointThreshold),
-    [jointThreshold, poseLandmarks, width, height],
+    () => buildPoints(bodyLandmarks, width, height, jointThreshold),
+    [jointThreshold, bodyLandmarks, width, height],
   );
 
   const poseBones = useMemo(
-    () => buildSegments(poseLandmarks, width, height, boneThreshold, POSE_BONES),
-    [boneThreshold, poseLandmarks, width, height],
+    () => buildSegments(bodyLandmarks, width, height, boneThreshold, POSE_BONES),
+    [boneThreshold, bodyLandmarks, width, height],
   );
   const faceContours = useMemo(
     () =>
@@ -208,25 +208,25 @@ export function OverlaySkeleton({ width, height, frame }: Props) {
   const handBridges = useMemo(() => {
     const out: Array<{ ax: number; ay: number; bx: number; by: number; stroke: string }> = [];
 
-    const poseLeftWrist = projectJoint(poseLandmarks, 15, width, height, boneThreshold);
-    const poseRightWrist = projectJoint(poseLandmarks, 16, width, height, boneThreshold);
+    const bodyLeftWrist = projectJoint(bodyLandmarks, 15, width, height, boneThreshold);
+    const bodyRightWrist = projectJoint(bodyLandmarks, 16, width, height, boneThreshold);
     const leftPalm = projectJoint(leftHandLandmarks, 0, width, height, handThreshold);
     const rightPalm = projectJoint(rightHandLandmarks, 0, width, height, handThreshold);
 
-    if (poseLeftWrist && leftPalm) {
+    if (bodyLeftWrist && leftPalm) {
       out.push({
-        ax: poseLeftWrist.x,
-        ay: poseLeftWrist.y,
+        ax: bodyLeftWrist.x,
+        ay: bodyLeftWrist.y,
         bx: leftPalm.x,
         by: leftPalm.y,
         stroke: LEFT_HAND_STROKE,
       });
     }
 
-    if (poseRightWrist && rightPalm) {
+    if (bodyRightWrist && rightPalm) {
       out.push({
-        ax: poseRightWrist.x,
-        ay: poseRightWrist.y,
+        ax: bodyRightWrist.x,
+        ay: bodyRightWrist.y,
         bx: rightPalm.x,
         by: rightPalm.y,
         stroke: RIGHT_HAND_STROKE,
@@ -239,7 +239,7 @@ export function OverlaySkeleton({ width, height, frame }: Props) {
     handThreshold,
     height,
     leftHandLandmarks,
-    poseLandmarks,
+    bodyLandmarks,
     rightHandLandmarks,
     width,
   ]);

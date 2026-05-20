@@ -1,4 +1,4 @@
-import type { JointName, Mp33Index } from "./MediapipePose33";
+import type { JointName, Mp33Index } from "./BodyPose33";
 
 export type Vec3 = Readonly<{ x: number; y: number; z: number }>;
 
@@ -22,7 +22,7 @@ export type SkeletonDef = Readonly<{
 
 export const DEFAULT_SKELETON: SkeletonDef = {
   name: "MocapExpoRig",
-  rig: [] as any, // RIG'i MediapipePose33.ts'den export edip burada set edeceğiz (aşağıda kullanacağız)
+  rig: [] as any, // RIG'i BodyPose33.ts'den export edip burada set edeceğiz (aşağıda kullanacağız)
   root: "Hips",
   eulerOrder: "ZXY",
 };

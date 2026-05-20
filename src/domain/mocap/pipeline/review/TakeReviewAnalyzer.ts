@@ -1,12 +1,12 @@
 import { lmAt } from "../../models/Landmark";
-import { MP33 } from "../../models/MediapipePose33";
+import { MP33 } from "../../models/BodyPose33";
 import type { PoseFrame } from "../../models/PoseFrame";
 import type { Take, TakeMotionArtifact, TakeReview } from "../../models/Take";
 import { analyzeCalibration } from "../calibration/CalibrationAnalyzer";
 import { PoseCleanupPipeline } from "../cleanup/PoseCleanupPipeline";
 import { analyzeRetarget } from "../retarget/RetargetSolver";
 import {
-  AVATAR_MOTION_SOLVER_VERSION,
+  AVATAR_MOTION_ENGINE_VERSION,
   buildAvatarMotionClip,
   type AvatarMotionSourceSpace,
 } from "../avatar/AvatarMotion";
@@ -240,7 +240,7 @@ function buildMotionArtifact(
   } catch (error) {
     return {
       status: "failed",
-      solverVersion: AVATAR_MOTION_SOLVER_VERSION,
+      solverVersion: AVATAR_MOTION_ENGINE_VERSION,
       sourceSpace: fallbackSourceSpace(rawFrames),
       raw2dFrameCount: rawFrames.length,
       rawWorldFrameCount,

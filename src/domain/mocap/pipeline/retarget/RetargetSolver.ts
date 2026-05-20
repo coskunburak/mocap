@@ -1,4 +1,4 @@
-import { RIG, mp33ToJointPose } from "../../models/MediapipePose33";
+import { RIG, mp33ToJointPose } from "../../models/BodyPose33";
 import type { PoseFrame } from "../../models/PoseFrame";
 import type { TakeRetarget } from "../../models/Take";
 import { countMappedBones, getRetargetPreset, getUnmappedSourceBones, type RetargetPresetId } from "./BoneMap";

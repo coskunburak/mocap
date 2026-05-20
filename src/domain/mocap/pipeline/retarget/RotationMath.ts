@@ -4,7 +4,7 @@ import {
   RIG,
   RIG_ROOT,
   type JointName,
-} from "../../models/MediapipePose33";
+} from "../../models/BodyPose33";
 import type { JointPose, Vec3 } from "../../models/Skeleton";
 import { add, cross, dot, len, mul, norm, sub, v3 } from "../../models/Skeleton";
 import {

@@ -4,7 +4,7 @@
  * ARKit standart blendshape isimlerini, popüler 3D modellerin (ReadyPlayerMe, Mixamo,
  * Apple ARKit, MetaHuman) kullandığı tüm varyasyonlara eşleyen statik sözlük.
  * 
- * MediaPipe/ARKit ismi → Olası model isimleri dizisi
+ * ARKit-style name -> possible model names.
  * İlk frame'de model taranırken bu sözlük kullanılarak O(1) index cache oluşturulur.
  */
 

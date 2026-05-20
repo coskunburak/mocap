@@ -6,7 +6,7 @@ import {
   mpLandmarkToRig,
   mp33ToJointPose,
   type JointName,
-} from "../../models/MediapipePose33";
+} from "../../models/BodyPose33";
 import type { FaceBlendshape, PoseFrame } from "../../models/PoseFrame";
 import type { CalibrationPose } from "../../models/Take";
 import type { JointPose, Vec3 } from "../../models/Skeleton";
@@ -24,12 +24,12 @@ import {
 } from "../retarget/RotationMath";
 import type { Quaternion } from "../retarget/Quaternion";
 
-export const AVATAR_MOTION_SOLVER_VERSION = "avatar-motion-v1" as const;
+export const AVATAR_MOTION_ENGINE_VERSION = "avatar-motion-v1" as const;
 
 export type AvatarMotionSourceSpace = "normalized" | "world" | "triangulated";
 
 export type AvatarMotionCalibration = Readonly<{
-  solverVersion: typeof AVATAR_MOTION_SOLVER_VERSION;
+  solverVersion: typeof AVATAR_MOTION_ENGINE_VERSION;
   sourceSpace: AvatarMotionSourceSpace;
   targetPose: CalibrationPose;
   mirrorX: boolean;
@@ -473,7 +473,7 @@ export function createAvatarMotionCalibration(
   );
 
   return {
-    solverVersion: AVATAR_MOTION_SOLVER_VERSION,
+    solverVersion: AVATAR_MOTION_ENGINE_VERSION,
     sourceSpace,
     targetPose,
     mirrorX,

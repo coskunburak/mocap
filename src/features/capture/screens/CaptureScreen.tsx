@@ -43,12 +43,12 @@ try {
   throw e;
 }
 
-let usePoseStream: typeof import("../hooks/usePoseStream").usePoseStream;
+let useWhamCapture: typeof import("../hooks/useWhamCapture").useWhamCapture;
 try {
-  usePoseStream = require("../hooks/usePoseStream").usePoseStream;
-  console.log("[Entry] usePoseStream loaded");
+  useWhamCapture = require("../hooks/useWhamCapture").useWhamCapture;
+  console.log("[Entry] useWhamCapture loaded");
 } catch (e) {
-  console.error("[Entry] usePoseStream failed to load", e);
+  console.error("[Entry] useWhamCapture failed to load", e);
   throw e;
 }
 
@@ -243,7 +243,7 @@ export default function CaptureScreen() {
     startRecording,
     stopRecording,
     currentTake,
-  } = usePoseStream(handleFrame);
+  } = useWhamCapture(handleFrame);
 
   const isRecording =
     recorderState.status === "recording" || recorderState.status === "stopping";
@@ -555,15 +555,15 @@ export default function CaptureScreen() {
         : isRecording
           ? "Recording motion"
           : status === "starting"
-            ? "Starting native pose engine"
+            ? "Starting camera capture"
             : trackingHint;
 
   const instructionSubtitle =
     countdown != null
       ? "It's crucial to get the best possible results"
       : isRecording
-        ? `${formatElapsed(elapsedMs)} captured · ${totalTrackedPoints} tracked points`
-        : `${trackingProfile.toUpperCase()} · ${readinessPercent}% calibration · ${Math.round(poseFps || 0)} fps`;
+        ? `${formatElapsed(elapsedMs)} captured · WHAM processing after upload`
+        : `WHAM/SMPL · ${readyForRecording ? 100 : readinessPercent}% ready`;
 
   return (
     <View style={styles.root}>
