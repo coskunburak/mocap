@@ -69,6 +69,26 @@ def fail(message: str, code: int = 2) -> None:
     raise SystemExit(code)
 
 
+def install_numpy_legacy_aliases() -> None:
+    """Restore NumPy aliases still used by older WHAM/MMCV dependencies."""
+    try:
+        import numpy as np
+    except Exception:
+        return
+
+    aliases = {
+        "bool": bool,
+        "complex": complex,
+        "float": float,
+        "int": int,
+        "object": object,
+        "str": str,
+    }
+    for name, value in aliases.items():
+        if name not in np.__dict__:
+            setattr(np, name, value)
+
+
 def finite(value: Any, fallback: float = 0.0) -> float:
     try:
         item = float(value)
@@ -290,10 +310,8 @@ def build_mesh_payload(subject: dict[str, Any]) -> dict[str, Any] | None:
         return None
     payload: dict[str, Any] = {}
     if vertices:
-        payload["vertices"] = vertices
         payload["vertexCount"] = count_vertices(vertices)
     if faces:
-        payload["faces"] = faces
         payload["faceCount"] = len(faces)
     return payload
 
@@ -418,6 +436,8 @@ def run_wham(args: argparse.Namespace, output_dir: Path) -> tuple[Any, dict[str,
     video = args.video[0]
     output_dir.mkdir(parents=True, exist_ok=True)
     try:
+        install_numpy_legacy_aliases()
+
         import argparse as wham_argparse
         import joblib
 
@@ -488,6 +508,8 @@ def run_wham(args: argparse.Namespace, output_dir: Path) -> tuple[Any, dict[str,
 
 def load_wham_output_pkl(path: str) -> tuple[Any, dict[str, Any]]:
     try:
+        install_numpy_legacy_aliases()
+
         import joblib
     except Exception as exc:  # pragma: no cover - depends on model image
         fail(f"Could not import joblib to load WHAM output: {exc}")

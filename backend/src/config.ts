@@ -33,6 +33,8 @@ const nodeEnv = optionalEnv("NODE_ENV") ?? "development";
 const explicitPythonPath = optionalEnv("PYTHON_PATH");
 const whamSolverScript = optionalEnv("WHAM_SOLVER_SCRIPT");
 const whamPrecomputedOutputPkl = optionalEnv("WHAM_PRECOMPUTED_OUTPUT_PKL");
+const runpodEndpointId = optionalEnv("RUNPOD_ENDPOINT_ID");
+const runpodApiKey = optionalEnv("RUNPOD_API_KEY");
 
 export const config = {
   nodeEnv,
@@ -49,6 +51,17 @@ export const config = {
     downloadUrlTtlSeconds: numberEnv("DOWNLOAD_URL_TTL_SECONDS", 600),
     requestTimeoutMs: numberEnv("S3_REQUEST_TIMEOUT_MS", 30000),
     skipObjectHeadValidation: booleanEnv("SKIP_OBJECT_HEAD_VALIDATION", false),
+  },
+  runpod: {
+    dispatchEnabled: booleanEnv(
+      "RUNPOD_DISPATCH_ENABLED",
+      Boolean(runpodEndpointId && runpodApiKey),
+    ),
+    endpointId: runpodEndpointId,
+    apiKey: runpodApiKey,
+    apiBaseUrl: optionalEnv("RUNPOD_API_BASE_URL") ?? "https://api.runpod.ai/v2",
+    jobTimeoutSeconds: numberEnv("RUNPOD_JOB_TIMEOUT_SECONDS", 3600),
+    requestTimeoutMs: numberEnv("RUNPOD_REQUEST_TIMEOUT_MS", 30000),
   },
   limits: {
     maxVideoBytes: numberEnv("MAX_VIDEO_BYTES", 786_432_000),

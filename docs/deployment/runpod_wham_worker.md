@@ -183,6 +183,20 @@ Do not use the long-running DB polling entrypoint for Serverless. Without
 but `/run` requests remain queued because no serverless handler is consuming
 them.
 
+The API backend must also submit jobs to the Serverless endpoint. In the backend
+environment, set:
+
+```text
+RUNPOD_DISPATCH_ENABLED=true
+RUNPOD_ENDPOINT_ID=your_endpoint_id
+RUNPOD_API_KEY=your_runpod_api_key
+RUNPOD_API_BASE_URL=https://api.runpod.ai/v2
+```
+
+Without these backend-side dispatch settings, mobile uploads can create
+PostgreSQL jobs that stay at `queued` forever because no RunPod `/run` request
+is created.
+
 For a debug pod that should not consume queue jobs, override the command to:
 
 ```bash

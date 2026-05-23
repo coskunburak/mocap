@@ -200,6 +200,12 @@ Değeri tırnak içine almanız gerekirse `.env` içinde çift tırnak yerine m�
 | `S3_REQUEST_TIMEOUT_MS` | Opsiyonel | S3 request timeout. | `30000` |
 | `UPLOAD_URL_TTL_SECONDS` | Opsiyonel | Signed upload URL geçerlilik süresi. | `900` |
 | `DOWNLOAD_URL_TTL_SECONDS` | Opsiyonel | Signed download URL geçerlilik süresi. | `600` |
+| `RUNPOD_DISPATCH_ENABLED` | Opsiyonel | Backend'in processing job oluşturunca RunPod Serverless `/run` çağrısı yapmasını açar. Endpoint ID ve API key varsa varsayılan açık kabul edilir. | `false` |
+| `RUNPOD_ENDPOINT_ID` | RunPod Serverless için gerekli | RunPod endpoint id değeri. | `pg...` |
+| `RUNPOD_API_KEY` | RunPod Serverless için gerekli | Backend'in RunPod endpoint'e job göndermek için kullandığı RunPod API key. | `rpa_...` |
+| `RUNPOD_API_BASE_URL` | Opsiyonel | RunPod API base URL. | `https://api.runpod.ai/v2` |
+| `RUNPOD_JOB_TIMEOUT_SECONDS` | Opsiyonel | RunPod job input'una gönderilen worker timeout süresi. | `3600` |
+| `RUNPOD_REQUEST_TIMEOUT_MS` | Opsiyonel | Backend'in RunPod dispatch HTTP timeout'u. | `30000` |
 | `MAX_VIDEO_BYTES` | Opsiyonel | Upload edilebilecek video boyutu üst sınırı. | `786432000` |
 | `MAX_METADATA_BYTES` | Opsiyonel | Metadata JSON boyutu üst sınırı. | `1048576` |
 | `MAX_EXPECTED_VIDEOS` | Opsiyonel | Bir take için kabul edilen maksimum beklenen video sayısı. | `4` |

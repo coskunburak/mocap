@@ -80,12 +80,16 @@ export async function probeVideo(inputPath: string): Promise<VideoProbe> {
 export async function normalizeVideo(inputPath: string, outputPath: string) {
   const maxWidth = config.limits.workerMaxWidth;
   const fps = config.limits.workerTargetFps;
+  const scale =
+    `scale='if(gt(iw,ih),min(${maxWidth},iw),-2)':` +
+    `'if(gt(iw,ih),-2,min(${maxWidth},ih))'`;
   await runCommand(config.worker.ffmpegPath, [
     "-y",
+    "-noautorotate",
     "-i",
     inputPath,
     "-vf",
-    `scale='min(${maxWidth},iw)':-2,fps=${fps},format=yuv420p`,
+    `${scale},fps=${fps},format=yuv420p`,
     "-an",
     "-movflags",
     "+faststart",

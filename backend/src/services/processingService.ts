@@ -1,4 +1,5 @@
 import { badRequest, conflict } from "../domain/errors";
+import type { ProcessingJob } from "../domain/types";
 import {
   CaptureSessionRepository,
   JobRepository,
@@ -6,6 +7,7 @@ import {
   UploadRepository,
 } from "../infra/db/repositories";
 import { isMotionRetargetPresetId } from "../worker/export/retargetPresets";
+import { RunPodDispatchService } from "./runpodDispatchService";
 import { asRecord, optionalString } from "./validators";
 
 const ACTIVE_STATES = new Set([
@@ -23,7 +25,39 @@ export class ProcessingService {
     private readonly jobs = new JobRepository(),
     private readonly uploads = new UploadRepository(),
     private readonly captureSessions = new CaptureSessionRepository(),
+    private readonly runpod = new RunPodDispatchService(),
   ) {}
+
+  private async dispatchRunPodIfConfigured(job: ProcessingJob) {
+    try {
+      const dispatch = await this.runpod.dispatchJob(job.id);
+      if (!dispatch.submitted) return job;
+      return this.jobs.updateState({
+        jobId: job.id,
+        state: "queued",
+        progress: 0,
+        message: "RunPod request submitted; waiting for worker.",
+        metrics: {
+          runpodRequestId: dispatch.requestId,
+          runpodStatus: dispatch.status,
+        },
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "RunPod dispatch failed.";
+      await this.jobs.updateState({
+        jobId: job.id,
+        state: "failed",
+        progress: 0,
+        message: "RunPod dispatch failed.",
+        errorCode: "runpod_dispatch_failed",
+        metrics: { reason: message },
+      });
+      throw conflict("RunPod dispatch failed", {
+        jobId: job.id,
+        reason: message,
+      });
+    }
+  }
 
   async create(userId: string, takeId: string, body: unknown) {
     const take = await this.takes.get(userId, takeId);
@@ -70,7 +104,7 @@ export class ProcessingService {
         this.captureSessions.updateStatus(userId, captureSessionId, "processing"),
       ),
     );
-    return job;
+    return this.dispatchRunPodIfConfigured(job);
   }
 
   async get(userId: string, jobId: string) {
@@ -100,7 +134,7 @@ export class ProcessingService {
       retryOfJobId: job.id,
     });
     await this.takes.updateStatus(userId, job.takeId, "processing");
-    return retry;
+    return this.dispatchRunPodIfConfigured(retry);
   }
 
   async cancel(userId: string, jobId: string) {
