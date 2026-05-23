@@ -3,6 +3,7 @@ package com.anonymous.MocapExpo.pose
 import android.Manifest
 import android.app.Activity
 import android.content.pm.PackageManager
+import android.view.Surface
 import androidx.camera.core.CameraSelector
 import androidx.core.content.ContextCompat
 import com.facebook.react.bridge.Arguments
@@ -138,6 +139,8 @@ class PoseEngineModule(
       }
 
       val fps = maxOf(1, options.getOptionalInt("fps") ?: lastTargetFps)
+      val cameraPosition = normalizeCameraPosition(options.getOptionalString("cameraPosition"))
+      val orientation = normalizeOrientation(options.getOptionalString("orientation"))
       lastTargetFps = fps
       val activity = currentActivityOrNull()
       if (activity == null) {
@@ -156,6 +159,10 @@ class PoseEngineModule(
         PoseCameraSession.RecordingOptions(
           takeId = takeId,
           fps = fps,
+          orientation = orientation,
+          cameraPosition = cameraPosition,
+          lensFacing = lensFacingFor(cameraPosition),
+          targetRotation = targetRotationFor(orientation),
         ),
       ) { error ->
         if (error != null) {
@@ -268,6 +275,34 @@ class PoseEngineModule(
   }
 
   private fun currentActivityOrNull(): Activity? = reactApplicationContext.currentActivity
+
+  private fun normalizeCameraPosition(value: String?): String =
+    when (value) {
+      "front" -> "front"
+      else -> "back"
+    }
+
+  private fun lensFacingFor(cameraPosition: String): Int =
+    when (cameraPosition) {
+      "front" -> CameraSelector.LENS_FACING_FRONT
+      else -> CameraSelector.LENS_FACING_BACK
+    }
+
+  private fun normalizeOrientation(value: String?): String =
+    when (value) {
+      "portrait_upside_down",
+      "landscape_left",
+      "landscape_right" -> value
+      else -> "portrait"
+    }
+
+  private fun targetRotationFor(orientation: String): Int =
+    when (orientation) {
+      "portrait_upside_down" -> Surface.ROTATION_180
+      "landscape_left" -> Surface.ROTATION_90
+      "landscape_right" -> Surface.ROTATION_270
+      else -> Surface.ROTATION_0
+    }
 
   private fun sendStatus(
     status: String,

@@ -5,6 +5,7 @@ import android.content.Context
 import android.hardware.camera2.CaptureRequest
 import android.media.MediaMetadataRetriever
 import android.util.Range
+import android.view.Surface
 import androidx.camera.camera2.interop.Camera2Interop
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageAnalysis
@@ -40,6 +41,7 @@ object PoseCameraSession {
   data class Config(
     val lensFacing: Int = CameraSelector.LENS_FACING_BACK,
     val fps: Int = 30,
+    val targetRotation: Int = Surface.ROTATION_0,
   )
 
   data class FrameInfo(
@@ -49,6 +51,10 @@ object PoseCameraSession {
   data class RecordingOptions(
     val takeId: String,
     val fps: Int = 30,
+    val orientation: String = "portrait",
+    val cameraPosition: String = "back",
+    val lensFacing: Int = CameraSelector.LENS_FACING_BACK,
+    val targetRotation: Int = Surface.ROTATION_0,
   )
 
   data class RecordingResult(
@@ -63,6 +69,8 @@ object PoseCameraSession {
     val fileSizeBytes: Long,
     val codec: String,
     val container: String,
+    val orientation: String,
+    val cameraPosition: String,
   ) {
     fun toWritableMap(): WritableMap {
       return Arguments.createMap().apply {
@@ -78,6 +86,8 @@ object PoseCameraSession {
         putString("codec", codec)
         putString("container", container)
         putString("platform", "android")
+        putString("orientation", orientation)
+        putString("cameraPosition", cameraPosition)
       }
     }
   }
@@ -235,6 +245,13 @@ object PoseCameraSession {
         return
       }
 
+    val nextConfig =
+      Config(
+        lensFacing = options.lensFacing,
+        fps = options.fps,
+        targetRotation = options.targetRotation,
+      )
+
     val shouldRebind = synchronized(lock) {
       if (recordingState != RecordingState.IDLE && recordingState != RecordingState.FAILED) {
         completion(IllegalStateException("Video recorder is already active."))
@@ -243,12 +260,14 @@ object PoseCameraSession {
 
       appContext = context.applicationContext
       lastActivityRef = WeakReference(owner)
+      val previousConfig = config
+      config = nextConfig
       recordingState = RecordingState.PREPARING
       recordingOptions = options
       recordingFile = outputFile
       recordingStartedAtMs = System.currentTimeMillis()
 
-      !isRunning || videoCaptureUseCase == null
+      !isRunning || videoCaptureUseCase == null || previousConfig != nextConfig
     }
 
     val startAfterBind: (Throwable?) -> Unit = { error ->
@@ -326,7 +345,9 @@ object PoseCameraSession {
     }
 
     val fpsRange = Range(maxOf(1, configSnapshot.fps), maxOf(1, configSnapshot.fps))
-    val previewBuilder = Preview.Builder()
+    val previewBuilder =
+      Preview.Builder()
+        .setTargetRotation(configSnapshot.targetRotation)
     Camera2Interop.Extender(previewBuilder).setCaptureRequestOption(
       CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE,
       fpsRange,
@@ -343,6 +364,7 @@ object PoseCameraSession {
       if (wantsAnalysis) {
         val analysisBuilder =
           ImageAnalysis.Builder()
+            .setTargetRotation(configSnapshot.targetRotation)
             .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
         Camera2Interop.Extender(analysisBuilder).setCaptureRequestOption(
           CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE,
@@ -374,6 +396,7 @@ object PoseCameraSession {
             )
             .build()
         VideoCapture.withOutput(recorder).also { useCase ->
+          useCase.targetRotation = configSnapshot.targetRotation
           useCases += useCase
         }
       } else {
@@ -586,6 +609,8 @@ object PoseCameraSession {
       fileSizeBytes = file.length(),
       codec = "h264",
       container = "mp4",
+      orientation = options.orientation,
+      cameraPosition = options.cameraPosition,
     )
   }
 

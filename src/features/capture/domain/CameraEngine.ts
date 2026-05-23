@@ -31,6 +31,8 @@ export type VideoRecordingResult = Readonly<{
   codec: string;
   container: "mov" | "mp4";
   platform: CaptureDevicePlatform;
+  cameraPosition: CaptureCameraPosition;
+  orientation: CaptureVideoOrientation;
 }>;
 
 export interface CameraEngine {
@@ -39,4 +41,3 @@ export interface CameraEngine {
   startVideoRecording(options: StartVideoRecordingOptions): Promise<void>;
   stopVideoRecording(): Promise<VideoRecordingResult>;
 }
-

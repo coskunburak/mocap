@@ -1,5 +1,9 @@
 import { NativeModules, Platform } from "react-native";
 import type {
+  CaptureCameraPosition,
+  CaptureVideoOrientation,
+} from "../../../domain/mocap/models/CaptureMetadata";
+import type {
   CameraEngine,
   StartVideoRecordingOptions,
   VideoRecordingResult,
@@ -19,6 +23,22 @@ function assertMethod(name: "setPreviewActive" | "startVideoRecording" | "stopVi
   if (typeof NativePoseEngine[name] !== "function") {
     throw new Error(`[CameraEngine] Native method '${name}' is not available. Rebuild the native app.`);
   }
+}
+
+function normalizeCameraPosition(value: unknown): CaptureCameraPosition {
+  return value === "front" || value === "back" || value === "external" || value === "unknown"
+    ? value
+    : "back";
+}
+
+function normalizeOrientation(value: unknown): CaptureVideoOrientation {
+  return value === "portrait" ||
+    value === "portrait_upside_down" ||
+    value === "landscape_left" ||
+    value === "landscape_right" ||
+    value === "unknown"
+    ? value
+    : "portrait";
 }
 
 function assertRecordingResult(value: any): VideoRecordingResult {
@@ -56,6 +76,8 @@ function assertRecordingResult(value: any): VideoRecordingResult {
     codec: value.codec,
     container: value.container === "mov" ? "mov" : "mp4",
     platform: Platform.OS === "ios" ? "ios" : Platform.OS === "android" ? "android" : "unknown",
+    cameraPosition: normalizeCameraPosition(value.cameraPosition),
+    orientation: normalizeOrientation(value.orientation),
   };
 }
 

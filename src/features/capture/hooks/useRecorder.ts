@@ -1,7 +1,11 @@
 import { useCallback, useMemo, useRef, useState } from "react";
 import { Platform } from "react-native";
 import { validateCaptureMetadata } from "../../../domain/mocap/models/CaptureMetadata";
-import type { CaptureQualityMetadata } from "../../../domain/mocap/models/CaptureMetadata";
+import type {
+  CaptureCameraPosition,
+  CaptureQualityMetadata,
+  CaptureVideoOrientation,
+} from "../../../domain/mocap/models/CaptureMetadata";
 import type { Take, TakeCalibration } from "../../../domain/mocap/models/Take";
 import { NativeCameraEngine } from "../data/NativeCameraEngine";
 import { buildCaptureMetadata } from "../domain/CaptureMetadataBuilder";
@@ -38,6 +42,8 @@ type RecorderOptions = {
   multiCameraSessionId?: string;
   approxCameraAngle?: number;
   calibrationClipId?: string;
+  cameraPosition?: CaptureCameraPosition;
+  orientation?: CaptureVideoOrientation;
 };
 
 type NormalizedRecorderOptions = {
@@ -55,6 +61,8 @@ type NormalizedRecorderOptions = {
   multiCameraSessionId?: string;
   approxCameraAngle?: number;
   calibrationClipId?: string;
+  cameraPosition: CaptureCameraPosition;
+  orientation: CaptureVideoOrientation;
 };
 
 function createCaptureSessionId(takeId: string) {
@@ -100,6 +108,8 @@ export function useRecorder() {
     multiCameraSessionId: undefined,
     approxCameraAngle: undefined,
     calibrationClipId: undefined,
+    cameraPosition: "back",
+    orientation: "portrait",
   });
 
   const flush = useCallback(async () => undefined, []);
@@ -123,6 +133,8 @@ export function useRecorder() {
         multiCameraSessionId: options?.multiCameraSessionId,
         approxCameraAngle: options?.approxCameraAngle,
         calibrationClipId: options?.calibrationClipId,
+        cameraPosition: options?.cameraPosition ?? "back",
+        orientation: options?.orientation ?? "portrait",
       };
 
       const take = await takeRepo.createTake(
@@ -148,8 +160,8 @@ export function useRecorder() {
         await NativeCameraEngine.startVideoRecording({
           takeId: take.id,
           fps: 30,
-          cameraPosition: "back",
-          orientation: "portrait",
+          cameraPosition: optsRef.current.cameraPosition,
+          orientation: optsRef.current.orientation,
         });
       } catch (error) {
         takeRef.current = null;
@@ -195,6 +207,10 @@ export function useRecorder() {
         approxCameraAngle: optsRef.current.approxCameraAngle,
         calibrationClipId: optsRef.current.calibrationClipId,
         quality,
+        orientation: optsRef.current.orientation,
+        camera: {
+          position: optsRef.current.cameraPosition,
+        },
         sync: {
           syncMethod:
             optsRef.current.captureMode === "dual-camera" ||
