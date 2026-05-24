@@ -13,19 +13,38 @@
   "samples": [
     {
       "name": "single-camera-walk",
+      "source": "single_camera",
       "videoPath": "./samples/single-camera-walk.mp4",
       "metadataPath": "./samples/single-camera-walk.metadata.json",
       "preset": "humanoid_bvh_quality_v1_5",
-      "minQualityScore": 64
+      "minQualityScore": 64,
+      "expectedArtifacts": [
+        "smpl_parameters_json",
+        "raw_solved_motion_json",
+        "solved_motion_json",
+        "cleanup_report_json",
+        "quality_report_json",
+        "preview_summary_json",
+        "motion_pipeline_report_json",
+        "bvh"
+      ]
     },
     {
       "name": "single-camera-turn",
+      "source": "single_camera",
       "videoPath": "./samples/single-camera-turn.mp4",
       "metadataPath": "./samples/single-camera-turn.metadata.json",
-      "preset": "humanoid_bvh_quality_v1_5"
+      "preset": "humanoid_bvh_quality_v1_5",
+      "expectedArtifacts": [
+        "smpl_parameters_json",
+        "quality_report_json",
+        "motion_pipeline_report_json",
+        "bvh"
+      ]
     },
     {
       "name": "single-camera-low-light",
+      "source": "single_camera",
       "videoPath": "./samples/single-camera-low-light.mp4",
       "metadataPath": "./samples/single-camera-low-light.metadata.json",
       "preset": "humanoid_bvh_quality_v1_5",
@@ -33,10 +52,30 @@
     },
     {
       "name": "dual-camera-clap-sync",
+      "source": "dual_camera",
       "captureMode": "dual",
       "expectedVideoCount": 2,
       "preset": "humanoid_bvh_dual_v1",
       "minQualityScore": 68,
+      "expectedArtifacts": [
+        "smpl_parameters_json",
+        "quality_report_json",
+        "motion_pipeline_report_json",
+        "multi_view_sync_json",
+        "camera_calibration_json",
+        "dual_reconstruction_json"
+      ],
+      "multiViewExpectations": {
+        "reconstructionAvailable": true,
+        "reconstructionUsedForConstraints": false,
+        "primaryWhamFallbackUsed": true,
+        "primaryWhamFallbackReason": "multi_view_reconstruction_diagnostic_only",
+        "minMatchedFrameCount": 1,
+        "minTriangulatedLandmarkRatio": 0.5,
+        "maxReprojectionErrorPx": 10,
+        "minCalibrationQualityScore": 0,
+        "requireArtifactNameUnique": true
+      },
       "videos": [
         {
           "videoPath": "./samples/dual-camera-clap-host.mp4",
@@ -54,10 +93,34 @@
     },
     {
       "name": "pro-4-camera-calibration",
+      "source": "multi_view",
       "captureMode": "pro_4_camera",
       "expectedVideoCount": 4,
       "preset": "humanoid_bvh_pro_4_camera_v1",
       "minQualityScore": 72,
+      "expectedArtifacts": [
+        "smpl_parameters_json",
+        "quality_report_json",
+        "motion_pipeline_report_json",
+        "multi_view_sync_json",
+        "camera_calibration_json",
+        "multi_view_reconstruction_json",
+        "pose_frames_device_0_json",
+        "pose_frames_device_1_json",
+        "pose_frames_device_2_json",
+        "pose_frames_device_3_json"
+      ],
+      "multiViewExpectations": {
+        "reconstructionAvailable": true,
+        "reconstructionUsedForConstraints": false,
+        "primaryWhamFallbackUsed": true,
+        "primaryWhamFallbackReason": "multi_view_reconstruction_diagnostic_only",
+        "minMatchedFrameCount": 1,
+        "minTriangulatedLandmarkRatio": 0.5,
+        "maxReprojectionErrorPx": 10,
+        "minCalibrationQualityScore": 0,
+        "requireArtifactNameUnique": true
+      },
       "videos": [
         {
           "videoPath": "./samples/pro-front.mp4",

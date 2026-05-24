@@ -1,11 +1,31 @@
 import type {
+  CameraCalibrationArtifact,
   CleanupReport,
+  MultiViewReconstructionArtifact,
+  MultiViewSyncReport,
   PoseFramesArtifact,
   PreviewSummary,
   QualityReport,
+  QualityReportMultiViewSection,
   SolvedMotionArtifact,
+  WhamInputUsageMetrics,
 } from "../types";
 import { SKELETON } from "./skeletonDefinition";
+
+export type QualityReportMultiViewDiagnosticInput = {
+  reconstructionAvailable?: boolean;
+  syncReport?: MultiViewSyncReport;
+  cameraCalibration?: CameraCalibrationArtifact;
+  reconstruction?: MultiViewReconstructionArtifact;
+  warnings?: string[];
+  errorCode?: string;
+  errorMessage?: string;
+};
+
+export type BuildQualityReportMultiViewSectionInput = {
+  whamInputUsage?: WhamInputUsageMetrics;
+  multiViewDiagnostic?: QualityReportMultiViewDiagnosticInput;
+};
 
 function hasOnlyFiniteNumbers(value: unknown): boolean {
   if (typeof value === "number") return Number.isFinite(value);
@@ -59,6 +79,141 @@ export function validateBvhText(bvh: string, frameCount: number) {
   return { ok: errors.length === 0, errors, warnings };
 }
 
+export function buildQualityReportMultiViewSection(
+  input: BuildQualityReportMultiViewSectionInput,
+): QualityReportMultiViewSection | undefined {
+  const source =
+    input.whamInputUsage?.source ?? input.multiViewDiagnostic?.reconstruction?.source;
+  if (!source || source === "single_camera") {
+    return undefined;
+  }
+
+  const reconstructionAvailable = Boolean(
+    input.whamInputUsage?.multiViewReconstructionAvailable ||
+      input.multiViewDiagnostic?.reconstructionAvailable ||
+      input.multiViewDiagnostic?.reconstruction,
+  );
+  const primaryWhamFallbackReason =
+    input.whamInputUsage?.primaryWhamFallbackReason === "none"
+      ? undefined
+      : input.whamInputUsage?.primaryWhamFallbackReason;
+  const metrics = buildMultiViewReportMetrics(input.multiViewDiagnostic);
+  const warnings = buildMultiViewReportWarnings({
+    whamInputUsage: input.whamInputUsage,
+    multiViewDiagnostic: input.multiViewDiagnostic,
+  });
+
+  return {
+    enabled: true,
+    source,
+    reconstructionAvailable,
+    reconstructionUsedForConstraints:
+      input.whamInputUsage?.multiViewConstraintsUsed ?? false,
+    primaryWhamFallbackUsed:
+      input.whamInputUsage?.primaryWhamFallbackUsed ?? false,
+    ...(primaryWhamFallbackReason ? { primaryWhamFallbackReason } : {}),
+    ...(input.whamInputUsage ? { whamInputUsage: input.whamInputUsage } : {}),
+    ...(metrics ? { metrics } : {}),
+    ...(warnings.length ? { warnings } : {}),
+  };
+}
+
+function buildMultiViewReportMetrics(
+  diagnostic: QualityReportMultiViewDiagnosticInput | undefined,
+): QualityReportMultiViewSection["metrics"] | undefined {
+  if (!diagnostic) {
+    return undefined;
+  }
+  const metrics: NonNullable<QualityReportMultiViewSection["metrics"]> = {};
+  const setFiniteMetric = (
+    key: keyof NonNullable<QualityReportMultiViewSection["metrics"]>,
+    value: number | undefined,
+  ) => {
+    if (typeof value === "number" && Number.isFinite(value)) {
+      metrics[key] = value;
+    }
+  };
+
+  setFiniteMetric("syncOffsetMs", maxAbsoluteSyncOffsetMs(diagnostic.syncReport));
+  setFiniteMetric("syncConfidence", diagnostic.syncReport?.metrics.syncConfidence);
+  setFiniteMetric("matchedFrameCount", diagnostic.syncReport?.metrics.matchedFrameCount);
+  setFiniteMetric("droppedFrameCount", diagnostic.syncReport?.metrics.droppedFrameCount);
+  setFiniteMetric(
+    "averageTimeDeltaMs",
+    diagnostic.syncReport?.metrics.averageTimeDeltaMs,
+  );
+  setFiniteMetric(
+    "calibrationQualityScore",
+    diagnostic.cameraCalibration?.quality.score,
+  );
+  setFiniteMetric(
+    "intrinsicsFallbackUsed",
+    diagnostic.cameraCalibration
+      ? diagnostic.cameraCalibration.devices.some(
+          (device) => device.intrinsicsSource === "fov_fallback",
+        )
+        ? 1
+        : 0
+      : undefined,
+  );
+
+  const reconstructionMetrics = diagnostic.reconstruction?.metrics;
+  setFiniteMetric("syncOffsetMs", reconstructionMetrics?.syncOffsetMs);
+  setFiniteMetric("syncConfidence", reconstructionMetrics?.syncConfidence);
+  setFiniteMetric("matchedFrameCount", reconstructionMetrics?.matchedFrameCount);
+  setFiniteMetric("droppedFrameCount", reconstructionMetrics?.droppedFrameCount);
+  setFiniteMetric("averageTimeDeltaMs", reconstructionMetrics?.averageTimeDeltaMs);
+  setFiniteMetric("reprojectionErrorPx", reconstructionMetrics?.reprojectionErrorPx);
+  setFiniteMetric("reprojectionP95Px", reconstructionMetrics?.reprojectionP95Px);
+  setFiniteMetric(
+    "triangulatedLandmarkRatio",
+    reconstructionMetrics?.triangulatedLandmarkRatio,
+  );
+  setFiniteMetric(
+    "fallbackLandmarkRatio",
+    reconstructionMetrics?.fallbackLandmarkRatio,
+  );
+  setFiniteMetric(
+    "calibrationQualityScore",
+    reconstructionMetrics?.calibrationQualityScore,
+  );
+  setFiniteMetric("intrinsicsFallbackUsed", reconstructionMetrics?.intrinsicsFallbackUsed);
+  setFiniteMetric("multiViewQualityGain", reconstructionMetrics?.multiViewQualityGain);
+
+  return Object.keys(metrics).length > 0 ? metrics : undefined;
+}
+
+function maxAbsoluteSyncOffsetMs(
+  syncReport: MultiViewSyncReport | undefined,
+): number | undefined {
+  if (!syncReport) {
+    return undefined;
+  }
+  return syncReport.devices.reduce(
+    (max, device) => Math.max(max, Math.abs(device.offsetMs)),
+    0,
+  );
+}
+
+function buildMultiViewReportWarnings(input: {
+  whamInputUsage?: WhamInputUsageMetrics;
+  multiViewDiagnostic?: QualityReportMultiViewDiagnosticInput;
+}) {
+  const warnings: string[] = [];
+  warnings.push(...(input.multiViewDiagnostic?.warnings ?? []));
+  warnings.push(...(input.multiViewDiagnostic?.syncReport?.warnings ?? []));
+  warnings.push(...(input.multiViewDiagnostic?.cameraCalibration?.warnings ?? []));
+  warnings.push(...(input.multiViewDiagnostic?.reconstruction?.warnings ?? []));
+  if (input.multiViewDiagnostic?.errorCode) {
+    warnings.push(input.multiViewDiagnostic.errorCode);
+  }
+  const fallbackReason = input.whamInputUsage?.primaryWhamFallbackReason;
+  if (fallbackReason && fallbackReason !== "none") {
+    warnings.push(fallbackReason);
+  }
+  return Array.from(new Set(warnings));
+}
+
 export function buildQualityReport(
   pose: PoseFramesArtifact,
   solved: SolvedMotionArtifact,
@@ -71,6 +226,7 @@ export function buildQualityReport(
     blenderSkipped: boolean;
   },
   inputSource: "single_camera" | "dual_camera" | "multi_view" = "single_camera",
+  multiViewInput: BuildQualityReportMultiViewSectionInput = {},
 ): QualityReport {
   const detectedRatio =
     pose.quality.frameCount > 0
@@ -115,6 +271,7 @@ export function buildQualityReport(
             ? "Input quality is low. Re-capture is recommended for production delivery."
             : "Export validation failed. Reprocess or re-capture before delivery.";
 
+  const multiView = buildQualityReportMultiViewSection(multiViewInput);
   return {
     schema: "mocap.quality_report.v1",
     takeId: pose.takeId,
@@ -148,6 +305,7 @@ export function buildQualityReport(
     inputSource: {
       source: inputSource,
     },
+    ...(multiView ? { multiView } : {}),
   };
 }
 

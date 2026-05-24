@@ -153,6 +153,7 @@ export type ExportFile = {
   jobId: string | null;
   preset: string;
   format: string;
+  artifactName?: string;
   storageKey: string;
   fileSizeBytes: number | null;
   createdAt: string;

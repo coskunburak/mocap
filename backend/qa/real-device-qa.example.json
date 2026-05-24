@@ -1,0 +1,115 @@
+{
+  "schema": "mocap.real_device_qa.v1",
+  "date": "2026-05-24",
+  "tester": "manual",
+  "backendCommit": "unknown",
+  "appBuild": "unknown",
+  "workerImageTag": "unknown",
+  "runPodEndpoint": "unknown",
+  "featureFlags": {
+    "ENABLE_MULTI_VIEW_RECONSTRUCTION": false,
+    "ALLOW_PRIMARY_WHAM_FALLBACK": true
+  },
+  "runs": [
+    {
+      "id": "ios-single-001",
+      "mode": "single_camera",
+      "platforms": ["ios"],
+      "expectedVideoCount": 1,
+      "actualUploadedVideoCount": 1,
+      "expectedBranch": "single_camera_wham",
+      "actualBranch": "single_camera_wham",
+      "jobStatus": "succeeded",
+      "artifacts": [
+        "smpl_parameters_json",
+        "raw_solved_motion_json",
+        "solved_motion_json",
+        "cleanup_report_json",
+        "quality_report_json",
+        "preview_summary_json",
+        "motion_pipeline_report_json",
+        "wham_overlay_preview_mp4",
+        "bvh"
+      ],
+      "qualityReport": {
+        "schema": "mocap.quality_report.v1",
+        "score": 100,
+        "multiViewPresent": false
+      },
+      "resultScreen": {
+        "multiViewDiagnosticsVisible": false
+      },
+      "passed": true
+    },
+    {
+      "id": "ios-ios-dual-001",
+      "mode": "dual_camera",
+      "platforms": ["ios", "ios"],
+      "expectedVideoCount": 2,
+      "actualUploadedVideoCount": 2,
+      "expectedBranch": "multi_view_reconstruction",
+      "actualBranch": "multi_view_reconstruction",
+      "jobStatus": "succeeded",
+      "artifacts": [
+        "pose_frames_device_json",
+        "multi_view_sync_json",
+        "camera_calibration_json",
+        "dual_reconstruction_json",
+        "quality_report_json"
+      ],
+      "qualityReport": {
+        "schema": "mocap.quality_report.v1",
+        "multiViewPresent": true,
+        "reconstructionAvailable": true,
+        "reconstructionUsedForConstraints": false,
+        "primaryWhamFallbackUsed": true,
+        "matchedFrameCount": 10,
+        "averageTimeDeltaMs": 5.2,
+        "reprojectionErrorPx": 4.1,
+        "triangulatedLandmarkRatio": 0.75,
+        "calibrationQualityScore": 0.8
+      },
+      "resultScreen": {
+        "multiViewDiagnosticsVisible": true
+      },
+      "passed": true
+    },
+    {
+      "id": "pro-4-camera-optional-001",
+      "mode": "pro_4_camera",
+      "platforms": ["ios", "android", "ios", "android"],
+      "expectedVideoCount": 4,
+      "actualUploadedVideoCount": 4,
+      "expectedBranch": "multi_view_reconstruction",
+      "actualBranch": "multi_view_reconstruction",
+      "jobStatus": "succeeded",
+      "artifacts": [
+        "pose_frames_device_0_json",
+        "pose_frames_device_1_json",
+        "pose_frames_device_2_json",
+        "pose_frames_device_3_json",
+        "multi_view_sync_json",
+        "camera_calibration_json",
+        "multi_view_reconstruction_json",
+        "quality_report_json"
+      ],
+      "qualityReport": {
+        "schema": "mocap.quality_report.v1",
+        "multiViewPresent": true,
+        "reconstructionAvailable": true,
+        "reconstructionUsedForConstraints": false,
+        "primaryWhamFallbackUsed": true,
+        "matchedFrameCount": 10,
+        "averageTimeDeltaMs": 5.2,
+        "reprojectionErrorPx": 4.1,
+        "triangulatedLandmarkRatio": 0.75,
+        "calibrationQualityScore": 0.8
+      },
+      "resultScreen": {
+        "multiViewDiagnosticsVisible": true
+      },
+      "passed": true,
+      "optional": true
+    }
+  ]
+}

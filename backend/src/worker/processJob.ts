@@ -16,15 +16,31 @@ import { runBlenderSmokeTest } from "./export/blenderSmokeTest";
 import {
   buildPreviewSummary,
   buildQualityReport,
+  type QualityReportMultiViewDiagnosticInput,
   validateBvhText,
   validateSolvedMotion,
 } from "./export/exportValidation";
 import { trySolvePremiumMotion } from "./export/premiumMotionSolver";
+import {
+  type PersistedMultiViewArtifact,
+  persistMultiViewArtifacts,
+} from "./reconstruction/multiViewArtifacts";
+import {
+  type MultiViewPoseAdapter,
+  resolveWorkerPipelineBranch,
+  resolveMultiViewStageFailure,
+  runMultiViewReconstruction,
+} from "./reconstruction/multiViewOrchestrator";
 import { normalizeVideo, probeVideo } from "./video/videoPipeline";
+import {
+  buildWhamInputUsageMetrics,
+  whamFallbackReasonFromMultiViewError,
+} from "./whamInputUsage";
 import type {
   MotionPipelineReport,
   PoseFramesArtifact,
   SolvedMotionArtifact,
+  WhamFallbackReason,
 } from "./types";
 
 type Deps = {
@@ -34,6 +50,7 @@ type Deps = {
   uploads?: UploadRepository;
   exports?: ExportRepository;
   storage?: ObjectStorage;
+  multiViewPoseAdapter?: MultiViewPoseAdapter;
 };
 
 type ProcessedSource = {
@@ -42,6 +59,20 @@ type ProcessedSource = {
   normalizedPath: string;
   normalizedKey: string;
   normalizedProbe: Awaited<ReturnType<typeof probeVideo>>;
+};
+
+type MultiViewDiagnosticSummary = {
+  branch: string;
+  reconstructionAvailable: boolean;
+  matchedFrameCount?: number;
+  triangulatedLandmarkRatio?: number;
+  reprojectionErrorPx?: number;
+  usedForWhamConstraints: false;
+  primaryWhamContinues: boolean;
+  fallbackToPrimaryWham?: boolean;
+  primaryWhamFallbackReason?: WhamFallbackReason;
+  errorCode?: string;
+  errorMessage?: string;
 };
 
 class WorkerProcessingError extends Error {
@@ -128,6 +159,7 @@ export class WorkerJobProcessor {
   private readonly uploads: UploadRepository;
   private readonly exports: ExportRepository;
   private readonly storage: ObjectStorage;
+  private readonly multiViewPoseAdapter: MultiViewPoseAdapter | undefined;
 
   constructor(deps: Deps = {}) {
     this.jobs = deps.jobs ?? new JobRepository();
@@ -136,6 +168,7 @@ export class WorkerJobProcessor {
     this.uploads = deps.uploads ?? new UploadRepository();
     this.exports = deps.exports ?? new ExportRepository();
     this.storage = deps.storage ?? new ObjectStorage();
+    this.multiViewPoseAdapter = deps.multiViewPoseAdapter;
   }
 
   async process(job: ProcessingJob) {
@@ -182,6 +215,29 @@ export class WorkerJobProcessor {
         : useDualInput
           ? uploadedSources.slice(0, 2)
           : uploadedSources.slice(0, 1);
+      const pipelineBranch = resolveWorkerPipelineBranch({
+        captureMode: take.captureMode,
+        selectedVideoCount: sources.length,
+        enableMultiViewReconstruction: config.worker.enableMultiViewReconstruction,
+        allowPrimaryWhamFallback: config.worker.allowPrimaryWhamFallback,
+      });
+      if (pipelineBranch.kind === "multi_view_disabled") {
+        throw new WorkerProcessingError(
+          "Multi-view reconstruction is disabled and primary WHAM fallback is not allowed.",
+          "multi_view_reconstruction_disabled",
+          {
+            captureMode: take.captureMode,
+            selectedVideoCount: sources.length,
+            branch: pipelineBranch,
+          },
+        );
+      }
+      let multiViewReconstructionAvailable = false;
+      let primaryWhamFallbackUsed = pipelineBranch.kind === "primary_wham_fallback";
+      let primaryWhamFallbackReason: WhamFallbackReason =
+        pipelineBranch.kind === "primary_wham_fallback"
+          ? "multi_view_reconstruction_disabled"
+          : "none";
       const processedSources: ProcessedSource[] = [];
 
       await this.jobs.updateState({
@@ -246,6 +302,202 @@ export class WorkerJobProcessor {
       if (!primarySource) {
         throw new WorkerProcessingError("No source video was prepared.", "source_video_missing");
       }
+      let multiViewDiagnostic: MultiViewDiagnosticSummary | undefined;
+      let qualityReportMultiViewDiagnostic:
+        | QualityReportMultiViewDiagnosticInput
+        | undefined;
+      let persistedMultiViewArtifacts: PersistedMultiViewArtifact[] = [];
+      let multiViewArtifactPersistenceWarnings: string[] = [];
+      if (pipelineBranch.kind === "multi_view_reconstruction") {
+        await this.jobs.updateState({
+          jobId: job.id,
+          state: "solving_motion",
+          progress: 60,
+          message: "Running multi-view reconstruction diagnostic stage.",
+          metrics: {
+            captureMode: take.captureMode,
+            branch: pipelineBranch,
+          },
+        });
+        let reconstruction:
+          | Awaited<ReturnType<typeof runMultiViewReconstruction>>
+          | undefined;
+        try {
+          reconstruction = await runMultiViewReconstruction({
+            takeId: job.takeId,
+            jobId: job.id,
+            source: motionSource === "multi_view" ? "multi_view" : "dual_camera",
+            processedSources: processedSources.map((source) => ({
+              deviceIndex: source.video.deviceIndex,
+              deviceRole: source.video.deviceRole,
+              videoStorageKey: source.video.videoStorageKey,
+              normalizedStorageKey: source.normalizedKey,
+              normalizedPath: source.normalizedPath,
+              fps: source.normalizedProbe.fps,
+              width: source.normalizedProbe.width,
+              height: source.normalizedProbe.height,
+              durationMs: source.normalizedProbe.durationMs,
+            })),
+            outputDir: path.join(dir, "multi_view_reconstruction"),
+            poseAdapter: this.multiViewPoseAdapter,
+          });
+        } catch (error) {
+          const action = resolveMultiViewStageFailure({
+            error,
+            allowPrimaryWhamFallback: config.worker.allowPrimaryWhamFallback,
+          });
+          multiViewDiagnostic = {
+            branch: pipelineBranch.kind,
+            reconstructionAvailable: false,
+            usedForWhamConstraints: false,
+            primaryWhamContinues: action.shouldContinueWithPrimaryWham,
+            fallbackToPrimaryWham: action.shouldContinueWithPrimaryWham,
+            primaryWhamFallbackReason: whamFallbackReasonFromMultiViewError(
+              action.errorCode,
+            ),
+            errorCode: action.errorCode,
+            errorMessage: action.errorMessage,
+          };
+          qualityReportMultiViewDiagnostic = {
+            reconstructionAvailable: false,
+            warnings: [action.errorCode],
+            errorCode: action.errorCode,
+            errorMessage: action.errorMessage,
+          };
+          if (!action.shouldContinueWithPrimaryWham) {
+            throw new WorkerProcessingError(
+              "Multi-view reconstruction failed and primary WHAM fallback is disabled.",
+              action.errorCode,
+              {
+                captureMode: take.captureMode,
+                branch: pipelineBranch,
+                multiView: multiViewDiagnostic,
+              },
+            );
+          }
+          primaryWhamFallbackUsed = true;
+          primaryWhamFallbackReason = whamFallbackReasonFromMultiViewError(
+            action.errorCode,
+          );
+          await this.jobs.updateState({
+            jobId: job.id,
+            state: "solving_motion",
+            progress: 66,
+            message:
+              "Multi-view reconstruction unavailable; continuing primary WHAM fallback.",
+            metrics: {
+              captureMode: take.captureMode,
+              multiView: multiViewDiagnostic,
+            },
+          });
+        }
+        if (reconstruction) {
+          multiViewDiagnostic = {
+            branch: pipelineBranch.kind,
+            reconstructionAvailable: true,
+            matchedFrameCount:
+              reconstruction.reconstructionArtifact.metrics.matchedFrameCount,
+            triangulatedLandmarkRatio:
+              reconstruction.reconstructionArtifact.metrics.triangulatedLandmarkRatio,
+            reprojectionErrorPx:
+              reconstruction.reconstructionArtifact.metrics.reprojectionErrorPx,
+            usedForWhamConstraints: false,
+            primaryWhamContinues: true,
+            primaryWhamFallbackReason:
+              "multi_view_reconstruction_diagnostic_only",
+          };
+          qualityReportMultiViewDiagnostic = {
+            reconstructionAvailable: true,
+            syncReport: reconstruction.syncReport,
+            cameraCalibration: reconstruction.calibrationArtifact,
+            reconstruction: reconstruction.reconstructionArtifact,
+            warnings: Array.from(
+              new Set([
+                ...reconstruction.syncReport.warnings,
+                ...reconstruction.calibrationArtifact.warnings,
+                ...reconstruction.reconstructionArtifact.warnings,
+              ]),
+            ),
+          };
+          multiViewReconstructionAvailable = true;
+          primaryWhamFallbackUsed = true;
+          primaryWhamFallbackReason =
+            "multi_view_reconstruction_diagnostic_only";
+          try {
+            const persistenceResult = await persistMultiViewArtifacts({
+              takeId: job.takeId,
+              jobId: job.id,
+              source:
+                take.captureMode === "pro_4_camera"
+                  ? "pro_4_camera"
+                  : motionSource === "multi_view"
+                    ? "multi_view"
+                    : "dual_camera",
+              poseArtifacts: reconstruction.poseArtifacts,
+              syncReport: reconstruction.syncReport,
+              cameraCalibration: reconstruction.calibrationArtifact,
+              reconstruction: reconstruction.reconstructionArtifact,
+              storage: {
+                uploadJson: (key, value) => this.storage.putJson(key, value),
+              },
+              exportsRepository: {
+                createExportFile: ({ format, artifactName, storageKey, sizeBytes }) =>
+                  this.exports.create({
+                    userId: job.userId,
+                    projectId: job.projectId,
+                    takeId: job.takeId,
+                    jobId: job.id,
+                    preset: job.preset,
+                    format,
+                    artifactName,
+                    storageKey,
+                    fileSizeBytes: sizeBytes,
+                  }),
+              },
+            });
+            persistedMultiViewArtifacts = persistenceResult.artifacts;
+            multiViewArtifactPersistenceWarnings = persistenceResult.warnings;
+          } catch (error) {
+            throw new WorkerProcessingError(
+              "Multi-view artifact persistence failed.",
+              "multi_view_artifact_persistence_failed",
+              {
+                captureMode: take.captureMode,
+                branch: pipelineBranch,
+                message:
+                  error instanceof Error
+                    ? error.message
+                    : "Multi-view artifact persistence failed.",
+              },
+            );
+          }
+          await this.jobs.updateState({
+            jobId: job.id,
+            state: "solving_motion",
+            progress: 66,
+            message:
+              "Multi-view reconstruction diagnostic stage completed; artifacts persisted; continuing primary WHAM solve.",
+            metrics: {
+              captureMode: take.captureMode,
+              multiView: multiViewDiagnostic,
+              multiViewArtifacts: persistedMultiViewArtifacts,
+              warnings: multiViewArtifactPersistenceWarnings,
+            },
+          });
+        }
+      }
+      const whamInputUsage = buildWhamInputUsageMetrics({
+        source: motionSource,
+        selectedVideos: processedSources.map((source) => ({
+          deviceIndex: source.video.deviceIndex,
+          storageKey: source.video.videoStorageKey,
+        })),
+        primaryDeviceIndex: primarySource.video.deviceIndex,
+        multiViewReconstructionAvailable,
+        multiViewConstraintsUsed: false,
+        primaryWhamFallbackUsed,
+        primaryWhamFallbackReason,
+      });
       let poseArtifact = whamMetadataPoseArtifact({
         takeId: job.takeId,
         jobId: job.id,
@@ -267,6 +519,11 @@ export class WorkerJobProcessor {
         metrics: {
           source: motionSource,
           normalizedVideos: processedSources.map((source) => source.normalizedKey),
+          whamInputUsage,
+          ...(multiViewDiagnostic ? { multiView: multiViewDiagnostic } : {}),
+          ...(persistedMultiViewArtifacts.length
+            ? { multiViewArtifacts: persistedMultiViewArtifacts }
+            : {}),
         },
       });
 
@@ -278,6 +535,7 @@ export class WorkerJobProcessor {
         presetId: job.preset,
         outputDir: path.join(dir, "premium_solver"),
         normalizedVideoPaths: processedSources.map((source) => source.normalizedPath),
+        whamInputUsage,
       });
 
       const rawSolved = premiumAttempt.motion;
@@ -475,6 +733,10 @@ export class WorkerJobProcessor {
           blenderSkipped: blender.skipped,
         },
         motionSource,
+        {
+          whamInputUsage,
+          multiViewDiagnostic: qualityReportMultiViewDiagnostic,
+        },
       );
       const qualityKey = artifactStorageKey(job.takeId, job.id, "quality_report.json");
       const qualityFile = await this.storage.putJson(qualityKey, quality);
@@ -540,6 +802,7 @@ export class WorkerJobProcessor {
           warnings: quality.warnings.slice(0, 12),
           errors: quality.errors,
         },
+        whamInputUsage,
         createdAt: new Date().toISOString(),
       };
       const pipelineKey = artifactStorageKey(
@@ -567,6 +830,10 @@ export class WorkerJobProcessor {
         metrics: {
           qualityScore: quality.score,
           blender,
+          whamInputUsage,
+          ...(persistedMultiViewArtifacts.length
+            ? { multiViewArtifacts: persistedMultiViewArtifacts }
+            : {}),
           artifacts: {
             smplParameters: smplParametersKey,
             rawSolvedMotion: rawSolvedKey,

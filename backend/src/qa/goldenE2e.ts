@@ -15,6 +15,7 @@ type GoldenManifest = {
   };
   samples: Array<{
     name: string;
+    source?: "single_camera" | "dual_camera" | "multi_view" | "pro_4_camera";
     videoPath?: string;
     metadataPath?: string;
     videos?: Array<{
@@ -27,12 +28,25 @@ type GoldenManifest = {
     expectedVideoCount?: number;
     preset?: string;
     minQualityScore?: number;
+    expectedArtifacts?: string[];
+    multiViewExpectations?: {
+      reconstructionAvailable?: boolean;
+      reconstructionUsedForConstraints?: boolean;
+      primaryWhamFallbackUsed?: boolean;
+      primaryWhamFallbackReason?: string;
+      minMatchedFrameCount?: number;
+      minTriangulatedLandmarkRatio?: number;
+      maxReprojectionErrorPx?: number;
+      minCalibrationQualityScore?: number;
+      requireArtifactNameUnique?: boolean;
+    };
   }>;
 };
 
 type ApiExportFile = {
   id: string;
   format: string;
+  artifactName?: string;
   fileSizeBytes: number | null;
 };
 
@@ -46,10 +60,23 @@ type ApiJob = {
 };
 
 type QualityReport = {
+  schema: "mocap.quality_report.v1";
   score: number;
   metrics: Record<string, number>;
   warnings: string[];
   errors: string[];
+  multiView?: {
+    reconstructionAvailable: boolean;
+    reconstructionUsedForConstraints: boolean;
+    primaryWhamFallbackUsed: boolean;
+    primaryWhamFallbackReason?: string;
+    metrics?: {
+      matchedFrameCount?: number;
+      reprojectionErrorPx?: number;
+      triangulatedLandmarkRatio?: number;
+      calibrationQualityScore?: number;
+    };
+  };
 };
 
 type PreparedSampleVideo = {
@@ -164,6 +191,92 @@ async function prepareSampleVideo(
   };
 }
 
+function exportMatches(file: ApiExportFile, expected: string) {
+  return file.format === expected || file.artifactName === expected;
+}
+
+function hasUniqueArtifactNames(exports: ApiExportFile[]) {
+  const identities = exports.map((file) => file.artifactName ?? file.format);
+  return new Set(identities).size === identities.length;
+}
+
+function resolveSampleSource(input: {
+  source?: "single_camera" | "dual_camera" | "multi_view" | "pro_4_camera";
+  captureMode: string;
+}) {
+  if (input.source) return input.source;
+  if (input.captureMode === "dual") return "dual_camera";
+  if (input.captureMode === "pro_4_camera") return "multi_view";
+  return "single_camera";
+}
+
+function buildExpectedArtifactChecks(
+  expectedArtifacts: string[] | undefined,
+  exports: ApiExportFile[],
+) {
+  const checks: Record<string, boolean> = {};
+  for (const expected of expectedArtifacts ?? []) {
+    checks[`artifact:${expected}`] = exports.some((file) =>
+      exportMatches(file, expected),
+    );
+  }
+  return checks;
+}
+
+function buildMultiViewExpectationChecks(input: {
+  expectations: NonNullable<GoldenManifest["samples"][number]["multiViewExpectations"]>;
+  quality: QualityReport;
+  exports: ApiExportFile[];
+}) {
+  const checks: Record<string, boolean> = {};
+  const section = input.quality.multiView;
+  checks.multiViewSectionPresent = Boolean(section);
+  if (!section) {
+    return checks;
+  }
+  if (input.expectations.reconstructionAvailable != null) {
+    checks.multiViewReconstructionAvailable =
+      section.reconstructionAvailable === input.expectations.reconstructionAvailable;
+  }
+  if (input.expectations.reconstructionUsedForConstraints != null) {
+    checks.multiViewConstraints =
+      section.reconstructionUsedForConstraints ===
+      input.expectations.reconstructionUsedForConstraints;
+  }
+  if (input.expectations.primaryWhamFallbackUsed != null) {
+    checks.primaryWhamFallbackUsed =
+      section.primaryWhamFallbackUsed === input.expectations.primaryWhamFallbackUsed;
+  }
+  if (input.expectations.primaryWhamFallbackReason) {
+    checks.primaryWhamFallbackReason =
+      section.primaryWhamFallbackReason === input.expectations.primaryWhamFallbackReason;
+  }
+  if (input.expectations.minMatchedFrameCount != null) {
+    checks.minMatchedFrameCount =
+      (section.metrics?.matchedFrameCount ?? 0) >=
+      input.expectations.minMatchedFrameCount;
+  }
+  if (input.expectations.minTriangulatedLandmarkRatio != null) {
+    checks.minTriangulatedLandmarkRatio =
+      (section.metrics?.triangulatedLandmarkRatio ?? 0) >=
+      input.expectations.minTriangulatedLandmarkRatio;
+  }
+  if (input.expectations.maxReprojectionErrorPx != null) {
+    checks.maxReprojectionErrorPx =
+      (section.metrics?.reprojectionErrorPx ?? Infinity) <=
+      input.expectations.maxReprojectionErrorPx;
+  }
+  if (input.expectations.minCalibrationQualityScore != null) {
+    checks.minCalibrationQualityScore =
+      (section.metrics?.calibrationQualityScore ?? -Infinity) >=
+      input.expectations.minCalibrationQualityScore;
+  }
+  if (input.expectations.requireArtifactNameUnique) {
+    checks.artifactNameUnique = hasUniqueArtifactNames(input.exports);
+  }
+  return checks;
+}
+
 async function run() {
   const manifest = JSON.parse(await readFile(manifestPath, "utf8")) as GoldenManifest;
   const project = await request<{ project: { id: string } }>(manifest, "/api/projects", {
@@ -193,6 +306,10 @@ async function run() {
           ? "dual"
           : "solo");
     const expectedVideoCount = sample.expectedVideoCount ?? preparedVideos.length;
+    const sampleSource = resolveSampleSource({
+      source: sample.source,
+      captureMode,
+    });
 
     const take = await request<{ take: { id: string } }>(
       manifest,
@@ -292,6 +409,7 @@ async function run() {
     const quality = (await (await fetch(signed.downloadUrl)).json()) as QualityReport;
     const minScore = sample.minQualityScore ?? manifest.thresholds.minQualityScore;
     const checks = {
+      qualityReportSchema: quality.schema === "mocap.quality_report.v1",
       qualityScore: quality.score >= minScore,
       jitterScore: (quality.metrics.jitterScore ?? 0) >= manifest.thresholds.minJitterScore,
       footSlidingScore:
@@ -307,6 +425,16 @@ async function run() {
       hasSmplParameters: exportList.exports.some(
         (file) => file.format === "smpl_parameters_json",
       ),
+      singleCameraMultiViewAbsent:
+        sampleSource === "single_camera" ? quality.multiView == null : true,
+      ...buildExpectedArtifactChecks(sample.expectedArtifacts, exportList.exports),
+      ...(sample.multiViewExpectations
+        ? buildMultiViewExpectationChecks({
+            expectations: sample.multiViewExpectations,
+            quality,
+            exports: exportList.exports,
+          })
+        : {}),
     };
     results.push({
       sample: sample.name,
@@ -318,6 +446,7 @@ async function run() {
       warnings: quality.warnings,
       exports: exportList.exports.map((file) => ({
         format: file.format,
+        artifactName: file.artifactName,
         size: file.fileSizeBytes,
       })),
     });

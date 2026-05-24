@@ -96,13 +96,35 @@ export type ApiProcessingJob = Readonly<{
   timeline?: readonly unknown[];
 }>;
 
+export type KnownExportArtifactFormat =
+  | "bvh"
+  | "smpl_parameters_json"
+  | "raw_solved_motion_json"
+  | "solved_motion_json"
+  | "cleanup_report_json"
+  | "quality_report_json"
+  | "preview_summary_json"
+  | "motion_pipeline_report_json"
+  | "wham_overlay_preview_mp4"
+  | "pose_frames_device_json"
+  | "multi_view_sync_json"
+  | "camera_calibration_json"
+  | "dual_reconstruction_json"
+  | "multi_view_reconstruction_json";
+
+export type ExportArtifactFormat = KnownExportArtifactFormat | (string & {});
+
 export type ApiExportFile = Readonly<{
   id: string;
+  jobId?: string | null;
   takeId: string;
   preset: string;
-  format: string;
+  format: ExportArtifactFormat;
+  artifactName?: string;
+  storageKey?: string;
   fileSizeBytes: number | null;
   createdAt: string;
+  metadata?: Readonly<Record<string, unknown>>;
 }>;
 
 export type CreateTakeInput = Readonly<{

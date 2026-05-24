@@ -6,6 +6,7 @@ import type {
   SmplParametersArtifact,
   SolvedMotionArtifact,
   SolvedMotionFrame,
+  WhamInputUsageMetrics,
 } from "../types";
 import { runCommand } from "../runtime/command";
 import { resolveMotionRetargetPreset } from "./retargetPresets";
@@ -19,6 +20,7 @@ type PremiumSolveInput = {
   presetId?: string;
   outputDir: string;
   normalizedVideoPaths: string[];
+  whamInputUsage?: WhamInputUsageMetrics;
 };
 
 export type PremiumSolveAttempt =
@@ -110,7 +112,7 @@ function normalizePremiumMotion(
   const warnings = Array.isArray(item.warnings)
     ? item.warnings.filter((value): value is string => typeof value === "string")
     : [];
-  const metrics =
+  const rawMetrics =
     item.metrics && typeof item.metrics === "object"
       ? Object.fromEntries(
           Object.entries(item.metrics as Record<string, unknown>).filter(
@@ -119,6 +121,7 @@ function normalizePremiumMotion(
           ),
         )
       : undefined;
+  const metrics = mergeWhamInputUsageMetrics(rawMetrics, input.whamInputUsage);
   const smpl = normalizeSmplParameters(item.smpl, input, frames, metrics);
 
   return {
@@ -131,6 +134,7 @@ function normalizePremiumMotion(
       source: input.source,
       premium: true,
       metrics,
+      whamInputUsage: input.whamInputUsage,
     },
     preset: {
       id: preset.id,
@@ -250,6 +254,29 @@ function normalizeSmplParameters(
     },
     frames: normalizedFrames,
     metrics,
+    whamInputUsage: input.whamInputUsage,
+  };
+}
+
+function mergeWhamInputUsageMetrics(
+  metrics: Record<string, number | string | boolean> | undefined,
+  whamInputUsage: WhamInputUsageMetrics | undefined,
+): Record<string, number | string | boolean> | undefined {
+  if (!whamInputUsage) {
+    return metrics;
+  }
+  return {
+    ...(metrics ?? {}),
+    primaryVideoUsed: whamInputUsage.primaryVideoUsed,
+    additionalVideosProvided: whamInputUsage.additionalVideosProvided,
+    multiViewReconstructionAvailable:
+      whamInputUsage.multiViewReconstructionAvailable,
+    multiViewConstraintsUsed: whamInputUsage.multiViewConstraintsUsed,
+    primaryWhamFallbackUsed: whamInputUsage.primaryWhamFallbackUsed,
+    primaryWhamFallbackReason: whamInputUsage.primaryWhamFallbackReason,
+    ...(typeof whamInputUsage.primaryDeviceIndex === "number"
+      ? { primaryDeviceIndex: whamInputUsage.primaryDeviceIndex }
+      : {}),
   };
 }
 

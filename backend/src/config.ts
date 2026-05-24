@@ -75,6 +75,11 @@ export const config = {
     pollIntervalMs: numberEnv("WORKER_POLL_INTERVAL_MS", 2000),
     idleLogIntervalMs: numberEnv("WORKER_IDLE_LOG_INTERVAL_MS", 30000),
     tempDir: process.env.WORKER_TEMP_DIR ?? "/tmp/mocapexpo-worker",
+    enableMultiViewReconstruction: booleanEnv(
+      "ENABLE_MULTI_VIEW_RECONSTRUCTION",
+      false,
+    ),
+    allowPrimaryWhamFallback: booleanEnv("ALLOW_PRIMARY_WHAM_FALLBACK", true),
     ffmpegPath: process.env.FFMPEG_PATH ?? "ffmpeg",
     ffprobePath: process.env.FFPROBE_PATH ?? "ffprobe",
     pythonPath: explicitPythonPath ?? "python3",

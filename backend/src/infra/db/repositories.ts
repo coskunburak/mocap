@@ -887,21 +887,26 @@ export class ExportRepository {
     jobId: string;
     preset: string;
     format: string;
+    artifactName?: string;
     storageKey: string;
     fileSizeBytes: number;
   }): Promise<ExportFile> {
+    const artifactName = input.artifactName ?? input.format;
     const result = await pool.query(
       `
         insert into export_files
-          (id, user_id, project_id, take_id, job_id, preset, format, storage_key, file_size_bytes)
-        values ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-        on conflict (job_id, format)
+          (id, user_id, project_id, take_id, job_id, preset, format, artifact_name,
+           storage_key, file_size_bytes)
+        values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+        on conflict (job_id, artifact_name)
         do update set
           storage_key = excluded.storage_key,
           file_size_bytes = excluded.file_size_bytes,
-          preset = excluded.preset
+          preset = excluded.preset,
+          format = excluded.format
         returning id, user_id as "userId", project_id as "projectId", take_id as "takeId",
-          job_id as "jobId", preset, format, storage_key as "storageKey",
+          job_id as "jobId", preset, format, artifact_name as "artifactName",
+          storage_key as "storageKey",
           file_size_bytes as "fileSizeBytes", created_at as "createdAt"
       `,
       [
@@ -912,6 +917,7 @@ export class ExportRepository {
         input.jobId,
         input.preset,
         input.format,
+        artifactName,
         input.storageKey,
         input.fileSizeBytes,
       ],
@@ -923,7 +929,8 @@ export class ExportRepository {
     const result = await pool.query(
       `
         select id, user_id as "userId", project_id as "projectId", take_id as "takeId",
-          job_id as "jobId", preset, format, storage_key as "storageKey",
+          job_id as "jobId", preset, format, artifact_name as "artifactName",
+          storage_key as "storageKey",
           file_size_bytes as "fileSizeBytes", created_at as "createdAt"
         from export_files
         where user_id = $1 and take_id = $2
@@ -938,7 +945,8 @@ export class ExportRepository {
     const result = await pool.query(
       `
         select id, user_id as "userId", project_id as "projectId", take_id as "takeId",
-          job_id as "jobId", preset, format, storage_key as "storageKey",
+          job_id as "jobId", preset, format, artifact_name as "artifactName",
+          storage_key as "storageKey",
           file_size_bytes as "fileSizeBytes", created_at as "createdAt"
         from export_files
         where user_id = $1 and id = $2

@@ -58,7 +58,7 @@ Alternatif pose detector, built-in solver, synthetic solver veya motion fallback
 | WHAM solver | Normalize edilmiş videodan motion/SMPL çıktısı üretir | `backend/worker/model_adapters/wham_solver.py` |
 | SMPL / SMPLify assets | WHAM runtime'ın ihtiyaç duyduğu lisanslı model varlıkları | Repo dışında kullanıcı sağlar |
 | ffmpeg/ffprobe | Video normalize/transcode ve metadata probe | `FFMPEG_PATH`, `FFPROBE_PATH` |
-| QA scripts | Fixture ve canlı API WHAM doğrulaması | `backend/src/qa/whamFixtureJob.ts`, `backend/src/qa/whamLiveApiJob.ts` |
+| QA scripts | Fixture, canlı API WHAM ve real-device QA doğrulaması | `backend/src/qa/whamFixtureJob.ts`, `backend/src/qa/whamLiveApiJob.ts`, `docs/qa/real-device-mocap-qa.md` |
 
 ## 4. Sıfır Windows PC Kurulumu
 

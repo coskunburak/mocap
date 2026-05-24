@@ -9,6 +9,15 @@ import { Button } from "../../../ui/components/Button";
 import { Card } from "../../../ui/components/Card";
 import { Screen, ScreenHeader } from "../../../ui/components/Screen";
 import { colors, radii, spacing, typography } from "../../../ui/theme";
+import {
+  artifactDisplayName,
+  buildMultiViewMetricRows,
+  buildWhamUsageRows,
+  multiViewArtifactGroups,
+  multiViewStatusMessages,
+  sourceLabel,
+  type QualityReportMultiViewSection,
+} from "../utils/multiViewResultDisplay";
 
 type RouteParams = {
   localTakeId?: string;
@@ -35,6 +44,7 @@ type QualityReport = {
   inputSource: {
     source: "single_camera" | "dual_camera" | "multi_view";
   };
+  multiView?: QualityReportMultiViewSection;
 };
 
 type PreviewSummary = {
@@ -193,6 +203,20 @@ export default function ExportResultScreen() {
       exports.find((file) => file.format === "solved_motion_json") ??
       exports[0],
     [exports],
+  );
+  const multiViewSection = quality?.multiView;
+  const multiViewArtifacts = useMemo(() => multiViewArtifactGroups(exports), [exports]);
+  const multiViewRows = useMemo(
+    () => (multiViewSection ? buildMultiViewMetricRows(multiViewSection) : null),
+    [multiViewSection],
+  );
+  const whamUsageRows = useMemo(
+    () => (multiViewSection ? buildWhamUsageRows(multiViewSection) : []),
+    [multiViewSection],
+  );
+  const multiViewMessages = useMemo(
+    () => (multiViewSection ? multiViewStatusMessages(multiViewSection) : []),
+    [multiViewSection],
   );
 
   const refresh = useCallback(async () => {
@@ -362,6 +386,97 @@ export default function ExportResultScreen() {
           {motionPipeline.fallback.reasons.slice(0, 3).map((reason) => (
             <Text key={reason} style={styles.warningText}>{reason}</Text>
           ))}
+        </Card>
+      ) : null}
+
+      {multiViewSection || multiViewArtifacts.length > 0 ? (
+        <Card tone="accent" style={styles.card}>
+          <View style={styles.listHeader}>
+            <Text style={styles.label}>Multi-View Diagnostics</Text>
+            <Text style={styles.meta}>
+              {multiViewSection ? sourceLabel(multiViewSection.source) : "Artifacts"}
+            </Text>
+          </View>
+          {multiViewSection ? (
+            <>
+              <View style={styles.pipelineList}>
+                {whamUsageRows.map((row) => (
+                  <PipelineRow key={row.label} label={row.label} value={row.value} />
+                ))}
+              </View>
+              {multiViewRows ? (
+                <>
+                  {multiViewRows.sync.length ? (
+                    <>
+                      <Text style={styles.sectionLabel}>Sync</Text>
+                      <View style={styles.metricGrid}>
+                        {multiViewRows.sync.map((row) => (
+                          <QualityMetric key={row.label} label={row.label} value={row.value} />
+                        ))}
+                      </View>
+                    </>
+                  ) : null}
+                  {multiViewRows.calibration.length ? (
+                    <>
+                      <Text style={styles.sectionLabel}>Calibration</Text>
+                      <View style={styles.metricGrid}>
+                        {multiViewRows.calibration.map((row) => (
+                          <QualityMetric key={row.label} label={row.label} value={row.value} />
+                        ))}
+                      </View>
+                    </>
+                  ) : null}
+                  {multiViewRows.triangulation.length ? (
+                    <>
+                      <Text style={styles.sectionLabel}>Triangulation</Text>
+                      <View style={styles.metricGrid}>
+                        {multiViewRows.triangulation.map((row) => (
+                          <QualityMetric key={row.label} label={row.label} value={row.value} />
+                        ))}
+                      </View>
+                    </>
+                  ) : null}
+                </>
+              ) : null}
+              {multiViewMessages.slice(0, 5).map((message) => (
+                <Text key={message} style={styles.warningText}>{message}</Text>
+              ))}
+            </>
+          ) : (
+            <Text style={styles.message}>
+              Multi-view artifact records are available for this result.
+            </Text>
+          )}
+          {multiViewArtifacts.length ? (
+            <View style={styles.artifactGroupList}>
+              <Text style={styles.sectionLabel}>Available multi-view artifacts</Text>
+              {multiViewArtifacts.map((group) => (
+                <View key={group.key} style={styles.artifactGroup}>
+                  <Text style={styles.artifactGroupTitle}>{group.label}</Text>
+                  {group.files.map((file) => (
+                    <Pressable
+                      key={file.id}
+                      onPress={() => openExport(file)}
+                      style={({ pressed }) => [
+                        styles.compactArtifactRow,
+                        pressed ? styles.exportRowPressed : null,
+                      ]}
+                    >
+                      <View style={styles.exportCopy}>
+                        <Text style={styles.exportTitle}>{artifactDisplayName(file)}</Text>
+                        <Text style={styles.meta}>
+                          {(file.artifactName ?? file.format)} · {formatBytes(file.fileSizeBytes)}
+                        </Text>
+                      </View>
+                      <Text style={styles.download}>
+                        {busyExportId === file.id ? "..." : "OPEN"}
+                      </Text>
+                    </Pressable>
+                  ))}
+                </View>
+              ))}
+            </View>
+          ) : null}
         </Card>
       ) : null}
 
@@ -563,7 +678,7 @@ export default function ExportResultScreen() {
             <View style={styles.exportCopy}>
               <Text style={styles.exportTitle}>{formatLabel(file.format)}</Text>
               <Text style={styles.meta}>
-                {file.preset} · {formatBytes(file.fileSizeBytes)}
+                {file.artifactName ?? file.preset} · {formatBytes(file.fileSizeBytes)}
               </Text>
             </View>
             <Text style={styles.download}>
@@ -763,6 +878,32 @@ const styles = StyleSheet.create({
   warningText: {
     ...typography.body.sm,
     color: colors.warning,
+  },
+  sectionLabel: {
+    ...typography.label.sm,
+    color: colors.textSecondary,
+  },
+  artifactGroupList: {
+    gap: spacing.sm,
+  },
+  artifactGroup: {
+    gap: spacing.xs,
+  },
+  artifactGroupTitle: {
+    ...typography.label.sm,
+    color: colors.textPrimary,
+  },
+  compactArtifactRow: {
+    minHeight: 54,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: spacing.md,
+    padding: spacing.sm,
+    borderRadius: radii.sm,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: "rgba(255,255,255,0.04)",
   },
   presetRow: {
     flexDirection: "row",
