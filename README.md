@@ -134,9 +134,9 @@ backend/dist
 
 Önerilen kural: kod GitHub'a, secret'lar password manager'a, WHAM/SMPL asset'leri private storage'a gider veya her geliştirici bunları ayrı indirir.
 
-## Local Dev Modu
+## Local Dev Modu (RunPod Kullanmayanlar İçin)
 
-Shared RunPod'a bağlı kalmadan API/mobile/UI geliştirmek için bu modu kullanın.
+Shared RunPod'a bağlı kalmadan API/mobile/UI geliştirmek için bu modu kullanın. Gerçek WHAM asset'leri olmadan birçok backend/UI akışı test edilebilir; gerçek motion solve için WHAM kurulumu gerekir.
 
 ### 1. Postgres ve MinIO Başlat
 
@@ -176,7 +176,7 @@ Beklenen cevap:
 { "ok": true }
 ```
 
-### 3. Local Worker Başlat
+### 3. Local Worker Başlat (Opsiyonel)
 
 Ayrı terminalde:
 
@@ -185,7 +185,7 @@ cd backend
 npm run worker:dev
 ```
 
-Gerçek WHAM asset'leri olmadan birçok backend/UI akışı test edilebilir; gerçek motion solve için WHAM kurulumu gerekir.
+RunPod dispatch kullanıyorsanız local worker başlatmayın; backend processing job'ı RunPod'a gönderir. RunPod kullanmıyorsanız ve gerçek motion solve almak istiyorsanız local worker, WHAM repo/checkpoint ve SMPL asset kurulumu gerekir.
 
 ## Shared RunPod Modu
 
