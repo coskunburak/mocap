@@ -63,18 +63,39 @@
         "motion_pipeline_report_json",
         "multi_view_sync_json",
         "camera_calibration_json",
-        "dual_reconstruction_json"
+        "pose_frames_device_0_json",
+        "pose_frames_device_1_json",
+        "dual_reconstruction_json",
+        "multi_view_reconstruction_json",
+        "pose_frames_json"
       ],
       "multiViewExpectations": {
         "reconstructionAvailable": true,
         "reconstructionUsedForConstraints": false,
         "primaryWhamFallbackUsed": true,
+        "primaryCameraFallbackUsed": true,
         "primaryWhamFallbackReason": "multi_view_reconstruction_diagnostic_only",
+        "finalAnimationSource": "primary_wham",
+        "forbiddenFinalAnimationSources": [
+          "true_dual_solve",
+          "dual_triangulation_constraint"
+        ],
         "minMatchedFrameCount": 1,
         "minTriangulatedLandmarkRatio": 0.5,
         "maxReprojectionErrorPx": 10,
         "minCalibrationQualityScore": 0,
-        "requireArtifactNameUnique": true
+        "requireArtifactNameUnique": true,
+        "requiredMotionPipelineStages": [
+          "video_normalization",
+          "primary_wham",
+          "per_camera_pose_extraction",
+          "frame_sync",
+          "camera_calibration",
+          "dual_triangulation",
+          "dual_reconstruction_artifacts",
+          "quality_report",
+          "final_animation_export"
+        ]
       },
       "videos": [
         {

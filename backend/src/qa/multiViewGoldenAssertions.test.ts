@@ -6,13 +6,16 @@ import type {
   PerCameraPoseArtifact,
   PoseFramesArtifact,
   ProjectionMatrix3x4,
+  SmplParametersArtifact,
   SolvedMotionArtifact,
   Vector3,
 } from "../worker/types";
 import { buildQualityReport } from "../worker/export/exportValidation";
+import { runDualCameraFittingFoundation } from "../worker/fitting/dualCameraFitting";
 import { buildCameraCalibrationArtifact } from "../worker/reconstruction/cameraCalibration";
 import { buildMultiViewSyncReport } from "../worker/reconstruction/frameSync";
 import { buildMultiViewReconstructionArtifact } from "../worker/reconstruction/multiViewReconstruction";
+import { buildTriangulatedJointTrackArtifact } from "../worker/reconstruction/triangulatedJointTrack";
 import { persistMultiViewArtifacts } from "../worker/reconstruction/multiViewArtifacts";
 import { buildPerCameraPoseArtifact } from "../worker/pose/poseExtraction";
 import { buildWhamInputUsageMetrics } from "../worker/whamInputUsage";
@@ -59,6 +62,27 @@ function basePose(): PoseFramesArtifact {
   };
 }
 
+function smplParameters(): SmplParametersArtifact {
+  return {
+    schema: "mocap.smpl_parameters.v1",
+    takeId: TAKE_ID,
+    jobId: JOB_ID,
+    source: "wham",
+    model: { family: "SMPL" },
+    fps: 30,
+    frameCount: 30,
+    bodyPose: [],
+    globalOrient: [],
+    betas: [],
+    translation: [],
+    smplify: {
+      enabled: true,
+      status: "completed",
+    },
+    frames: [],
+  };
+}
+
 function baseSolved(): SolvedMotionArtifact {
   return {
     schema: "mocap.solved_motion.v1",
@@ -77,6 +101,36 @@ function baseSolved(): SolvedMotionArtifact {
       ok: true,
       warnings: [],
       errors: [],
+    },
+    smpl: smplParameters(),
+  };
+}
+
+function validFittingWhamInitialization(): SolvedMotionArtifact {
+  return {
+    ...baseSolved(),
+    frameCount: 1,
+    durationMs: 33,
+    frames: [
+      {
+        frameIndex: 0,
+        timestampMs: 0,
+        rootTranslation: [0, 0, 0],
+        joints: {},
+      },
+    ],
+    smpl: {
+      ...smplParameters(),
+      frameCount: 1,
+      frames: [
+        {
+          frameIndex: 0,
+          timestampMs: 0,
+          bodyPose: [],
+          globalOrient: [0, 0, 0],
+          translation: [0, 0, 0],
+        },
+      ],
     },
   };
 }
@@ -215,7 +269,31 @@ function dualFixture() {
     calibrationArtifact: cameraCalibration,
     source: "dual_camera",
   });
-  return { cameraCalibration, poseArtifacts, syncReport, reconstruction };
+  const jointTrack = buildTriangulatedJointTrackArtifact({
+    takeId: TAKE_ID,
+    jobId: JOB_ID,
+    source: "dual_camera",
+    poseArtifacts,
+    syncReport,
+    cameraCalibration,
+    options: { smoothingWindowFrames: 1 },
+  });
+  const dualFitReport = runDualCameraFittingFoundation({
+    takeId: TAKE_ID,
+    jobId: JOB_ID,
+    whamInitialization: validFittingWhamInitialization(),
+    jointTrack,
+    poseArtifacts,
+    cameraCalibration,
+  });
+  return {
+    cameraCalibration,
+    poseArtifacts,
+    syncReport,
+    reconstruction,
+    jointTrack,
+    dualFitReport,
+  };
 }
 
 function proFixture() {
@@ -239,7 +317,14 @@ function proFixture() {
     calibrationArtifact: cameraCalibration,
     source: "multi_view",
   });
-  return { cameraCalibration, poseArtifacts, syncReport, reconstruction };
+  return {
+    cameraCalibration,
+    poseArtifacts,
+    syncReport,
+    reconstruction,
+    jointTrack: undefined,
+    dualFitReport: undefined,
+  };
 }
 
 function assertGoldenMetrics(metrics: {
@@ -271,6 +356,8 @@ async function persistFixture(input: ReturnType<typeof dualFixture | typeof proF
     poseArtifacts: input.poseArtifacts,
     syncReport: input.syncReport,
     cameraCalibration: input.cameraCalibration,
+    triangulatedJointTrack: input.jointTrack,
+    dualFitReport: input.dualFitReport,
     reconstruction: input.reconstruction,
     storage: {
       async uploadJson(key) {
@@ -318,6 +405,8 @@ async function testDualSyntheticGolden() {
         syncReport: fixture.syncReport,
         cameraCalibration: fixture.cameraCalibration,
         reconstruction: fixture.reconstruction,
+        jointTrack: fixture.jointTrack,
+        dualFitReport: fixture.dualFitReport,
       },
     },
   );
@@ -326,6 +415,10 @@ async function testDualSyntheticGolden() {
   assert.equal(quality.multiView.reconstructionAvailable, true);
   assert.equal(quality.multiView.reconstructionUsedForConstraints, false);
   assert.equal(quality.multiView.primaryWhamFallbackUsed, true);
+  assert.equal(quality.multiView.jointTrackStatus, "ready");
+  assert.equal(quality.multiView.dualFitStatus, "optimization_not_implemented");
+  assert.equal(quality.multiView.dualFitAcceptedAsFinal, false);
+  assert.equal(quality.multiView.optimizedBvhAvailable, false);
   assert.equal(
     quality.multiView.primaryWhamFallbackReason,
     "multi_view_reconstruction_diagnostic_only",
@@ -349,6 +442,8 @@ async function testDualExportArtifacts() {
     "pose_frames_device_1_json",
     "multi_view_sync_json",
     "camera_calibration_json",
+    "triangulated_joint_track_json",
+    "dual_fit_report_json",
     "dual_reconstruction_json",
   ]);
   assert.equal(

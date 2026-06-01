@@ -35,6 +35,108 @@ export type TriangulationObservation = {
   confidence?: number;
 };
 
+export type TriangulationKeypoint2D = {
+  jointId?: string;
+  name?: string;
+  x: number;
+  y: number;
+  confidence?: number;
+  visibility?: number;
+  presence?: number;
+};
+
+export type TriangulationPoseFrame = {
+  cameraId?: string;
+  deviceIndex?: number;
+  frameIndex?: number;
+  timestampMs?: number;
+  keypoints?: readonly TriangulationKeypoint2D[];
+  keypoints2d?: readonly Point2D[];
+  confidence?: readonly number[];
+};
+
+export type TriangulatedLandmarkStatus =
+  | "ready"
+  | "missing_observations"
+  | "low_confidence"
+  | "high_reprojection_error"
+  | "degenerate_baseline"
+  | "failed";
+
+export type TriangulationFrameStatus =
+  | "ready"
+  | "diagnostic_only"
+  | "insufficient_views"
+  | "degenerate_baseline"
+  | "failed";
+
+export type TriangulationWarningCode =
+  | "missing_observations"
+  | "low_confidence"
+  | "reprojection_error_high"
+  | "degenerate_baseline"
+  | "triangulation_failed";
+
+export type TriangulationWarning = {
+  code: TriangulationWarningCode;
+  message: string;
+  jointId?: string;
+  name?: string;
+  sourceCameraIds?: readonly string[];
+  reprojectionErrorPx?: number;
+};
+
+export type TriangulatedLandmark = {
+  jointId: string;
+  name?: string;
+  x: number;
+  y: number;
+  z: number;
+  confidence: number;
+  sourceCameraIds: readonly string[];
+  reprojectionErrorPx: number;
+  status: Extract<TriangulatedLandmarkStatus, "ready">;
+  warnings: readonly TriangulationWarningCode[];
+};
+
+export type RejectedTriangulatedLandmark = {
+  jointId: string;
+  name?: string;
+  confidence?: number;
+  sourceCameraIds: readonly string[];
+  reprojectionErrorPx?: number;
+  status: Exclude<TriangulatedLandmarkStatus, "ready">;
+  reason: string;
+  warnings: readonly TriangulationWarningCode[];
+};
+
+export type TriangulateMatchedFramePairInput = {
+  matchedFrame?: unknown;
+  device0Frame: TriangulationPoseFrame;
+  device1Frame: TriangulationPoseFrame;
+  projectionMatrixPDevice0: ProjectionMatrix3x4;
+  projectionMatrixPDevice1: ProjectionMatrix3x4;
+  device0CameraId?: string;
+  device1CameraId?: string;
+  minConfidence?: number;
+  maxReprojectionErrorPx?: number;
+};
+
+export type TriangulateMatchedFramePairResult = {
+  status: TriangulationFrameStatus;
+  landmarks: readonly TriangulatedLandmark[];
+  rejectedLandmarks: readonly RejectedTriangulatedLandmark[];
+  warnings: readonly TriangulationWarning[];
+  metrics: {
+    totalJointCount: number;
+    triangulatedJointCount: number;
+    rejectedJointCount: number;
+    triangulatedJointRatio: number;
+    averageReprojectionErrorPx?: number;
+    maxReprojectionErrorPx?: number;
+  };
+};
+
 export type TriangulationResult =
   | {
       status: "triangulated";
@@ -44,9 +146,17 @@ export type TriangulationResult =
     }
   | {
       status: "skipped";
-      reason: "low_confidence" | "insufficient_observations";
+      reason: "low_confidence" | "insufficient_views";
       observationsUsed: number;
     };
+
+type IndexedKeypoint = {
+  jointId: string;
+  name?: string;
+  point: Point2D;
+  confidence: number;
+  cameraId: string;
+};
 
 export function validateProjectionMatrix(input: {
   projection: readonly number[];
@@ -162,6 +272,167 @@ export function computeReprojectionError(input: {
   return Math.hypot(projected.x - input.observed.x, projected.y - input.observed.y);
 }
 
+export function triangulateMatchedFramePair(
+  input: TriangulateMatchedFramePairInput,
+): TriangulateMatchedFramePairResult {
+  const minConfidence = input.minConfidence ?? 0.3;
+  const maxReprojectionErrorPx = input.maxReprojectionErrorPx ?? 10;
+  validateTriangulationThresholds({ minConfidence, maxReprojectionErrorPx });
+
+  const camera0Id =
+    input.device0CameraId ??
+    input.device0Frame.cameraId ??
+    deviceCameraId(input.device0Frame.deviceIndex, 0);
+  const camera1Id =
+    input.device1CameraId ??
+    input.device1Frame.cameraId ??
+    deviceCameraId(input.device1Frame.deviceIndex, 1);
+
+  const setupValidation = validateProjectionPairForTriangulation({
+    camera0Id,
+    camera1Id,
+    projectionMatrixPDevice0: input.projectionMatrixPDevice0,
+    projectionMatrixPDevice1: input.projectionMatrixPDevice1,
+  });
+  if (setupValidation) return setupValidation;
+
+  const device0Keypoints = keypointsByJoint({
+    frame: input.device0Frame,
+    cameraId: camera0Id,
+  });
+  const device1Keypoints = keypointsByJoint({
+    frame: input.device1Frame,
+    cameraId: camera1Id,
+  });
+  const jointIds = Array.from(
+    new Set([...device0Keypoints.keys(), ...device1Keypoints.keys()]),
+  ).sort();
+
+  const landmarks: TriangulatedLandmark[] = [];
+  const rejectedLandmarks: RejectedTriangulatedLandmark[] = [];
+  const warnings: TriangulationWarning[] = [];
+
+  for (const jointId of jointIds) {
+    const device0 = device0Keypoints.get(jointId);
+    const device1 = device1Keypoints.get(jointId);
+    if (!device0 || !device1) {
+      const rejected = buildRejectedLandmark({
+        jointId,
+        name: device0?.name ?? device1?.name,
+        status: "missing_observations",
+        reason: "A matching 2D observation is missing from one camera.",
+        sourceCameraIds: [device0, device1]
+          .filter((keypoint): keypoint is IndexedKeypoint => Boolean(keypoint))
+          .map((keypoint) => keypoint.cameraId),
+        warning: "missing_observations",
+      });
+      rejectedLandmarks.push(rejected);
+      warnings.push(warningFromRejected(rejected));
+      continue;
+    }
+
+    const sourceCameraIds = [device0.cameraId, device1.cameraId];
+    const confidence = average([device0.confidence, device1.confidence]);
+    if (device0.confidence < minConfidence || device1.confidence < minConfidence) {
+      const rejected = buildRejectedLandmark({
+        jointId,
+        name: device0.name ?? device1.name,
+        confidence,
+        status: "low_confidence",
+        reason: "At least one camera observation is below minConfidence.",
+        sourceCameraIds,
+        warning: "low_confidence",
+      });
+      rejectedLandmarks.push(rejected);
+      warnings.push(warningFromRejected(rejected));
+      continue;
+    }
+
+    const result = triangulateDLT({
+      observations: [
+        {
+          deviceIndex: input.device0Frame.deviceIndex ?? 0,
+          point: device0.point,
+          projection: input.projectionMatrixPDevice0,
+          confidence: device0.confidence,
+        },
+        {
+          deviceIndex: input.device1Frame.deviceIndex ?? 1,
+          point: device1.point,
+          projection: input.projectionMatrixPDevice1,
+          confidence: device1.confidence,
+        },
+      ],
+      minConfidence,
+    });
+
+    if (result.status === "skipped") {
+      const rejected = buildRejectedLandmark({
+        jointId,
+        name: device0.name ?? device1.name,
+        confidence,
+        status:
+          result.reason === "low_confidence"
+            ? "low_confidence"
+            : "missing_observations",
+        reason:
+          result.reason === "low_confidence"
+            ? "At least one camera observation is below minConfidence."
+            : "At least two valid camera observations are required.",
+        sourceCameraIds,
+        warning:
+          result.reason === "low_confidence"
+            ? "low_confidence"
+            : "missing_observations",
+      });
+      rejectedLandmarks.push(rejected);
+      warnings.push(warningFromRejected(rejected));
+      continue;
+    }
+
+    if (result.reprojectionErrorPx > maxReprojectionErrorPx) {
+      const rejected = buildRejectedLandmark({
+        jointId,
+        name: device0.name ?? device1.name,
+        confidence,
+        reprojectionErrorPx: result.reprojectionErrorPx,
+        status: "high_reprojection_error",
+        reason: "Triangulated point exceeds maxReprojectionErrorPx.",
+        sourceCameraIds,
+        warning: "reprojection_error_high",
+      });
+      rejectedLandmarks.push(rejected);
+      warnings.push(warningFromRejected(rejected));
+      continue;
+    }
+
+    landmarks.push({
+      jointId,
+      ...(device0.name ?? device1.name ? { name: device0.name ?? device1.name } : {}),
+      x: result.point[0],
+      y: result.point[1],
+      z: result.point[2],
+      confidence,
+      sourceCameraIds,
+      reprojectionErrorPx: result.reprojectionErrorPx,
+      status: "ready",
+      warnings: [],
+    });
+  }
+
+  return {
+    status: frameStatusForLandmarks({ landmarks, rejectedLandmarks }),
+    landmarks,
+    rejectedLandmarks,
+    warnings,
+    metrics: buildFrameTriangulationMetrics({
+      totalJointCount: jointIds.length,
+      landmarks,
+      rejectedLandmarks,
+    }),
+  };
+}
+
 export function triangulateDLT(input: {
   observations: readonly TriangulationObservation[];
   minConfidence?: number;
@@ -174,7 +445,7 @@ export function triangulateDLT(input: {
   if (input.observations.length < 2) {
     return {
       status: "skipped",
-      reason: "insufficient_observations",
+      reason: "insufficient_views",
       observationsUsed: input.observations.length,
     };
   }
@@ -256,6 +527,233 @@ export function triangulateDLT(input: {
   };
 }
 
+function validateTriangulationThresholds(input: {
+  minConfidence: number;
+  maxReprojectionErrorPx: number;
+}) {
+  if (
+    !Number.isFinite(input.minConfidence) ||
+    input.minConfidence < 0 ||
+    input.minConfidence > 1
+  ) {
+    throw new TriangulationError(
+      "triangulation_failed",
+      "minConfidence must be a finite number between 0 and 1.",
+    );
+  }
+  if (
+    !Number.isFinite(input.maxReprojectionErrorPx) ||
+    input.maxReprojectionErrorPx < 0
+  ) {
+    throw new TriangulationError(
+      "triangulation_failed",
+      "maxReprojectionErrorPx must be a non-negative finite number.",
+    );
+  }
+}
+
+function validateProjectionPairForTriangulation(input: {
+  camera0Id: string;
+  camera1Id: string;
+  projectionMatrixPDevice0: ProjectionMatrix3x4;
+  projectionMatrixPDevice1: ProjectionMatrix3x4;
+}): TriangulateMatchedFramePairResult | null {
+  try {
+    assertValidProjectionMatrix(input.projectionMatrixPDevice0);
+    assertValidProjectionMatrix(input.projectionMatrixPDevice1);
+    assertNonDegenerateSetup([
+      {
+        point: { x: 0, y: 0 },
+        projection: input.projectionMatrixPDevice0,
+        confidence: 1,
+      },
+      {
+        point: { x: 0, y: 0 },
+        projection: input.projectionMatrixPDevice1,
+        confidence: 1,
+      },
+    ]);
+    return null;
+  } catch (error) {
+    if (error instanceof TriangulationError) {
+      const code: TriangulationWarningCode =
+        error.code === "degenerate_camera_setup"
+          ? "degenerate_baseline"
+          : "triangulation_failed";
+      return {
+        status:
+          error.code === "degenerate_camera_setup"
+            ? "degenerate_baseline"
+            : "failed",
+        landmarks: [],
+        rejectedLandmarks: [],
+        warnings: [
+          {
+            code,
+            message: error.message,
+            sourceCameraIds: [input.camera0Id, input.camera1Id],
+          },
+        ],
+        metrics: {
+          totalJointCount: 0,
+          triangulatedJointCount: 0,
+          rejectedJointCount: 0,
+          triangulatedJointRatio: 0,
+        },
+      };
+    }
+    throw error;
+  }
+}
+
+function keypointsByJoint(input: {
+  frame: TriangulationPoseFrame;
+  cameraId: string;
+}): Map<string, IndexedKeypoint> {
+  const keypoints = new Map<string, IndexedKeypoint>();
+  if (input.frame.keypoints) {
+    input.frame.keypoints.forEach((keypoint, index) => {
+      const jointId = jointKeyForKeypoint(keypoint, index);
+      if (!jointId || keypoints.has(jointId)) return;
+      if (!Number.isFinite(keypoint.x) || !Number.isFinite(keypoint.y)) return;
+      keypoints.set(jointId, {
+        jointId,
+        name: keypoint.name,
+        point: { x: keypoint.x, y: keypoint.y },
+        confidence: confidenceForKeypoint(keypoint),
+        cameraId: input.cameraId,
+      });
+    });
+    return keypoints;
+  }
+
+  input.frame.keypoints2d?.forEach((point, index) => {
+    if (!Number.isFinite(point.x) || !Number.isFinite(point.y)) return;
+    const jointId = `joint_${index}`;
+    keypoints.set(jointId, {
+      jointId,
+      point,
+      confidence: clamp01(input.frame.confidence?.[index] ?? 1),
+      cameraId: input.cameraId,
+    });
+  });
+  return keypoints;
+}
+
+function jointKeyForKeypoint(
+  keypoint: TriangulationKeypoint2D,
+  index: number,
+): string {
+  return keypoint.jointId ?? keypoint.name ?? `joint_${index}`;
+}
+
+function confidenceForKeypoint(keypoint: TriangulationKeypoint2D) {
+  if (
+    typeof keypoint.confidence === "number" &&
+    Number.isFinite(keypoint.confidence)
+  ) {
+    return clamp01(keypoint.confidence);
+  }
+  if (
+    typeof keypoint.visibility === "number" &&
+    Number.isFinite(keypoint.visibility)
+  ) {
+    return clamp01(keypoint.visibility);
+  }
+  if (
+    typeof keypoint.presence === "number" &&
+    Number.isFinite(keypoint.presence)
+  ) {
+    return clamp01(keypoint.presence);
+  }
+  return 1;
+}
+
+function buildRejectedLandmark(input: {
+  jointId: string;
+  name?: string;
+  confidence?: number;
+  sourceCameraIds: readonly string[];
+  reprojectionErrorPx?: number;
+  status: RejectedTriangulatedLandmark["status"];
+  reason: string;
+  warning: TriangulationWarningCode;
+}): RejectedTriangulatedLandmark {
+  return {
+    jointId: input.jointId,
+    ...(input.name ? { name: input.name } : {}),
+    ...(input.confidence !== undefined ? { confidence: input.confidence } : {}),
+    sourceCameraIds: input.sourceCameraIds,
+    ...(input.reprojectionErrorPx !== undefined
+      ? { reprojectionErrorPx: input.reprojectionErrorPx }
+      : {}),
+    status: input.status,
+    reason: input.reason,
+    warnings: [input.warning],
+  };
+}
+
+function warningFromRejected(
+  rejected: RejectedTriangulatedLandmark,
+): TriangulationWarning {
+  const code = rejected.warnings[0] ?? "triangulation_failed";
+  return {
+    code,
+    message: rejected.reason,
+    jointId: rejected.jointId,
+    ...(rejected.name ? { name: rejected.name } : {}),
+    sourceCameraIds: rejected.sourceCameraIds,
+    ...(rejected.reprojectionErrorPx !== undefined
+      ? { reprojectionErrorPx: rejected.reprojectionErrorPx }
+      : {}),
+  };
+}
+
+function frameStatusForLandmarks(input: {
+  landmarks: readonly TriangulatedLandmark[];
+  rejectedLandmarks: readonly RejectedTriangulatedLandmark[];
+}): TriangulationFrameStatus {
+  if (input.landmarks.length > 0 && input.rejectedLandmarks.length === 0) {
+    return "ready";
+  }
+  if (input.landmarks.length > 0) return "diagnostic_only";
+  if (
+    input.rejectedLandmarks.every((landmark) =>
+      ["missing_observations", "low_confidence"].includes(landmark.status),
+    )
+  ) {
+    return "insufficient_views";
+  }
+  return "diagnostic_only";
+}
+
+function buildFrameTriangulationMetrics(input: {
+  totalJointCount: number;
+  landmarks: readonly TriangulatedLandmark[];
+  rejectedLandmarks: readonly RejectedTriangulatedLandmark[];
+}): TriangulateMatchedFramePairResult["metrics"] {
+  const reprojectionErrors = input.landmarks.map(
+    (landmark) => landmark.reprojectionErrorPx,
+  );
+  return {
+    totalJointCount: input.totalJointCount,
+    triangulatedJointCount: input.landmarks.length,
+    rejectedJointCount: input.rejectedLandmarks.length,
+    triangulatedJointRatio:
+      input.totalJointCount > 0 ? input.landmarks.length / input.totalJointCount : 0,
+    ...(reprojectionErrors.length
+      ? {
+          averageReprojectionErrorPx: average(reprojectionErrors),
+          maxReprojectionErrorPx: Math.max(...reprojectionErrors),
+        }
+      : {}),
+  };
+}
+
+function deviceCameraId(deviceIndex: number | undefined, fallbackIndex: number) {
+  return `device_${deviceIndex ?? fallbackIndex}`;
+}
+
 function assertValidProjectionMatrix(projection: ProjectionMatrix3x4) {
   const validation = validateProjectionMatrix({ projection });
   if (!validation.ok) {
@@ -293,6 +791,15 @@ function projectionDistance(
     sum += Math.abs(a[i] - b[i]);
   }
   return sum;
+}
+
+function average(values: readonly number[]) {
+  if (!values.length) return 0;
+  return values.reduce((sum, value) => sum + value, 0) / values.length;
+}
+
+function clamp01(value: number) {
+  return Math.min(1, Math.max(0, value));
 }
 
 function solveHomogeneous(rows: readonly number[][]): Vector4 {

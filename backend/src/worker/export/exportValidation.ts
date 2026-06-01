@@ -1,22 +1,42 @@
 import type {
   CameraCalibrationArtifact,
+  CalibrationObservationsArtifact,
+  CaptureVolumeArtifact,
+  CaptureMetadataDiagnostics,
   CleanupReport,
+  DualFitReportArtifact,
   MultiViewReconstructionArtifact,
   MultiViewSyncReport,
+  PerCameraPoseArtifact,
   PoseFramesArtifact,
   PreviewSummary,
   QualityReport,
+  QualityReportFinalAnimationSource,
   QualityReportMultiViewSection,
+  QualityReportMultiViewReconstructionStatus,
   SolvedMotionArtifact,
+  TriangulatedJointTrackArtifact,
   WhamInputUsageMetrics,
 } from "../types";
+import type {
+  DualReconstructionArtifact,
+  MultiViewReconstructionSummaryArtifact,
+} from "../reconstruction/dualReconstructionArtifacts";
 import { SKELETON } from "./skeletonDefinition";
 
 export type QualityReportMultiViewDiagnosticInput = {
   reconstructionAvailable?: boolean;
+  captureMetadataDiagnostics?: CaptureMetadataDiagnostics;
   syncReport?: MultiViewSyncReport;
+  calibrationObservations?: CalibrationObservationsArtifact;
   cameraCalibration?: CameraCalibrationArtifact;
+  captureVolume?: CaptureVolumeArtifact;
   reconstruction?: MultiViewReconstructionArtifact;
+  jointTrack?: TriangulatedJointTrackArtifact;
+  dualFitReport?: DualFitReportArtifact;
+  dualReconstruction?: DualReconstructionArtifact;
+  multiViewReconstruction?: MultiViewReconstructionSummaryArtifact;
+  poseArtifacts?: readonly PerCameraPoseArtifact[];
   warnings?: string[];
   errorCode?: string;
   errorMessage?: string;
@@ -91,16 +111,55 @@ export function buildQualityReportMultiViewSection(
   const reconstructionAvailable = Boolean(
     input.whamInputUsage?.multiViewReconstructionAvailable ||
       input.multiViewDiagnostic?.reconstructionAvailable ||
-      input.multiViewDiagnostic?.reconstruction,
+    input.multiViewDiagnostic?.reconstruction ||
+      input.multiViewDiagnostic?.jointTrack ||
+      input.multiViewDiagnostic?.dualFitReport ||
+      input.multiViewDiagnostic?.dualReconstruction ||
+      input.multiViewDiagnostic?.multiViewReconstruction,
   );
   const primaryWhamFallbackReason =
     input.whamInputUsage?.primaryWhamFallbackReason === "none"
       ? undefined
       : input.whamInputUsage?.primaryWhamFallbackReason;
+  const reconstructionStatus = resolveReconstructionStatus(input);
+  const finalAnimationSource = resolveFinalAnimationSource({
+    whamInputUsage: input.whamInputUsage,
+    reconstructionAvailable,
+    multiViewDiagnostic: input.multiViewDiagnostic,
+  });
+  const primaryCameraFallbackUsed =
+    finalAnimationSource === "primary_wham" &&
+    Boolean(input.whamInputUsage?.primaryVideoUsed);
   const metrics = buildMultiViewReportMetrics(input.multiViewDiagnostic);
+  const syncReport = input.multiViewDiagnostic?.syncReport;
+  const calibrationObservations =
+    input.multiViewDiagnostic?.calibrationObservations;
+  const calibrationObservationCount = calibrationObservations
+    ? calibrationObservations.frames.reduce(
+        (sum, frame) => sum + frame.observations.length,
+        0,
+      )
+    : undefined;
+  const calibrationObservationConfidence =
+    calibrationObservations
+      ? averageObservationConfidence(calibrationObservations)
+      : undefined;
+  const poseExtraction = buildMultiViewPoseExtractionSummary(
+    input.multiViewDiagnostic?.poseArtifacts,
+  );
+  const calibrationReadiness = buildCalibrationReadinessSummary(
+    input.multiViewDiagnostic?.cameraCalibration,
+    input.multiViewDiagnostic?.captureVolume,
+    input.multiViewDiagnostic?.reconstruction,
+  );
+  const metadataDiagnostics =
+    input.multiViewDiagnostic?.captureMetadataDiagnostics;
   const warnings = buildMultiViewReportWarnings({
     whamInputUsage: input.whamInputUsage,
     multiViewDiagnostic: input.multiViewDiagnostic,
+    finalAnimationSource,
+    reconstructionStatus,
+    primaryCameraFallbackUsed,
   });
 
   return {
@@ -108,14 +167,133 @@ export function buildQualityReportMultiViewSection(
     source,
     reconstructionAvailable,
     reconstructionUsedForConstraints:
-      input.whamInputUsage?.multiViewConstraintsUsed ?? false,
+      finalAnimationSource === "true_dual_solve" ||
+      (input.whamInputUsage?.multiViewConstraintsUsed ?? false),
     primaryWhamFallbackUsed:
-      input.whamInputUsage?.primaryWhamFallbackUsed ?? false,
+      finalAnimationSource === "true_dual_solve"
+        ? false
+        : (input.whamInputUsage?.primaryWhamFallbackUsed ?? false),
+    primaryCameraFallbackUsed,
+    finalAnimationSource,
+    reconstructionStatus,
+    dualReconstructionStatus: reconstructionStatus,
+    trueDualSolveAvailable: finalAnimationSource === "true_dual_solve",
+    ...(poseExtraction
+      ? {
+          poseDetectorSource: poseExtraction.poseDetectorSource,
+          poseExtractionStatus: poseExtraction.poseExtractionStatus,
+          poseFramesDevice0Status: poseExtraction.poseFramesDevice0Status,
+          poseFramesDevice1Status: poseExtraction.poseFramesDevice1Status,
+          averageKeypointConfidence: poseExtraction.averageKeypointConfidence,
+          missingPoseFrameRatio: poseExtraction.missingPoseFrameRatio,
+        }
+      : {}),
+    ...(syncReport
+      ? {
+          syncStatus: syncReport.status,
+          syncMethod: syncReport.syncMethod,
+          syncConfidence: syncReport.metrics.syncConfidence,
+          averageTimeDeltaMs: syncReport.metrics.averageTimeDeltaMs,
+          p95TimeDeltaMs: syncReport.metrics.p95TimeDeltaMs,
+          syncDiagnosticOnly:
+            syncReport.status === "diagnostic_only" ||
+            syncReport.syncMethod === "index_based_diagnostic_sync" ||
+            syncReport.syncMethod === "fallback",
+        }
+      : {}),
+    ...(calibrationObservations
+      ? {
+          calibrationObservationStatus: calibrationObservations.status,
+          calibrationTargetType: calibrationObservations.targetType,
+          calibrationObservationCount,
+          calibrationDetectorSource: calibrationObservations.detectorSource,
+          calibrationObservationConfidence,
+        }
+      : observationFieldsFromCalibration(input.multiViewDiagnostic?.cameraCalibration)),
+    ...calibrationReadiness,
+    ...(input.multiViewDiagnostic?.jointTrack
+      ? jointTrackTopLevelFields(input.multiViewDiagnostic.jointTrack)
+      : {}),
+    ...(input.multiViewDiagnostic?.dualFitReport
+      ? dualFitTopLevelFields(input.multiViewDiagnostic.dualFitReport)
+      : {}),
     ...(primaryWhamFallbackReason ? { primaryWhamFallbackReason } : {}),
     ...(input.whamInputUsage ? { whamInputUsage: input.whamInputUsage } : {}),
+    ...(metadataDiagnostics
+      ? {
+          metadataCompleteness: metadataDiagnostics.metadataCompleteness,
+          availableTimestampFields: metadataDiagnostics.availableTimestampFields,
+          availableCameraMetadataFields:
+            metadataDiagnostics.availableCameraMetadataFields,
+          hasAudioTrack: metadataDiagnostics.hasAudioTrack,
+          hasIntrinsics: metadataDiagnostics.hasIntrinsics,
+          hasFrameTimestamps: metadataDiagnostics.hasFrameTimestamps,
+          missingMetadataWarnings: metadataDiagnostics.missingMetadataWarnings,
+        }
+      : {}),
     ...(metrics ? { metrics } : {}),
+    ...(poseExtraction ? { poseExtraction } : {}),
     ...(warnings.length ? { warnings } : {}),
   };
+}
+
+function resolveFinalAnimationSource(input: {
+  whamInputUsage?: WhamInputUsageMetrics;
+  reconstructionAvailable: boolean;
+  multiViewDiagnostic?: QualityReportMultiViewDiagnosticInput;
+}): QualityReportFinalAnimationSource {
+  const dualFitReport = input.multiViewDiagnostic?.dualFitReport;
+  if (
+    dualFitReport?.acceptedAsFinalAnimation &&
+    dualFitReport.finalAnimationSourceCandidate === "true_dual_solve" &&
+    dualFitReport.artifactRefs.optimized_bvh &&
+    dualFitReport.artifactRefs.optimized_solved_motion_json
+  ) {
+    return "true_dual_solve";
+  }
+  if (
+    input.whamInputUsage?.multiViewConstraintsUsed &&
+    input.reconstructionAvailable
+  ) {
+    return "dual_triangulation_constraint";
+  }
+  if (input.whamInputUsage?.primaryVideoUsed) {
+    return "primary_wham";
+  }
+  if (input.reconstructionAvailable) {
+    return "dual_triangulation_diagnostic";
+  }
+  return "unavailable";
+}
+
+function resolveReconstructionStatus(
+  input: BuildQualityReportMultiViewSectionInput,
+): QualityReportMultiViewReconstructionStatus {
+  if (input.multiViewDiagnostic?.dualReconstruction?.status) {
+    return input.multiViewDiagnostic.dualReconstruction.status;
+  }
+  if (input.multiViewDiagnostic?.multiViewReconstruction?.status) {
+    return input.multiViewDiagnostic.multiViewReconstruction.status;
+  }
+  const calibrationStatus = input.multiViewDiagnostic?.cameraCalibration?.status;
+  if (
+    calibrationStatus === "missing_calibration" ||
+    calibrationStatus === "invalid_calibration" ||
+    calibrationStatus === "insufficient_views" ||
+    calibrationStatus === "failed"
+  ) {
+    return calibrationStatus;
+  }
+  if (input.multiViewDiagnostic?.reconstruction) {
+    return "ready";
+  }
+  if (input.multiViewDiagnostic?.dualFitReport?.status) {
+    return input.multiViewDiagnostic.dualFitReport.status;
+  }
+  if (input.multiViewDiagnostic?.errorCode) {
+    return input.multiViewDiagnostic.errorCode;
+  }
+  return "unavailable";
 }
 
 function buildMultiViewReportMetrics(
@@ -143,19 +321,60 @@ function buildMultiViewReportMetrics(
     diagnostic.syncReport?.metrics.averageTimeDeltaMs,
   );
   setFiniteMetric(
-    "calibrationQualityScore",
-    diagnostic.cameraCalibration?.quality.score,
+    "p95TimeDeltaMs",
+    diagnostic.syncReport?.metrics.p95TimeDeltaMs,
   );
+  if (diagnostic.calibrationObservations) {
+    setFiniteMetric(
+      "calibrationObservationCount",
+      diagnostic.calibrationObservations.frames.reduce(
+        (sum, frame) => sum + frame.observations.length,
+        0,
+      ),
+    );
+    setFiniteMetric(
+      "calibrationObservationConfidence",
+      averageObservationConfidence(diagnostic.calibrationObservations),
+    );
+  }
+  if (
+    diagnostic.cameraCalibration &&
+    diagnostic.cameraCalibration.devices.length > 0 &&
+    diagnostic.cameraCalibration.status !== "missing_calibration" &&
+    diagnostic.cameraCalibration.status !== "invalid_calibration"
+  ) {
+    setFiniteMetric(
+      "calibrationQualityScore",
+      diagnostic.cameraCalibration.quality.score,
+    );
+    setFiniteMetric(
+      "baselineEstimate",
+      diagnostic.cameraCalibration.baselineEstimate ??
+        diagnostic.cameraCalibration.quality.baseline,
+    );
+  }
   setFiniteMetric(
-    "intrinsicsFallbackUsed",
-    diagnostic.cameraCalibration
-      ? diagnostic.cameraCalibration.devices.some(
-          (device) => device.intrinsicsSource === "fov_fallback",
-        )
-        ? 1
-        : 0
-      : undefined,
+    "baselineEstimate",
+    diagnostic.captureVolume?.baselineEstimate ?? undefined,
   );
+  if (diagnostic.cameraCalibration?.devices.length) {
+    setFiniteMetric(
+      "intrinsicsFallbackUsed",
+      diagnostic.cameraCalibration.devices.some(
+        (device) => device.intrinsicsSource === "fov_fallback",
+      )
+        ? 1
+        : 0,
+    );
+    setFiniteMetric(
+      "extrinsicsFallbackUsed",
+      diagnostic.cameraCalibration.devices.some(
+        (device) => device.extrinsicsSource === "role_angle_fallback",
+      )
+        ? 1
+        : 0,
+    );
+  }
 
   const reconstructionMetrics = diagnostic.reconstruction?.metrics;
   setFiniteMetric("syncOffsetMs", reconstructionMetrics?.syncOffsetMs);
@@ -163,6 +382,7 @@ function buildMultiViewReportMetrics(
   setFiniteMetric("matchedFrameCount", reconstructionMetrics?.matchedFrameCount);
   setFiniteMetric("droppedFrameCount", reconstructionMetrics?.droppedFrameCount);
   setFiniteMetric("averageTimeDeltaMs", reconstructionMetrics?.averageTimeDeltaMs);
+  setFiniteMetric("p95TimeDeltaMs", reconstructionMetrics?.p95TimeDeltaMs);
   setFiniteMetric("reprojectionErrorPx", reconstructionMetrics?.reprojectionErrorPx);
   setFiniteMetric("reprojectionP95Px", reconstructionMetrics?.reprojectionP95Px);
   setFiniteMetric(
@@ -178,9 +398,481 @@ function buildMultiViewReportMetrics(
     reconstructionMetrics?.calibrationQualityScore,
   );
   setFiniteMetric("intrinsicsFallbackUsed", reconstructionMetrics?.intrinsicsFallbackUsed);
+  setFiniteMetric("extrinsicsFallbackUsed", reconstructionMetrics?.extrinsicsFallbackUsed);
   setFiniteMetric("multiViewQualityGain", reconstructionMetrics?.multiViewQualityGain);
+  const jointTrack = diagnostic.jointTrack;
+  if (jointTrack) {
+    setFiniteMetric("matchedFrameCount", jointTrack.metrics.matchedFrameCount);
+    setFiniteMetric(
+      "triangulatedLandmarkRatio",
+      jointTrack.metrics.triangulatedJointRatio,
+    );
+    setFiniteMetric(
+      "reprojectionErrorPx",
+      jointTrack.metrics.averageReprojectionErrorPx,
+    );
+    setFiniteMetric("reprojectionP95Px", jointTrack.metrics.reprojectionP95Px);
+    setFiniteMetric(
+      "averageJointConfidence",
+      jointTrack.metrics.averageJointConfidence,
+    );
+    setFiniteMetric(
+      "lowConfidenceJointRatio",
+      jointTrack.metrics.lowConfidenceJointRatio,
+    );
+    setFiniteMetric("occludedJointRatio", jointTrack.metrics.occludedJointRatio);
+    setFiniteMetric("smoothedJointRatio", jointTrack.metrics.smoothedJointRatio);
+    setFiniteMetric(
+      "interpolatedJointRatio",
+      jointTrack.metrics.interpolatedJointRatio,
+    );
+    setFiniteMetric("droppedJointRatio", jointTrack.metrics.droppedJointRatio);
+    setFiniteMetric(
+      "temporalJitterBefore",
+      jointTrack.metrics.temporalJitterBefore,
+    );
+    setFiniteMetric("temporalJitterAfter", jointTrack.metrics.temporalJitterAfter);
+    setFiniteMetric(
+      "temporalSmoothingGain",
+      jointTrack.metrics.temporalSmoothingGain,
+    );
+  }
+  const dualFitReport = diagnostic.dualFitReport;
+  if (dualFitReport) {
+    setFiniteMetric(
+      "fittingTotalLoss",
+      finiteNumber(dualFitReport.losses.totalLoss),
+    );
+    setFiniteMetric(
+      "initializationLoss",
+      finiteNumber(dualFitReport.losses.initializationLoss),
+    );
+    setFiniteMetric(
+      "triangulatedJointLoss",
+      finiteNumber(dualFitReport.losses.triangulatedJointLoss),
+    );
+    setFiniteMetric(
+      "reprojectionLoss",
+      finiteNumber(dualFitReport.losses.reprojectionLoss),
+    );
+    setFiniteMetric(
+      "reprojectionImprovementRatio",
+      finiteNumber(dualFitReport.metrics.reprojectionImprovementRatio),
+    );
+    setFiniteMetric(
+      "boneLengthConsistencyScore",
+      finiteNumber(dualFitReport.metrics.boneLengthConsistencyScore),
+    );
+    setFiniteMetric(
+      "jointLimitViolationCount",
+      finiteNumber(dualFitReport.metrics.jointLimitViolationCount),
+    );
+    setFiniteMetric(
+      "footContactStabilityScore",
+      finiteNumber(dualFitReport.metrics.footContactStabilityScore),
+    );
+    setFiniteMetric(
+      "optimizedBvhAvailable",
+      dualFitReport.artifactRefs.optimized_bvh ? 1 : 0,
+    );
+    setFiniteMetric(
+      "optimizedSolvedMotionAvailable",
+      dualFitReport.artifactRefs.optimized_solved_motion_json ? 1 : 0,
+    );
+    setFiniteMetric(
+      "reliableConstraintRatio",
+      finiteNumber(dualFitReport.metrics.reliableConstraintRatio),
+    );
+    setFiniteMetric(
+      "optimizedMotionDelta",
+      finiteNumber(dualFitReport.metrics.optimizedMotionDelta),
+    );
+  }
+  const poseExtraction = buildMultiViewPoseExtractionSummary(
+    diagnostic.poseArtifacts,
+  );
+  setFiniteMetric(
+    "averageKeypointConfidence",
+    poseExtraction?.averageKeypointConfidence,
+  );
+  setFiniteMetric("missingPoseFrameRatio", poseExtraction?.missingPoseFrameRatio);
+
+  const dualReconstruction = diagnostic.dualReconstruction;
+  if (dualReconstruction) {
+    setFiniteMetric("syncConfidence", dualReconstruction.syncConfidence);
+    setFiniteMetric("matchedFrameCount", dualReconstruction.matchedFrameCount);
+    setFiniteMetric(
+      "reprojectionErrorPx",
+      dualReconstruction.averageReprojectionErrorPx,
+    );
+    setFiniteMetric("reprojectionP95Px", dualReconstruction.reprojectionP95Px);
+    setFiniteMetric(
+      "triangulatedLandmarkRatio",
+      dualReconstruction.triangulatedLandmarkRatio,
+    );
+    setFiniteMetric(
+      "fallbackLandmarkRatio",
+      dualReconstruction.fallbackLandmarkRatio,
+    );
+    setFiniteMetric(
+      "calibrationQualityScore",
+      dualReconstruction.calibrationQualityScore,
+    );
+  }
+
+  const multiViewReconstruction = diagnostic.multiViewReconstruction;
+  if (multiViewReconstruction) {
+    setFiniteMetric(
+      "syncConfidence",
+      multiViewReconstruction.syncSummary.syncConfidence,
+    );
+    setFiniteMetric(
+      "matchedFrameCount",
+      multiViewReconstruction.syncSummary.matchedFrameCount,
+    );
+    setFiniteMetric(
+      "reprojectionErrorPx",
+      multiViewReconstruction.triangulationSummary.averageReprojectionErrorPx,
+    );
+    setFiniteMetric(
+      "reprojectionP95Px",
+      multiViewReconstruction.triangulationSummary.reprojectionP95Px,
+    );
+    setFiniteMetric(
+      "triangulatedLandmarkRatio",
+      multiViewReconstruction.triangulationSummary.triangulatedLandmarkRatio,
+    );
+    setFiniteMetric(
+      "calibrationQualityScore",
+      multiViewReconstruction.calibrationSummary.calibrationQualityScore,
+    );
+  }
 
   return Object.keys(metrics).length > 0 ? metrics : undefined;
+}
+
+function dualFitTopLevelFields(
+  dualFitReport: DualFitReportArtifact,
+): Pick<
+  QualityReportMultiViewSection,
+  | "dualFitStatus"
+  | "dualFitAcceptedAsFinal"
+  | "optimizedBvhAvailable"
+  | "optimizedSolvedMotionAvailable"
+  | "fittingTotalLoss"
+  | "initializationLoss"
+  | "triangulatedJointLoss"
+  | "reprojectionLoss"
+  | "reprojectionImprovementRatio"
+  | "boneLengthConsistencyScore"
+  | "jointLimitViolationCount"
+  | "footContactStabilityScore"
+> {
+  return {
+    dualFitStatus: dualFitReport.status,
+    dualFitAcceptedAsFinal: dualFitReport.acceptedAsFinalAnimation,
+    optimizedBvhAvailable: Boolean(dualFitReport.artifactRefs.optimized_bvh),
+    optimizedSolvedMotionAvailable: Boolean(
+      dualFitReport.artifactRefs.optimized_solved_motion_json,
+    ),
+    ...(finiteNumber(dualFitReport.losses.totalLoss) !== undefined
+      ? { fittingTotalLoss: finiteNumber(dualFitReport.losses.totalLoss) }
+      : {}),
+    ...(finiteNumber(dualFitReport.losses.initializationLoss) !== undefined
+      ? { initializationLoss: finiteNumber(dualFitReport.losses.initializationLoss) }
+      : {}),
+    ...(finiteNumber(dualFitReport.losses.triangulatedJointLoss) !== undefined
+      ? {
+          triangulatedJointLoss: finiteNumber(
+            dualFitReport.losses.triangulatedJointLoss,
+          ),
+        }
+      : {}),
+    ...(finiteNumber(dualFitReport.losses.reprojectionLoss) !== undefined
+      ? { reprojectionLoss: finiteNumber(dualFitReport.losses.reprojectionLoss) }
+      : {}),
+    ...(finiteNumber(dualFitReport.metrics.reprojectionImprovementRatio) !== undefined
+      ? {
+          reprojectionImprovementRatio: finiteNumber(
+            dualFitReport.metrics.reprojectionImprovementRatio,
+          ),
+        }
+      : {}),
+    ...(finiteNumber(dualFitReport.metrics.boneLengthConsistencyScore) !== undefined
+      ? {
+          boneLengthConsistencyScore: finiteNumber(
+            dualFitReport.metrics.boneLengthConsistencyScore,
+          ),
+        }
+      : {}),
+    ...(finiteNumber(dualFitReport.metrics.jointLimitViolationCount) !== undefined
+      ? {
+          jointLimitViolationCount: finiteNumber(
+            dualFitReport.metrics.jointLimitViolationCount,
+          ),
+        }
+      : {}),
+    ...(finiteNumber(dualFitReport.metrics.footContactStabilityScore) !== undefined
+      ? {
+          footContactStabilityScore: finiteNumber(
+            dualFitReport.metrics.footContactStabilityScore,
+          ),
+        }
+      : {}),
+  };
+}
+
+function jointTrackTopLevelFields(
+  jointTrack: TriangulatedJointTrackArtifact,
+): Pick<
+  QualityReportMultiViewSection,
+  | "jointTrackStatus"
+  | "averageJointConfidence"
+  | "occludedJointRatio"
+  | "droppedJointRatio"
+  | "temporalJitterBefore"
+  | "temporalJitterAfter"
+  | "temporalSmoothingGain"
+> {
+  return {
+    jointTrackStatus: jointTrack.status,
+    averageJointConfidence: jointTrack.metrics.averageJointConfidence,
+    occludedJointRatio: jointTrack.metrics.occludedJointRatio,
+    droppedJointRatio: jointTrack.metrics.droppedJointRatio,
+    temporalJitterBefore: jointTrack.metrics.temporalJitterBefore,
+    temporalJitterAfter: jointTrack.metrics.temporalJitterAfter,
+    temporalSmoothingGain: jointTrack.metrics.temporalSmoothingGain,
+  };
+}
+
+function observationFieldsFromCalibration(
+  calibration: CameraCalibrationArtifact | undefined,
+): Pick<
+  QualityReportMultiViewSection,
+  | "calibrationObservationStatus"
+  | "calibrationTargetType"
+  | "calibrationObservationCount"
+  | "calibrationDetectorSource"
+  | "calibrationObservationConfidence"
+> {
+  if (!calibration?.calibrationObservationStatus) return {};
+  return {
+    calibrationObservationStatus: calibration.calibrationObservationStatus,
+    calibrationTargetType: calibration.calibrationTargetType,
+    calibrationObservationCount: calibration.calibrationObservationCount,
+    calibrationDetectorSource: calibration.calibrationDetectorSource,
+    calibrationObservationConfidence: calibration.calibrationObservationConfidence,
+  };
+}
+
+function buildCalibrationReadinessSummary(
+  calibration: CameraCalibrationArtifact | undefined,
+  captureVolume: CaptureVolumeArtifact | undefined,
+  reconstruction: MultiViewReconstructionArtifact | undefined,
+): Pick<
+  QualityReportMultiViewSection,
+  | "intrinsicsStatus"
+  | "intrinsicsSource"
+  | "intrinsicsConfidence"
+  | "extrinsicsStatus"
+  | "extrinsicsSource"
+  | "extrinsicsConfidence"
+  | "calibrationQualityScore"
+  | "captureVolumeStatus"
+  | "baselineEstimate"
+  | "reprojectionErrorPx"
+> {
+  if (!calibration && !captureVolume && !reconstruction) return {};
+  const intrinsics = calibration ? intrinsicsSummary(calibration) : undefined;
+  const extrinsics = calibration ? extrinsicsSummary(calibration) : undefined;
+  const baselineEstimate =
+    finiteNumber(captureVolume?.baselineEstimate) ??
+    finiteNumber(calibration?.baselineEstimate) ??
+    finiteNumber(calibration?.quality.baseline);
+  const reprojectionErrorPx =
+    finiteNumber(reconstruction?.metrics.reprojectionErrorPx) ??
+    finiteNumber(calibration?.quality.averageReprojectionErrorPx);
+  return {
+    ...(intrinsics
+      ? {
+          intrinsicsStatus: intrinsics.status,
+          intrinsicsSource: intrinsics.source,
+          intrinsicsConfidence: intrinsics.confidence,
+        }
+      : {}),
+    ...(extrinsics
+      ? {
+          extrinsicsStatus: extrinsics.status,
+          extrinsicsSource: extrinsics.source,
+          extrinsicsConfidence: extrinsics.confidence,
+        }
+      : {}),
+    ...(calibration?.quality.score !== undefined
+      ? { calibrationQualityScore: calibration.quality.score }
+      : {}),
+    ...(captureVolume ? { captureVolumeStatus: captureVolume.status } : {}),
+    ...(baselineEstimate !== undefined ? { baselineEstimate } : {}),
+    ...(reprojectionErrorPx !== undefined ? { reprojectionErrorPx } : {}),
+  };
+}
+
+function intrinsicsSummary(calibration: CameraCalibrationArtifact) {
+  const hasFallback = calibration.devices.some(
+    (device) => device.intrinsicsSource === "fov_fallback",
+  );
+  return {
+    status: hasFallback ? "missing_intrinsics" : "ready",
+    source: uniqueSource(
+      calibration.devices.map((device) => device.intrinsicsSource),
+    ),
+    confidence: averageNumbers(
+      calibration.devices.map((device) =>
+        intrinsicsConfidence(device.intrinsicsSource),
+      ),
+    ),
+  };
+}
+
+function extrinsicsSummary(calibration: CameraCalibrationArtifact) {
+  const hasFallback = calibration.devices.some(
+    (device) => device.extrinsicsSource === "role_angle_fallback",
+  );
+  return {
+    status: hasFallback ? "missing_extrinsics" : "ready",
+    source: uniqueSource(
+      calibration.devices.map((device) => device.extrinsicsSource ?? "unavailable"),
+    ),
+    confidence: averageNumbers(
+      calibration.devices.map((device) =>
+        extrinsicsConfidence(device.extrinsicsSource),
+      ),
+    ),
+  };
+}
+
+function intrinsicsConfidence(source: string | undefined) {
+  if (source === "calibration_payload") return 0.95;
+  if (source === "stored_profile") return 0.9;
+  if (source === "capture_metadata") return 0.85;
+  if (source === "fov_fallback") return 0.4;
+  return 0;
+}
+
+function extrinsicsConfidence(source: string | undefined) {
+  if (source === "calibration_payload") return 0.95;
+  if (source === "stored_profile") return 0.9;
+  if (source === "capture_metadata") return 0.8;
+  if (source === "role_angle_fallback") return 0.35;
+  return 0;
+}
+
+function uniqueSource(values: readonly string[]) {
+  const unique = Array.from(new Set(values));
+  return unique.length === 1 ? unique[0] : "mixed";
+}
+
+function averageNumbers(values: readonly number[]) {
+  return values.length
+    ? values.reduce((sum, value) => sum + value, 0) / values.length
+    : 0;
+}
+
+function finiteNumber(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function averageObservationConfidence(
+  artifact: CalibrationObservationsArtifact,
+) {
+  const confidences = artifact.frames.flatMap((frame) =>
+    frame.observations.map((observation) => observation.confidence),
+  );
+  return confidences.length
+    ? confidences.reduce((sum, value) => sum + value, 0) / confidences.length
+    : 0;
+}
+
+function buildMultiViewPoseExtractionSummary(
+  poseArtifacts: readonly PerCameraPoseArtifact[] | undefined,
+): QualityReportMultiViewSection["poseExtraction"] | undefined {
+  if (!poseArtifacts?.length) {
+    return undefined;
+  }
+  const deviceStatuses = Object.fromEntries(
+    poseArtifacts.map((artifact) => [
+      `device_${artifact.deviceIndex}`,
+      artifact.status ?? "unavailable",
+    ]),
+  );
+  const detectedArtifacts = poseArtifacts.filter(
+    (artifact) => artifact.quality.detectedFrameCount > 0,
+  );
+  const averageKeypointConfidence =
+    detectedArtifacts.length > 0
+      ? detectedArtifacts.reduce(
+          (sum, artifact) =>
+            sum + (artifact.averageConfidence ?? artifact.quality.averagePoseConfidence),
+          0,
+        ) / detectedArtifacts.length
+      : undefined;
+  const totalFrameCount = poseArtifacts.reduce(
+    (sum, artifact) => sum + artifact.quality.frameCount,
+    0,
+  );
+  const totalMissingFrameCount = poseArtifacts.reduce(
+    (sum, artifact) => sum + artifact.quality.missingFrameCount,
+    0,
+  );
+  const missingPoseFrameRatio =
+    totalFrameCount > 0 ? totalMissingFrameCount / totalFrameCount : undefined;
+  const status = resolvePoseExtractionStatus(poseArtifacts);
+  const detectorSource =
+    poseArtifacts.find((artifact) => artifact.detectorSource)?.detectorSource ??
+    poseArtifacts[0]?.detector.name;
+  const warnings = Array.from(
+    new Set(
+      poseArtifacts.flatMap((artifact) => [
+        ...artifact.warnings,
+        ...(artifact.reason ? [artifact.reason] : []),
+      ]),
+    ),
+  );
+
+  return {
+    detectorSource,
+    poseDetectorSource: detectorSource,
+    status,
+    poseExtractionStatus: status,
+    poseFramesDevice0Status: deviceStatuses.device_0,
+    poseFramesDevice1Status: deviceStatuses.device_1,
+    deviceStatuses,
+    ...(averageKeypointConfidence !== undefined
+      ? { averageKeypointConfidence }
+      : {}),
+    ...(missingPoseFrameRatio !== undefined ? { missingPoseFrameRatio } : {}),
+    ...(warnings.length ? { warnings } : {}),
+  };
+}
+
+function resolvePoseExtractionStatus(
+  poseArtifacts: readonly PerCameraPoseArtifact[],
+) {
+  if (
+    poseArtifacts.some(
+      (artifact) =>
+        artifact.status === "missing_pose_frames" ||
+        artifact.quality.detectedFrameCount === 0,
+    )
+  ) {
+    return "missing_pose_frames";
+  }
+  if (poseArtifacts.some((artifact) => artifact.status === "failed")) {
+    return "failed";
+  }
+  if (poseArtifacts.some((artifact) => artifact.status === "low_confidence")) {
+    return "low_confidence";
+  }
+  return "ready";
 }
 
 function maxAbsoluteSyncOffsetMs(
@@ -198,14 +890,42 @@ function maxAbsoluteSyncOffsetMs(
 function buildMultiViewReportWarnings(input: {
   whamInputUsage?: WhamInputUsageMetrics;
   multiViewDiagnostic?: QualityReportMultiViewDiagnosticInput;
+  finalAnimationSource?: QualityReportFinalAnimationSource;
+  reconstructionStatus?: QualityReportMultiViewReconstructionStatus;
+  primaryCameraFallbackUsed?: boolean;
 }) {
   const warnings: string[] = [];
   warnings.push(...(input.multiViewDiagnostic?.warnings ?? []));
+  warnings.push(
+    ...(input.multiViewDiagnostic?.captureMetadataDiagnostics
+      ?.missingMetadataWarnings ?? []),
+  );
   warnings.push(...(input.multiViewDiagnostic?.syncReport?.warnings ?? []));
+  warnings.push(...(input.multiViewDiagnostic?.calibrationObservations?.warnings ?? []));
   warnings.push(...(input.multiViewDiagnostic?.cameraCalibration?.warnings ?? []));
+  warnings.push(...(input.multiViewDiagnostic?.captureVolume?.warnings ?? []));
   warnings.push(...(input.multiViewDiagnostic?.reconstruction?.warnings ?? []));
+  warnings.push(...(input.multiViewDiagnostic?.jointTrack?.warnings ?? []));
+  warnings.push(...(input.multiViewDiagnostic?.dualFitReport?.warnings ?? []));
+  warnings.push(...(input.multiViewDiagnostic?.dualReconstruction?.warnings ?? []));
+  warnings.push(
+    ...(input.multiViewDiagnostic?.multiViewReconstruction?.qualitySummary.warnings ?? []),
+  );
   if (input.multiViewDiagnostic?.errorCode) {
     warnings.push(input.multiViewDiagnostic.errorCode);
+  }
+  if (
+    input.primaryCameraFallbackUsed ||
+    input.finalAnimationSource === "primary_wham"
+  ) {
+    warnings.push("single_camera_solver_fallback_used");
+  }
+  if (
+    input.reconstructionStatus &&
+    input.reconstructionStatus !== "ready" &&
+    input.reconstructionStatus !== "unavailable"
+  ) {
+    warnings.push(input.reconstructionStatus);
   }
   const fallbackReason = input.whamInputUsage?.primaryWhamFallbackReason;
   if (fallbackReason && fallbackReason !== "none") {
@@ -272,6 +992,7 @@ export function buildQualityReport(
             : "Export validation failed. Reprocess or re-capture before delivery.";
 
   const multiView = buildQualityReportMultiViewSection(multiViewInput);
+  const multiViewMetricMirrors = buildMultiViewMetricMirrors(multiView);
   return {
     schema: "mocap.quality_report.v1",
     takeId: pose.takeId,
@@ -289,6 +1010,7 @@ export function buildQualityReport(
       ikAppliedConstraintCount: solved.ik?.appliedConstraintCount ?? 0,
       ikAdjustedJointRotationCount: solved.ik?.adjustedJointRotationCount ?? 0,
       retargetPresetEnabled: solved.preset ? 1 : 0,
+      ...multiViewMetricMirrors,
     },
     warnings: [
       ...validation.warnings,
@@ -307,6 +1029,71 @@ export function buildQualityReport(
     },
     ...(multiView ? { multiView } : {}),
   };
+}
+
+function buildMultiViewMetricMirrors(
+  multiView: QualityReportMultiViewSection | undefined,
+): Record<string, number> {
+  if (!multiView?.metrics) return {};
+  const mirrors: Record<string, number> = {};
+  const metricMap: Array<
+    readonly [
+      keyof NonNullable<QualityReportMultiViewSection["metrics"]>,
+      string,
+    ]
+  > = [
+    ["matchedFrameCount", "multiViewMatchedFrameCount"],
+    ["averageTimeDeltaMs", "multiViewAverageTimeDeltaMs"],
+    ["p95TimeDeltaMs", "multiViewP95TimeDeltaMs"],
+    ["syncConfidence", "multiViewSyncConfidence"],
+    ["reprojectionErrorPx", "multiViewReprojectionErrorPx"],
+    ["reprojectionP95Px", "multiViewReprojectionP95Px"],
+    ["triangulatedLandmarkRatio", "multiViewTriangulatedLandmarkRatio"],
+    ["fallbackLandmarkRatio", "multiViewFallbackLandmarkRatio"],
+    ["calibrationQualityScore", "multiViewCalibrationQualityScore"],
+    ["baselineEstimate", "multiViewBaselineEstimate"],
+    ["intrinsicsFallbackUsed", "multiViewIntrinsicsFallbackUsed"],
+    ["extrinsicsFallbackUsed", "multiViewExtrinsicsFallbackUsed"],
+    ["calibrationObservationCount", "multiViewCalibrationObservationCount"],
+    [
+      "calibrationObservationConfidence",
+      "multiViewCalibrationObservationConfidence",
+    ],
+    ["averageKeypointConfidence", "multiViewAverageKeypointConfidence"],
+    ["missingPoseFrameRatio", "multiViewMissingPoseFrameRatio"],
+    ["averageJointConfidence", "multiViewAverageJointConfidence"],
+    ["lowConfidenceJointRatio", "multiViewLowConfidenceJointRatio"],
+    ["occludedJointRatio", "multiViewOccludedJointRatio"],
+    ["smoothedJointRatio", "multiViewSmoothedJointRatio"],
+    ["interpolatedJointRatio", "multiViewInterpolatedJointRatio"],
+    ["droppedJointRatio", "multiViewDroppedJointRatio"],
+    ["temporalJitterBefore", "multiViewTemporalJitterBefore"],
+    ["temporalJitterAfter", "multiViewTemporalJitterAfter"],
+    ["temporalSmoothingGain", "multiViewTemporalSmoothingGain"],
+    ["fittingTotalLoss", "multiViewFittingTotalLoss"],
+    ["initializationLoss", "multiViewInitializationLoss"],
+    ["triangulatedJointLoss", "multiViewTriangulatedJointLoss"],
+    ["reprojectionLoss", "multiViewReprojectionLoss"],
+    ["reprojectionImprovementRatio", "multiViewReprojectionImprovementRatio"],
+    ["boneLengthConsistencyScore", "multiViewBoneLengthConsistencyScore"],
+    ["jointLimitViolationCount", "multiViewJointLimitViolationCount"],
+    ["footContactStabilityScore", "multiViewFootContactStabilityScore"],
+    ["optimizedBvhAvailable", "multiViewOptimizedBvhAvailable"],
+    [
+      "optimizedSolvedMotionAvailable",
+      "multiViewOptimizedSolvedMotionAvailable",
+    ],
+    ["reliableConstraintRatio", "multiViewReliableConstraintRatio"],
+    ["optimizedMotionDelta", "multiViewOptimizedMotionDelta"],
+    ["multiViewQualityGain", "multiViewQualityGain"],
+  ];
+  for (const [sourceKey, outputKey] of metricMap) {
+    const value = multiView.metrics[sourceKey];
+    if (typeof value === "number" && Number.isFinite(value)) {
+      mirrors[outputKey] = value;
+    }
+  }
+  return mirrors;
 }
 
 export function buildPreviewSummary(

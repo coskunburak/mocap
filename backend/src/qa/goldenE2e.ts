@@ -33,12 +33,22 @@ type GoldenManifest = {
       reconstructionAvailable?: boolean;
       reconstructionUsedForConstraints?: boolean;
       primaryWhamFallbackUsed?: boolean;
+      primaryCameraFallbackUsed?: boolean;
       primaryWhamFallbackReason?: string;
+      finalAnimationSource?:
+        | "primary_wham"
+        | "dual_triangulation_diagnostic"
+        | "dual_triangulation_constraint"
+        | "true_dual_solve"
+        | "unavailable";
+      forbiddenFinalAnimationSources?: string[];
+      reconstructionStatus?: string;
       minMatchedFrameCount?: number;
       minTriangulatedLandmarkRatio?: number;
       maxReprojectionErrorPx?: number;
       minCalibrationQualityScore?: number;
       requireArtifactNameUnique?: boolean;
+      requiredMotionPipelineStages?: string[];
     };
   }>;
 };
@@ -69,6 +79,9 @@ type QualityReport = {
     reconstructionAvailable: boolean;
     reconstructionUsedForConstraints: boolean;
     primaryWhamFallbackUsed: boolean;
+    primaryCameraFallbackUsed?: boolean;
+    finalAnimationSource?: string;
+    reconstructionStatus?: string;
     primaryWhamFallbackReason?: string;
     metrics?: {
       matchedFrameCount?: number;
@@ -88,6 +101,25 @@ type PreparedSampleVideo = {
   metadata: Record<string, unknown>;
   deviceIndex: number;
   deviceRole: string;
+};
+
+type MotionPipelineReport = {
+  schema: "mocap.motion_pipeline_report.v1";
+  fallback?: {
+    motionFallbackUsed?: boolean;
+    reasons?: string[];
+  };
+  stages?: Array<{
+    stageName: string;
+    status: string;
+    artifactRefs?: Record<string, string>;
+    warnings?: string[];
+  }>;
+  whamInputUsage?: {
+    primaryVideoUsed?: boolean;
+    additionalVideosProvided?: number;
+    multiViewConstraintsUsed?: boolean;
+  };
 };
 
 const manifestPath = process.argv[2];
@@ -227,6 +259,7 @@ function buildMultiViewExpectationChecks(input: {
   expectations: NonNullable<GoldenManifest["samples"][number]["multiViewExpectations"]>;
   quality: QualityReport;
   exports: ApiExportFile[];
+  motionPipeline?: MotionPipelineReport;
 }) {
   const checks: Record<string, boolean> = {};
   const section = input.quality.multiView;
@@ -247,9 +280,28 @@ function buildMultiViewExpectationChecks(input: {
     checks.primaryWhamFallbackUsed =
       section.primaryWhamFallbackUsed === input.expectations.primaryWhamFallbackUsed;
   }
+  if (input.expectations.primaryCameraFallbackUsed != null) {
+    checks.primaryCameraFallbackUsed =
+      section.primaryCameraFallbackUsed === input.expectations.primaryCameraFallbackUsed;
+  }
   if (input.expectations.primaryWhamFallbackReason) {
     checks.primaryWhamFallbackReason =
       section.primaryWhamFallbackReason === input.expectations.primaryWhamFallbackReason;
+  }
+  if (input.expectations.finalAnimationSource) {
+    checks.finalAnimationSource =
+      section.finalAnimationSource === input.expectations.finalAnimationSource;
+  }
+  if (input.expectations.forbiddenFinalAnimationSources?.length) {
+    checks.noForbiddenFinalAnimationSource =
+      !section.finalAnimationSource ||
+      !input.expectations.forbiddenFinalAnimationSources.includes(
+        section.finalAnimationSource,
+      );
+  }
+  if (input.expectations.reconstructionStatus) {
+    checks.reconstructionStatus =
+      section.reconstructionStatus === input.expectations.reconstructionStatus;
   }
   if (input.expectations.minMatchedFrameCount != null) {
     checks.minMatchedFrameCount =
@@ -274,7 +326,39 @@ function buildMultiViewExpectationChecks(input: {
   if (input.expectations.requireArtifactNameUnique) {
     checks.artifactNameUnique = hasUniqueArtifactNames(input.exports);
   }
+  if (input.expectations.requiredMotionPipelineStages?.length) {
+    const stageNames = new Set(
+      input.motionPipeline?.stages?.map((stage) => stage.stageName) ?? [],
+    );
+    checks.requiredMotionPipelineStages =
+      input.expectations.requiredMotionPipelineStages.every((stageName) =>
+        stageNames.has(stageName),
+      );
+  }
+  if (
+    input.expectations.primaryWhamFallbackUsed != null &&
+    input.motionPipeline
+  ) {
+    checks.motionPipelineFallbackUsed =
+      input.motionPipeline.fallback?.motionFallbackUsed ===
+      input.expectations.primaryWhamFallbackUsed;
+  }
+  if (input.motionPipeline) {
+    checks.motionPipelineDoesNotUseMultiViewConstraints =
+      input.motionPipeline.whamInputUsage?.multiViewConstraintsUsed === false;
+  }
   return checks;
+}
+
+async function fetchExportJson<T>(
+  manifest: GoldenManifest,
+  file: ApiExportFile,
+): Promise<T> {
+  const signed = await request<{ downloadUrl: string }>(
+    manifest,
+    `/api/exports/${encodeURIComponent(file.id)}/download-url`,
+  );
+  return (await (await fetch(signed.downloadUrl)).json()) as T;
 }
 
 async function run() {
@@ -402,11 +486,13 @@ async function run() {
       results.push({ sample: sample.name, ok: false, reason: "quality_report_missing" });
       continue;
     }
-    const signed = await request<{ downloadUrl: string }>(
-      manifest,
-      `/api/exports/${encodeURIComponent(qualityFile.id)}/download-url`,
+    const motionPipelineFile = exportList.exports.find(
+      (file) => file.format === "motion_pipeline_report_json",
     );
-    const quality = (await (await fetch(signed.downloadUrl)).json()) as QualityReport;
+    const quality = await fetchExportJson<QualityReport>(manifest, qualityFile);
+    const motionPipeline = motionPipelineFile
+      ? await fetchExportJson<MotionPipelineReport>(manifest, motionPipelineFile)
+      : undefined;
     const minScore = sample.minQualityScore ?? manifest.thresholds.minQualityScore;
     const checks = {
       qualityReportSchema: quality.schema === "mocap.quality_report.v1",
@@ -433,6 +519,7 @@ async function run() {
             expectations: sample.multiViewExpectations,
             quality,
             exports: exportList.exports,
+            motionPipeline,
           })
         : {}),
     };

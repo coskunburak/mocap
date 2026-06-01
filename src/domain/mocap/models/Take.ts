@@ -72,6 +72,11 @@ export type TakeCaptureVideo = Readonly<{
   fps: number;
   width: number;
   height: number;
+  frameCount?: number;
+  firstFrameTimestampMs?: number;
+  framePresentationTimestampsMs?: readonly number[];
+  hasAudioTrack?: boolean;
+  audioSampleRate?: number;
   fileSizeBytes: number;
   codec: string;
   container: "mov" | "mp4";

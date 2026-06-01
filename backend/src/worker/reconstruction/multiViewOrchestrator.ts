@@ -1,9 +1,13 @@
 import type {
   CameraCalibrationArtifact,
+  CalibrationObservationsArtifact,
+  CaptureVolumeArtifact,
   MultiViewReconstructionArtifact,
   MultiViewSource,
   MultiViewSyncReport,
   PerCameraPoseArtifact,
+  PoseFramesArtifact,
+  TriangulatedJointTrackArtifact,
   WorkerMultiViewErrorCode,
 } from "../types";
 import {
@@ -14,6 +18,12 @@ import {
   type CameraIntrinsicsInput,
   buildCameraCalibrationArtifact,
 } from "./cameraCalibration";
+import { buildCaptureVolumeArtifact } from "./captureVolume";
+import {
+  type DualReconstructionArtifact,
+  type MultiViewReconstructionSummaryArtifact,
+  buildDualReconstructionArtifacts,
+} from "./dualReconstructionArtifacts";
 import {
   type FrameSyncOptions,
   FrameSyncError,
@@ -25,7 +35,11 @@ import {
   buildMultiViewReconstructionArtifact,
   validateMultiViewReconstructionArtifact,
 } from "./multiViewReconstruction";
-import { validatePerCameraPoseArtifact } from "../pose/poseExtraction";
+import { buildTriangulatedJointTrackArtifact } from "./triangulatedJointTrack";
+import {
+  buildMissingPoseFramesArtifact,
+  validatePerCameraPoseArtifact,
+} from "../pose/poseExtraction";
 
 export type WorkerPipelineBranch =
   | {
@@ -65,6 +79,8 @@ export type ResolveWorkerPipelineBranchInput = {
 };
 
 export type MultiViewOrchestratorSource = {
+  cameraId?: string;
+  deviceId?: string;
   deviceIndex: number;
   deviceRole: string;
   videoStorageKey: string;
@@ -103,7 +119,9 @@ export type RunMultiViewReconstructionInput = {
     BuildCameraCalibrationInput,
     "defaultFovDegrees" | "baselineMeters" | "qualityWarningThreshold"
   >;
+  calibrationObservations?: CalibrationObservationsArtifact;
   calibrationArtifact?: CameraCalibrationArtifact;
+  captureVolumeArtifact?: CaptureVolumeArtifact;
   reconstructionOptions?: MultiViewReconstructionOptions;
 };
 
@@ -116,8 +134,14 @@ export type RunMultiViewReconstructionResult = {
   };
   poseArtifacts: PerCameraPoseArtifact[];
   syncReport: MultiViewSyncReport;
+  calibrationObservations?: CalibrationObservationsArtifact;
   calibrationArtifact: CameraCalibrationArtifact;
+  captureVolumeArtifact: CaptureVolumeArtifact;
   reconstructionArtifact: MultiViewReconstructionArtifact;
+  triangulatedJointTrackArtifact?: TriangulatedJointTrackArtifact;
+  dualReconstructionArtifact?: DualReconstructionArtifact;
+  multiViewReconstructionSummaryArtifact?: MultiViewReconstructionSummaryArtifact;
+  diagnosticPoseFramesArtifact?: PoseFramesArtifact;
 };
 
 export type MultiViewStageFailureAction =
@@ -159,6 +183,7 @@ export class MultiViewOrchestratorError extends Error {
       | "multi_view_sync_failed"
       | "camera_calibration_failed"
       | "camera_projection_invalid"
+      | "metadata_intrinsics_required"
       | "triangulation_failed"
       | "multi_view_reconstruction_invalid"
     >,
@@ -242,10 +267,14 @@ export async function runMultiViewReconstruction(
 ): Promise<RunMultiViewReconstructionResult> {
   validateRunInput(input);
   if (!input.poseAdapter) {
+    const poseArtifacts = buildMissingPoseArtifacts({
+      input,
+      reason: "Multi-view pose detector adapter is not configured.",
+    });
     throw new MultiViewOrchestratorError(
       "multi_view_pose_extraction_failed",
       "Multi-view pose detector adapter is not configured.",
-      { source: input.source, sourceCount: input.processedSources.length },
+      { source: input.source, sourceCount: input.processedSources.length, poseArtifacts },
     );
   }
 
@@ -253,12 +282,46 @@ export async function runMultiViewReconstruction(
   const syncReport = buildSyncReport({ input, poseArtifacts });
   const calibrationArtifact =
     input.calibrationArtifact ?? buildCalibrationArtifact(input);
+  const captureVolumeArtifact =
+    input.captureVolumeArtifact ??
+    buildCaptureVolumeArtifact({
+      takeId: input.takeId,
+      jobId: input.jobId,
+      calibrationArtifact,
+    });
   const reconstructionArtifact = buildReconstructionArtifact({
     input,
     poseArtifacts,
     syncReport,
     calibrationArtifact,
   });
+  const triangulatedJointTrackArtifact =
+    input.source === "dual_camera"
+      ? buildTriangulatedJointTrackArtifact({
+          takeId: input.takeId,
+          jobId: input.jobId,
+          source: input.source,
+          poseArtifacts,
+          syncReport,
+          cameraCalibration: calibrationArtifact,
+          options: input.reconstructionOptions,
+        })
+      : undefined;
+  const diagnosticArtifacts =
+    input.source === "dual_camera"
+      ? buildDualReconstructionArtifacts({
+          takeId: input.takeId,
+          jobId: input.jobId,
+          poseArtifacts,
+          syncReport,
+          calibrationArtifact,
+          artifactRefs: {
+            dual_reconstruction_json: `takes/${input.takeId}/jobs/${input.jobId}/dual_reconstruction.json`,
+            multi_view_reconstruction_json: `takes/${input.takeId}/jobs/${input.jobId}/multi_view_reconstruction.json`,
+            pose_frames_json: `takes/${input.takeId}/jobs/${input.jobId}/pose_frames.json`,
+          },
+        })
+      : undefined;
   const validation =
     validateMultiViewReconstructionArtifact(reconstructionArtifact);
   if (!validation.ok) {
@@ -278,8 +341,23 @@ export async function runMultiViewReconstruction(
     },
     poseArtifacts,
     syncReport,
+    ...(input.calibrationObservations
+      ? { calibrationObservations: input.calibrationObservations }
+      : {}),
     calibrationArtifact,
+    captureVolumeArtifact,
     reconstructionArtifact,
+    ...(triangulatedJointTrackArtifact
+      ? { triangulatedJointTrackArtifact }
+      : {}),
+    ...(diagnosticArtifacts
+      ? {
+          dualReconstructionArtifact: diagnosticArtifacts.dualReconstruction,
+          multiViewReconstructionSummaryArtifact:
+            diagnosticArtifacts.multiViewReconstruction,
+          diagnosticPoseFramesArtifact: diagnosticArtifacts.diagnosticPoseFrames,
+        }
+      : {}),
   };
 }
 
@@ -343,9 +421,14 @@ async function extractPoseArtifacts(
   input: RunMultiViewReconstructionInput,
 ): Promise<PerCameraPoseArtifact[]> {
   if (!input.poseAdapter) {
+    const poseArtifacts = buildMissingPoseArtifacts({
+      input,
+      reason: "Multi-view pose detector adapter is not configured.",
+    });
     throw new MultiViewOrchestratorError(
       "multi_view_pose_extraction_failed",
       "Multi-view pose detector adapter is not configured.",
+      { source: input.source, sourceCount: input.processedSources.length, poseArtifacts },
     );
   }
   let poseArtifacts: PerCameraPoseArtifact[];
@@ -357,11 +440,19 @@ async function extractPoseArtifacts(
       outputDir: input.outputDir,
     });
   } catch (error) {
+    const poseArtifacts = buildMissingPoseArtifacts({
+      input,
+      reason:
+        error instanceof Error
+          ? error.message
+          : "Multi-view pose detector adapter failed.",
+    });
     throw new MultiViewOrchestratorError(
       "multi_view_pose_extraction_failed",
       error instanceof Error
         ? error.message
         : "Multi-view pose detector adapter failed.",
+      { source: input.source, sourceCount: input.processedSources.length, poseArtifacts, cause: error },
     );
   }
 
@@ -420,6 +511,59 @@ function validateAdapterPoseArtifacts(input: {
       );
     }
   }
+  const missingPoseArtifacts = input.poseArtifacts.filter(
+    (artifact) =>
+      artifact.status === "missing_pose_frames" ||
+      artifact.quality.detectedFrameCount === 0,
+  );
+  if (missingPoseArtifacts.length > 0) {
+    const missingReasons = Array.from(
+      new Set(
+        missingPoseArtifacts
+          .map((artifact) => artifact.reason)
+          .filter((reason): reason is string => Boolean(reason)),
+      ),
+    );
+    throw new MultiViewOrchestratorError(
+      "multi_view_pose_extraction_failed",
+      missingReasons.length
+        ? `Multi-view pose extraction produced no usable 2D keypoints for at least one selected camera: ${missingReasons.join("; ")}`
+        : "Multi-view pose extraction produced no usable 2D keypoints for at least one selected camera.",
+      {
+        source: input.input.source,
+        sourceCount: input.input.processedSources.length,
+        missingDeviceIndexes: missingPoseArtifacts.map(
+          (artifact) => artifact.deviceIndex,
+        ),
+        poseArtifacts: input.poseArtifacts,
+      },
+    );
+  }
+}
+
+function buildMissingPoseArtifacts(input: {
+  input: RunMultiViewReconstructionInput;
+  reason: string;
+}): PerCameraPoseArtifact[] {
+  return input.input.processedSources.map((source) =>
+    buildMissingPoseFramesArtifact({
+      takeId: input.input.takeId,
+      jobId: input.input.jobId,
+      cameraId: source.cameraId ?? `device_${source.deviceIndex}`,
+      deviceIndex: source.deviceIndex,
+      deviceRole: source.deviceRole,
+      sourceVideo: {
+        storageKey: source.videoStorageKey,
+        normalizedStorageKey: source.normalizedStorageKey,
+        fps: source.fps,
+        width: source.width,
+        height: source.height,
+        durationMs: source.durationMs,
+      },
+      detectorSource: "unavailable",
+      reason: input.reason,
+    }),
+  );
 }
 
 function buildSyncReport(input: {
@@ -427,10 +571,17 @@ function buildSyncReport(input: {
   poseArtifacts: readonly PerCameraPoseArtifact[];
 }) {
   try {
-    return buildMultiViewSyncReport({
+    const report = buildMultiViewSyncReport({
       poseArtifacts: input.poseArtifacts,
       options: input.input.syncOptions,
     });
+    if (report.status === "failed") {
+      throw new FrameSyncError(
+        "multi_view_sync_failed",
+        "Multi-view frame sync failed.",
+      );
+    }
+    return report;
   } catch (error) {
     if (error instanceof FrameSyncError) {
       throw new MultiViewOrchestratorError(
@@ -450,6 +601,7 @@ function buildCalibrationArtifact(
       takeId: input.takeId,
       jobId: input.jobId,
       devices: input.processedSources.map(sourceToCalibrationDevice),
+      calibrationObservations: input.calibrationObservations,
       ...input.calibrationOptions,
     });
   } catch (error) {
@@ -464,6 +616,8 @@ function sourceToCalibrationDevice(
   source: MultiViewOrchestratorSource,
 ): CameraCalibrationDeviceInput {
   return {
+    cameraId: source.cameraId,
+    deviceId: source.deviceId,
     deviceIndex: source.deviceIndex,
     deviceRole: source.deviceRole,
     imageWidth: source.width,

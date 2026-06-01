@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import type { Matrix3x3, Vector3 } from "../types";
-import { buildPerCameraPoseArtifact } from "../pose/poseExtraction";
+import {
+  buildMissingPoseFramesArtifact,
+  buildPerCameraPoseArtifact,
+} from "../pose/poseExtraction";
 import { buildCameraCalibrationArtifact } from "./cameraCalibration";
 import {
   MultiViewOrchestratorError,
@@ -268,7 +271,15 @@ async function testDualFixtureAdapterFullReconstruction() {
   assert.equal(result.poseArtifacts.length, 2);
   assert.equal(result.syncReport.metrics.matchedFrameCount, 1);
   assert.equal(result.calibrationArtifact.devices.length, 2);
+  assert.equal(result.captureVolumeArtifact.schemaVersion, "mocap.capture_volume.v1");
+  assert.equal(result.captureVolumeArtifact.status, "ready");
   assert.equal(result.reconstructionArtifact.schema, "mocap.multiview_reconstruction.v1");
+  assert.equal(
+    result.triangulatedJointTrackArtifact?.schema,
+    "mocap.triangulated_joint_track.v1",
+  );
+  assert.equal(result.triangulatedJointTrackArtifact?.status, "ready");
+  assert.equal(result.triangulatedJointTrackArtifact?.trackedFrameCount, 1);
   assert.equal(landmark.source, "triangulated");
   assert.ok(Math.abs(landmark.x - SYNTHETIC_POINT[0]) < 1e-6);
   assert.ok(Math.abs(landmark.y - SYNTHETIC_POINT[1]) < 1e-6);
@@ -289,6 +300,7 @@ async function testProFixtureAdapterFullReconstruction() {
   assert.equal(result.poseArtifacts.length, 4);
   assert.equal(result.syncReport.metrics.matchedFrameCount, 1);
   assert.equal(result.calibrationArtifact.devices.length, 4);
+  assert.equal(result.captureVolumeArtifact.validCameraCount, 4);
   assert.equal(result.reconstructionArtifact.source, "multi_view");
   assert.deepEqual(landmark.views, [0, 1, 2, 3]);
 }
@@ -362,6 +374,95 @@ async function testAdapterFailureFailsExplicitly() {
   );
 }
 
+async function testMissingPoseFramesFallbackDecision() {
+  const missingDeviceAdapter: MultiViewPoseAdapter = {
+    name: "missing_device_fixture_adapter",
+    version: "fixture_v1",
+    async extractPoseArtifacts(input) {
+      const sources = input.processedSources;
+      const first = sources[0];
+      const second = sources[1];
+      if (!first || !second) {
+        throw new Error("Fixture requires two sources.");
+      }
+      return [
+        buildPerCameraPoseArtifact({
+          takeId: input.takeId,
+          jobId: input.jobId,
+          cameraId: `cam_${first.deviceIndex}`,
+          deviceIndex: first.deviceIndex,
+          deviceRole: first.deviceRole,
+          sourceVideo: {
+            storageKey: first.videoStorageKey,
+            normalizedStorageKey: first.normalizedStorageKey,
+            fps: first.fps,
+            width: first.width,
+            height: first.height,
+            durationMs: first.durationMs,
+          },
+          detectorResult: {
+            detector: {
+              name: "fixture_pose_detector",
+              version: "fixture_v1",
+              landmarkSchema: "body_33",
+            },
+            expectedFrameCount: 1,
+            frames: [
+              {
+                frameIndex: 0,
+                timestampMs: 0,
+                keypoints2d: [{ x: 0.5, y: 0.5 }],
+                confidence: [0.9],
+              },
+            ],
+          },
+        }),
+        buildMissingPoseFramesArtifact({
+          takeId: input.takeId,
+          jobId: input.jobId,
+          cameraId: `cam_${second.deviceIndex}`,
+          deviceIndex: second.deviceIndex,
+          deviceRole: second.deviceRole,
+          sourceVideo: {
+            storageKey: second.videoStorageKey,
+            normalizedStorageKey: second.normalizedStorageKey,
+            fps: second.fps,
+            width: second.width,
+            height: second.height,
+            durationMs: second.durationMs,
+          },
+          reason: "No 2D landmarks were produced for device_1.",
+        }),
+      ];
+    },
+  };
+
+  let capturedError: unknown;
+  await assert.rejects(
+    () =>
+      runMultiViewReconstruction({
+        takeId: "take_branch",
+        jobId: "job_branch",
+        source: "dual_camera",
+        processedSources: dualSources(),
+        poseAdapter: missingDeviceAdapter,
+      }),
+    (error) => {
+      capturedError = error;
+      assertOrchestratorError(error, "multi_view_pose_extraction_failed");
+      return true;
+    },
+  );
+
+  const fallback = resolveMultiViewStageFailure({
+    error: capturedError,
+    allowPrimaryWhamFallback: true,
+  });
+  assert.equal(fallback.action, "fallback_to_primary_wham");
+  assert.equal(fallback.shouldContinueWithPrimaryWham, true);
+  assert.equal(fallback.errorCode, "multi_view_pose_extraction_failed");
+}
+
 async function testMissingProjectionErrorPropagation() {
   const sources = dualSources();
   const calibration = buildCameraCalibrationArtifact({
@@ -403,6 +504,7 @@ void (async () => {
   await testMissingProductionAdapterFailsExplicitly();
   await testMissingAdapterFallbackDecision();
   await testAdapterFailureFailsExplicitly();
+  await testMissingPoseFramesFallbackDecision();
   await testMissingProjectionErrorPropagation();
   console.log("multi-view orchestrator shell tests passed");
 })();

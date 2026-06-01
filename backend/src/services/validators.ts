@@ -6,9 +6,32 @@ export type CaptureMetadataBody = Record<string, unknown> & {
   deviceId: string;
   deviceRole: string;
   deviceIndex: number;
+  cameraId?: string;
+  cameraRole?: string;
   captureMode: "solo" | "dual" | "pro_4_camera";
+  recordingStartWallClockMs?: number;
+  recordingStartMonotonicMs?: number;
+  firstFrameTimestampMs?: number;
+  framePresentationTimestampsMs?: readonly number[];
+  frameCount?: number;
+  localClockTimeMs?: number;
+  serverReceivedAtMs?: number;
+  networkClockOffsetMs?: number | null;
+  manualOffsetMs?: number | null;
+  hasAudioTrack?: boolean;
+  audioSampleRate?: number;
+  cameraIntrinsics?: unknown;
+  intrinsicMatrixK?: unknown;
+  lensDistortion?: unknown;
+  focalLength?: unknown;
+  sensorSize?: unknown;
+  approximateCameraAngle?: number;
   durationMs: number;
+  video: Record<string, unknown>;
+  camera: Record<string, unknown>;
+  quality: Record<string, unknown>;
   sync: Record<string, unknown>;
+  app: Record<string, unknown>;
 };
 
 export function requireString(value: unknown, field: string) {

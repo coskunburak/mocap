@@ -70,12 +70,33 @@ export type Vector3 = readonly [number, number, number];
 export type MultiViewWarningCode =
   | "camera_intrinsics_missing"
   | "camera_intrinsics_fov_fallback_used"
+  | "camera_extrinsics_missing"
+  | "camera_extrinsics_role_angle_fallback_used"
+  | "calibration_observations_missing"
+  | "calibration_observation_solve_not_implemented"
+  | "calibration_approximate"
   | "calibration_quality_low"
   | "sync_confidence_low"
   | "sync_offset_high"
+  | "sync_diagnostic_approximation"
+  | "sync_audio_analysis_unavailable"
+  | "sync_audio_track_missing"
+  | "sync_wall_clock_drift_possible"
+  | "sync_first_frame_timestamp_approximation"
+  | "sync_manual_offset_used"
+  | "sync_index_based_diagnostic"
+  | "sync_frame_count_mismatch"
+  | "sync_metadata_incomplete"
+  | "missing_timestamps"
+  | "insufficient_frames"
   | "triangulation_coverage_low"
   | "reprojection_error_high"
-  | "single_camera_solver_fallback_used";
+  | "joint_track_coverage_low"
+  | "joint_track_temporal_jitter_high"
+  | "single_camera_solver_fallback_used"
+  | "missing_pose_frames"
+  | "pose_detector_unavailable"
+  | "low_pose_confidence";
 
 export type WorkerMultiViewErrorCode =
   | "multi_view_pose_extraction_failed"
@@ -89,12 +110,20 @@ export type WorkerMultiViewErrorCode =
   | "metadata_intrinsics_required";
 
 export type PerCameraPoseFrame = {
+  cameraId?: string;
+  deviceIndex?: number;
   frameIndex: number;
   timestampMs: number;
+  timestampSource?: "detector" | "video_timestamp" | "recording_start" | "frame_index";
   keypoints2d: Point2D[];
   confidence: number[];
+  keypoints?: PerCameraPoseKeypoint2D[];
   poseConfidence: number;
   detectorVersion: string;
+  detectorSource?: string;
+  averageConfidence?: number;
+  status?: PerCameraPoseArtifactStatus;
+  warnings?: MultiViewWarningCode[];
 };
 
 export type PerCameraPoseQuality = {
@@ -103,6 +132,22 @@ export type PerCameraPoseQuality = {
   missingFrameCount: number;
   lowConfidenceFrameCount: number;
   averagePoseConfidence: number;
+};
+
+export type PerCameraPoseArtifactStatus =
+  | "ready"
+  | "missing_pose_frames"
+  | "low_confidence"
+  | "failed";
+
+export type PerCameraPoseKeypoint2D = {
+  jointId: string;
+  name?: string;
+  x: number;
+  y: number;
+  confidence: number;
+  visibility?: number;
+  presence?: number;
 };
 
 export type PerCameraPoseArtifact = {
@@ -125,34 +170,101 @@ export type PerCameraPoseArtifact = {
     version: string;
     landmarkSchema: LandmarkSchema;
   };
+  detectorSource?: string;
+  status?: PerCameraPoseArtifactStatus;
+  reason?: string;
   frames: PerCameraPoseFrame[];
   quality: PerCameraPoseQuality;
+  averageConfidence?: number;
   warnings: MultiViewWarningCode[];
 };
+
+export type MultiViewSyncMethod =
+  | "audio_marker_sync"
+  | "network_clock_offset_sync"
+  | "monotonic_timestamp_sync"
+  | "frame_presentation_timestamp_sync"
+  | "first_frame_timestamp_sync"
+  | "wall_clock_sync"
+  | "manual_offset_sync"
+  | "index_based_diagnostic_sync"
+  | "audio_marker"
+  | "metadata_clock_offset"
+  | "video_timestamps"
+  | "manual"
+  | "fallback";
 
 export type MultiViewSyncDeviceReport = {
   deviceIndex: number;
   offsetMs: number;
   confidence: number;
-  method: "audio_marker" | "metadata_clock_offset" | "video_timestamps" | "manual" | "fallback";
+  method: MultiViewSyncMethod;
   matchedFrameCount: number;
   droppedFrameCount: number;
   averageTimeDeltaMs: number;
   maxTimeDeltaMs: number;
 };
 
+export type MultiViewSyncStatus =
+  | "ready"
+  | "approximate"
+  | "diagnostic_only"
+  | "missing_timestamps"
+  | "insufficient_frames"
+  | "failed";
+
+export type MultiViewSyncFramePair = {
+  referenceCameraId?: string;
+  referenceFrameIndex: number;
+  targetFrameIndex: number;
+  referenceTimestampMs: number;
+  targetTimestampMs: number;
+  deltaMs: number;
+  targetCameraId?: string;
+  targetDeviceIndex?: number;
+  targetDeviceId?: string;
+};
+
+export type MultiViewSyncMetadataCompleteness = Record<
+  string,
+  {
+    hasFrameTimestamps: boolean;
+    hasFirstFrameTimestamp: boolean;
+    hasMonotonicStart: boolean;
+    hasWallClockStart: boolean;
+    hasAudioTrack: boolean;
+    hasNetworkClockOffset: boolean;
+    hasManualOffset: boolean;
+  }
+>;
+
 export type MultiViewSyncReport = {
   schema: "mocap.multiview_sync.v1";
+  schemaVersion?: "mocap.multi_view_sync.v1";
   takeId: string;
   jobId: string;
+  syncMethod: MultiViewSyncMethod;
+  referenceDeviceId: string;
+  targetDeviceIds: string[];
   referenceDeviceIndex: number;
   devices: MultiViewSyncDeviceReport[];
   matchedFrames: MultiViewMatchedFrameSet[];
+  framePairs: MultiViewSyncFramePair[];
+  matchedFrameCount: number;
+  averageTimeDeltaMs: number;
+  p95TimeDeltaMs: number;
+  syncConfidence: number;
+  droppedFrameCount: number;
+  clockOffsetMs?: number | null;
+  manualOffsetMs?: number | null;
+  metadataCompleteness?: MultiViewSyncMetadataCompleteness;
+  status: MultiViewSyncStatus;
   metrics: {
     matchedFrameCount: number;
     droppedFrameCount: number;
     averageTimeDeltaMs: number;
     maxTimeDeltaMs: number;
+    p95TimeDeltaMs: number;
     syncConfidence: number;
   };
   warnings: MultiViewWarningCode[];
@@ -173,14 +285,47 @@ export type MultiViewMatchedFrameSet = {
   averageTimeDeltaMs: number;
 };
 
+export type CameraCalibrationStatus =
+  | "ready"
+  | "approximate"
+  | "diagnostic_only"
+  | "missing_calibration"
+  | "invalid_calibration"
+  | "insufficient_views"
+  | "failed";
+
+export type CameraIntrinsicsSource =
+  | "calibration_payload"
+  | "stored_profile"
+  | "capture_metadata"
+  | "fov_fallback";
+
+export type CameraExtrinsicsSource =
+  | "calibration_payload"
+  | "stored_profile"
+  | "capture_metadata"
+  | "role_angle_fallback";
+
 export type CameraProjection = {
+  cameraId?: string;
+  deviceId?: string;
   deviceIndex: number;
   deviceRole: string;
+  imageWidth?: number;
+  imageHeight?: number;
   intrinsic: Matrix3x3;
+  intrinsicMatrixK?: Matrix3x3;
   rotation: Matrix3x3;
+  rotationR?: Matrix3x3;
   translation: Vector3;
+  translationT?: Vector3;
   projection: ProjectionMatrix3x4;
-  intrinsicsSource: "capture_metadata" | "fov_fallback";
+  projectionMatrixP?: ProjectionMatrix3x4;
+  distortionCoefficients?: readonly number[];
+  intrinsicsSource: CameraIntrinsicsSource;
+  extrinsicsSource?: CameraExtrinsicsSource;
+  calibrationQualityScore?: number;
+  warnings?: MultiViewWarningCode[];
 };
 
 export type CameraCalibrationQuality = {
@@ -194,11 +339,127 @@ export type CameraCalibrationArtifact = {
   schema: "mocap.camera_calibration.v1";
   takeId: string;
   jobId: string;
-  source: "capture_metadata" | "metadata_and_fov_fallback" | "calibration_clip";
-  intrinsicsSource: "capture_metadata" | "capture_metadata_or_fov" | "fov_fallback";
+  source:
+    | "calibration_payload"
+    | "stored_profile"
+    | "capture_metadata"
+    | "metadata_and_fov_fallback"
+    | "calibration_clip";
+  intrinsicsSource:
+    | "calibration_payload"
+    | "stored_profile"
+    | "capture_metadata"
+    | "capture_metadata_or_fov"
+    | "fov_fallback";
   devices: CameraProjection[];
+  cameras?: CameraProjection[];
+  baselineEstimate?: number;
+  coordinateSystem?: "right_handed_y_up";
+  calibrationObservationStatus?: CalibrationObservationStatus;
+  calibrationTargetType?: CalibrationTargetType;
+  calibrationObservationCount?: number;
+  calibrationDetectorSource?: string;
+  calibrationObservationConfidence?: number;
+  status?: CameraCalibrationStatus;
+  reason?: string;
   quality: CameraCalibrationQuality;
   warnings: MultiViewWarningCode[];
+};
+
+export type CaptureVolumeStatus =
+  | "ready"
+  | "approximate"
+  | "diagnostic_only"
+  | "missing_intrinsics"
+  | "missing_extrinsics"
+  | "invalid_intrinsics"
+  | "invalid_extrinsics"
+  | "insufficient_cameras"
+  | "failed";
+
+export type CaptureVolumeArtifact = {
+  schemaVersion: "mocap.capture_volume.v1";
+  volumeId: string;
+  takeId?: string;
+  jobId: string;
+  sessionId?: string | null;
+  cameraIds: string[];
+  validCameraCount: number;
+  worldOrigin: {
+    source: string;
+    description: string;
+  };
+  coordinateSystem: {
+    upAxis: "Y";
+    forwardAxis: "Z";
+    unit: "meter";
+  };
+  floorPlane: null;
+  baselineEstimate: number | null;
+  captureBounds: null;
+  status: CaptureVolumeStatus;
+  warnings: string[];
+};
+
+export type CalibrationTargetType =
+  | "apriltag"
+  | "checkerboard"
+  | "charuco"
+  | "human_pose_calibration";
+
+export type CalibrationObservationStatus =
+  | "ready"
+  | "disabled"
+  | "missing_runtime"
+  | "missing_dependency"
+  | "missing_calibration_observations"
+  | "unsupported_target"
+  | "failed"
+  | "diagnostic_only";
+
+export type CalibrationObservationPoint = {
+  targetId: string;
+  cornerId: string;
+  x: number;
+  y: number;
+  confidence: number;
+  objectPoint?: Vector3;
+  warnings?: string[];
+};
+
+export type CalibrationObservationFrame = {
+  cameraId: string;
+  deviceId?: string;
+  frameIndex: number;
+  timestampMs?: number;
+  observations: CalibrationObservationPoint[];
+  warnings: string[];
+};
+
+export type CalibrationObservationCameraSummary = {
+  cameraId: string;
+  deviceId?: string;
+  status: CalibrationObservationStatus;
+  reason?: string | null;
+  frameCount: number;
+  observationCount: number;
+  averageConfidence: number;
+  warnings: string[];
+};
+
+export type CalibrationObservationsArtifact = {
+  schemaVersion: "mocap.calibration_observations.v1";
+  takeId?: string;
+  jobId: string;
+  sessionId?: string | null;
+  targetType: CalibrationTargetType;
+  detectorSource: string;
+  status: CalibrationObservationStatus;
+  reason?: string | null;
+  cameras: CalibrationObservationCameraSummary[];
+  frames: CalibrationObservationFrame[];
+  artifactRef?: string;
+  warnings: string[];
 };
 
 export type MultiViewLandmark3D = {
@@ -217,13 +478,83 @@ export type MultiViewQualityMetrics = {
   matchedFrameCount: number;
   droppedFrameCount: number;
   averageTimeDeltaMs: number;
+  p95TimeDeltaMs?: number;
   reprojectionErrorPx: number;
   reprojectionP95Px: number;
   triangulatedLandmarkRatio: number;
   fallbackLandmarkRatio: number;
   calibrationQualityScore: number;
   intrinsicsFallbackUsed: number;
+  extrinsicsFallbackUsed?: number;
   multiViewQualityGain: number;
+};
+
+export type QualityReportFinalAnimationSource =
+  | "primary_wham"
+  | "dual_triangulation_diagnostic"
+  | "dual_triangulation_constraint"
+  | "true_dual_solve"
+  | "unavailable";
+
+export type QualityReportMultiViewReconstructionStatus =
+  | "ready"
+  | "diagnostic_only"
+  | "approximate"
+  | "missing_calibration"
+  | "invalid_calibration"
+  | "missing_pose_frames"
+  | "missing_sync"
+  | "insufficient_views"
+  | "failed"
+  | "unavailable"
+  | (string & {});
+
+export type QualityReportReadinessStatus =
+  | "ready"
+  | "approximate"
+  | "diagnostic_only"
+  | "missing_intrinsics"
+  | "missing_extrinsics"
+  | "invalid_intrinsics"
+  | "invalid_extrinsics"
+  | "insufficient_views"
+  | "insufficient_calibration"
+  | "failed"
+  | "skipped"
+  | "unavailable"
+  | (string & {});
+
+export type CaptureMetadataDeviceCompleteness = {
+  deviceIndex: number;
+  deviceId?: string;
+  deviceRole?: string;
+  presentFields: string[];
+  missingFields: string[];
+  hasAudioTrack: boolean;
+  hasIntrinsics: boolean;
+  hasFrameTimestamps: boolean;
+};
+
+export type CaptureMetadataCompleteness = {
+  status: "complete" | "partial" | "minimal" | "missing";
+  ratio: number;
+  presentFieldCount: number;
+  expectedFieldCount: number;
+  missingFieldCount: number;
+  perDevice: CaptureMetadataDeviceCompleteness[];
+};
+
+export type CaptureMetadataDiagnostics = {
+  metadataCompleteness: CaptureMetadataCompleteness;
+  availableTimestampFields: string[];
+  availableCameraMetadataFields: string[];
+  hasAudioTrack: boolean;
+  hasIntrinsics: boolean;
+  hasFrameTimestamps: boolean;
+  missingMetadataWarnings: string[];
+  audioTrackDeviceCount: number;
+  intrinsicsDeviceCount: number;
+  frameTimestampDeviceCount: number;
 };
 
 export interface QualityReportMultiViewSection {
@@ -232,21 +563,119 @@ export interface QualityReportMultiViewSection {
   reconstructionAvailable: boolean;
   reconstructionUsedForConstraints: boolean;
   primaryWhamFallbackUsed: boolean;
+  primaryCameraFallbackUsed: boolean;
+  finalAnimationSource: QualityReportFinalAnimationSource;
+  reconstructionStatus: QualityReportMultiViewReconstructionStatus;
+  dualReconstructionStatus?: QualityReportMultiViewReconstructionStatus;
+  trueDualSolveAvailable?: boolean;
+  poseDetectorSource?: string;
+  poseExtractionStatus?: string;
+  poseFramesDevice0Status?: string;
+  poseFramesDevice1Status?: string;
+  averageKeypointConfidence?: number;
+  missingPoseFrameRatio?: number;
+  syncStatus?: MultiViewSyncStatus;
+  syncMethod?: MultiViewSyncMethod;
+  syncConfidence?: number;
+  averageTimeDeltaMs?: number;
+  p95TimeDeltaMs?: number;
+  syncDiagnosticOnly?: boolean;
+  intrinsicsStatus?: QualityReportReadinessStatus;
+  intrinsicsSource?: string;
+  intrinsicsConfidence?: number;
+  extrinsicsStatus?: QualityReportReadinessStatus;
+  extrinsicsSource?: string;
+  extrinsicsConfidence?: number;
+  calibrationQualityScore?: number;
+  calibrationObservationStatus?: CalibrationObservationStatus;
+  calibrationTargetType?: CalibrationTargetType;
+  calibrationObservationCount?: number;
+  calibrationDetectorSource?: string;
+  calibrationObservationConfidence?: number;
+  captureVolumeStatus?: CaptureVolumeStatus;
+  baselineEstimate?: number;
+  reprojectionErrorPx?: number;
+  jointTrackStatus?: TriangulatedJointTrackStatus;
+  averageJointConfidence?: number;
+  occludedJointRatio?: number;
+  droppedJointRatio?: number;
+  temporalJitterBefore?: number;
+  temporalJitterAfter?: number;
+  temporalSmoothingGain?: number;
+  dualFitStatus?: DualFitStatus;
+  dualFitAcceptedAsFinal?: boolean;
+  optimizedBvhAvailable?: boolean;
+  optimizedSolvedMotionAvailable?: boolean;
+  fittingTotalLoss?: number;
+  initializationLoss?: number;
+  triangulatedJointLoss?: number;
+  reprojectionLoss?: number;
+  reprojectionImprovementRatio?: number;
+  boneLengthConsistencyScore?: number;
+  jointLimitViolationCount?: number;
+  footContactStabilityScore?: number;
   primaryWhamFallbackReason?: WhamFallbackReason;
   whamInputUsage?: WhamInputUsageMetrics;
+  metadataCompleteness?: CaptureMetadataCompleteness;
+  availableTimestampFields?: string[];
+  availableCameraMetadataFields?: string[];
+  hasAudioTrack?: boolean;
+  hasIntrinsics?: boolean;
+  hasFrameTimestamps?: boolean;
+  missingMetadataWarnings?: string[];
   metrics?: {
     syncOffsetMs?: number;
     syncConfidence?: number;
     matchedFrameCount?: number;
     droppedFrameCount?: number;
     averageTimeDeltaMs?: number;
+    p95TimeDeltaMs?: number;
     reprojectionErrorPx?: number;
     reprojectionP95Px?: number;
     triangulatedLandmarkRatio?: number;
     fallbackLandmarkRatio?: number;
     calibrationQualityScore?: number;
+    baselineEstimate?: number;
     intrinsicsFallbackUsed?: number;
+    extrinsicsFallbackUsed?: number;
+    calibrationObservationCount?: number;
+    calibrationObservationConfidence?: number;
+    averageKeypointConfidence?: number;
+    missingPoseFrameRatio?: number;
+    averageJointConfidence?: number;
+    lowConfidenceJointRatio?: number;
+    occludedJointRatio?: number;
+    smoothedJointRatio?: number;
+    interpolatedJointRatio?: number;
+    droppedJointRatio?: number;
+    temporalJitterBefore?: number;
+    temporalJitterAfter?: number;
+    temporalSmoothingGain?: number;
+    fittingTotalLoss?: number;
+    initializationLoss?: number;
+    triangulatedJointLoss?: number;
+    reprojectionLoss?: number;
+    reprojectionImprovementRatio?: number;
+    boneLengthConsistencyScore?: number;
+    jointLimitViolationCount?: number;
+    footContactStabilityScore?: number;
+    optimizedBvhAvailable?: number;
+    optimizedSolvedMotionAvailable?: number;
+    reliableConstraintRatio?: number;
+    optimizedMotionDelta?: number;
     multiViewQualityGain?: number;
+  };
+  poseExtraction?: {
+    detectorSource?: string;
+    poseDetectorSource?: string;
+    status: string;
+    poseExtractionStatus: string;
+    poseFramesDevice0Status?: string;
+    poseFramesDevice1Status?: string;
+    deviceStatuses: Record<string, string>;
+    averageKeypointConfidence?: number;
+    missingPoseFrameRatio?: number;
+    warnings?: string[];
   };
   warnings?: string[];
 }
@@ -273,6 +702,179 @@ export type MultiViewReconstructionArtifact = {
   frames: MultiViewReconstructionFrame[];
   metrics: MultiViewQualityMetrics;
   warnings: MultiViewWarningCode[];
+};
+
+export type TriangulatedJointTrackStatus =
+  | "ready"
+  | "diagnostic_only"
+  | "missing_pose_frames"
+  | "missing_sync"
+  | "missing_calibration"
+  | "insufficient_views"
+  | "low_confidence"
+  | "high_reprojection_error"
+  | "failed";
+
+export type TriangulatedJointTrackJointStatus =
+  | "tracked"
+  | "smoothed"
+  | "interpolated"
+  | "occluded"
+  | "dropped"
+  | "low_confidence"
+  | "high_reprojection_error"
+  | "insufficient_views";
+
+export type TriangulatedJointTrackJoint = {
+  jointId: string;
+  name?: string;
+  x?: number;
+  y?: number;
+  z?: number;
+  rawX?: number;
+  rawY?: number;
+  rawZ?: number;
+  confidence?: number;
+  sourceCameraIds: readonly string[];
+  reprojectionErrorPx?: number;
+  status: TriangulatedJointTrackJointStatus;
+  reason?: string;
+  warnings: readonly string[];
+};
+
+export type TriangulatedJointTrackFrameStatus =
+  | "ready"
+  | "diagnostic_only"
+  | "low_confidence"
+  | "high_reprojection_error"
+  | "insufficient_views";
+
+export type TriangulatedJointTrackFrame = {
+  frameIndex: number;
+  timestampMs: number;
+  sourceFrameIndices: Record<string, number>;
+  status: TriangulatedJointTrackFrameStatus;
+  joints: readonly TriangulatedJointTrackJoint[];
+  warnings: readonly string[];
+};
+
+export type TriangulatedJointTrackArtifact = {
+  schema: "mocap.triangulated_joint_track.v1";
+  takeId: string;
+  jobId: string;
+  source: MultiViewSource;
+  status: TriangulatedJointTrackStatus;
+  reason?: string | null;
+  coordinateSystem: "right_handed_y_up";
+  jointSet: "custom" | "coco17" | "body33" | "smpl_compatible";
+  cameraIds: readonly string[];
+  frameCount: number;
+  trackedFrameCount: number;
+  metrics: {
+    matchedFrameCount: number;
+    triangulatedJointRatio?: number;
+    averageReprojectionErrorPx?: number;
+    reprojectionP95Px?: number;
+    averageJointConfidence?: number;
+    lowConfidenceJointRatio?: number;
+    occludedJointRatio?: number;
+    smoothedJointRatio?: number;
+    interpolatedJointRatio?: number;
+    droppedJointRatio?: number;
+    temporalJitterBefore?: number;
+    temporalJitterAfter?: number;
+    temporalSmoothingGain?: number;
+  };
+  frames: readonly TriangulatedJointTrackFrame[];
+  warnings: readonly string[];
+};
+
+export type DualFitStatus =
+  | "ready"
+  | "diagnostic_only"
+  | "missing_joint_track"
+  | "missing_wham_initialization"
+  | "insufficient_quality"
+  | "optimization_not_implemented"
+  | "optimization_failed"
+  | "fallback_primary_wham"
+  | "failed";
+
+export type DualFitConstraintSet = {
+  triangulated3DEnabled: boolean;
+  reprojection2DEnabled: boolean;
+  boneLengthConsistencyEnabled: boolean;
+  jointAngleLimitsEnabled: boolean;
+  footContactEnabled: boolean;
+  temporalSmoothnessEnabled: boolean;
+  centerOfMassEnabled: boolean;
+  leftRightConsistencyEnabled: boolean;
+};
+
+export type DualFitLossSummary = {
+  initializationLoss?: number | null;
+  triangulatedJointLoss?: number | null;
+  reprojectionLoss?: number | null;
+  boneLengthLoss?: number | null;
+  jointLimitLoss?: number | null;
+  footContactLoss?: number | null;
+  temporalSmoothnessLoss?: number | null;
+  totalLoss?: number | null;
+};
+
+export type DualFitQualityMetrics = {
+  triangulatedJointRatio?: number | null;
+  reliableConstraintRatio?: number | null;
+  averageReprojectionErrorPxBefore?: number | null;
+  averageReprojectionErrorPxAfter?: number | null;
+  reprojectionImprovementRatio?: number | null;
+  temporalJitterBefore?: number | null;
+  temporalJitterAfter?: number | null;
+  temporalSmoothingGain?: number | null;
+  boneLengthConsistencyScore?: number | null;
+  jointLimitViolationCount?: number | null;
+  footContactStabilityScore?: number | null;
+  optimizedMotionDelta?: number | null;
+  acceptedAsFinalAnimation: boolean;
+};
+
+export type DualFitQualityGateResult = {
+  name:
+    | "triangulated_joint_ratio"
+    | "reliable_constraint_ratio"
+    | "calibration_readiness"
+    | "reprojection_error"
+    | "temporal_jitter"
+    | "bone_length_consistency"
+    | "joint_limit_violations"
+    | "foot_contact_stability";
+  passed: boolean;
+  value?: number | string | boolean | null;
+  threshold?: number | string | boolean | null;
+  severity: "blocking" | "warning";
+  reason?: string | null;
+};
+
+export type DualFitReportArtifact = {
+  schema: "mocap.dual_fit_report.v1";
+  takeId: string;
+  jobId: string;
+  status: DualFitStatus;
+  reason?: string | null;
+  inputSources: {
+    initialization: "primary_wham" | "unavailable";
+    jointTrack?: "triangulated_joint_track_json" | null;
+    pose2D: readonly string[];
+    calibration?: "camera_calibration_json" | null;
+  };
+  constraints: DualFitConstraintSet;
+  losses: DualFitLossSummary;
+  metrics: DualFitQualityMetrics;
+  qualityGates: readonly DualFitQualityGateResult[];
+  acceptedAsFinalAnimation: boolean;
+  finalAnimationSourceCandidate: "primary_wham" | "true_dual_solve";
+  artifactRefs: Record<string, string>;
+  warnings: readonly string[];
 };
 
 export type PoseFrameArtifactFrame = {
@@ -417,6 +1019,13 @@ export type SolvedMotionArtifact = {
     errors: string[];
   };
   smpl?: SmplParametersArtifact;
+  optimizedFrom?: {
+    source: "primary_wham";
+    method: "dual_camera_constrained_skeleton_adjustment";
+    constraintsApplied: number;
+    acceptedAsFinalAnimation: boolean;
+    warnings: string[];
+  };
 };
 
 export type CleanupAction = {
@@ -476,6 +1085,84 @@ export type PreviewSummary = {
   warnings: string[];
 };
 
+export type MotionPipelineStageName =
+  | "video_normalization"
+  | "primary_wham"
+  | "per_camera_pose_extraction"
+  | "frame_sync"
+  | "calibration_target_detection"
+  | "camera_intrinsics"
+  | "camera_extrinsics"
+  | "capture_volume"
+  | "camera_calibration"
+  | "dual_triangulation"
+  | "triangulated_joint_tracking"
+  | "dual_camera_fitting"
+  | "dual_reconstruction_artifacts"
+  | "quality_report"
+  | "final_animation_export";
+
+export type MotionPipelineStageResultStatus =
+  | "completed"
+  | "ready"
+  | "approximate"
+  | "diagnostic_only"
+  | "missing_pose_frames"
+  | "missing_timestamps"
+  | "missing_calibration_observations"
+  | "missing_intrinsics"
+  | "missing_extrinsics"
+  | "insufficient_views"
+  | "insufficient_calibration"
+  | "skipped"
+  | "failed";
+
+export type MotionPipelineStageStatus = {
+  stageName: MotionPipelineStageName;
+  status: MotionPipelineStageResultStatus;
+  reason: string;
+  targetType?: CalibrationTargetType;
+  detectorSource?: string;
+  observationCount?: number;
+  averageConfidence?: number;
+  calibrationObservationStatus?: CalibrationObservationStatus;
+  captureVolumeStatus?: CaptureVolumeStatus;
+  intrinsicsStatus?: QualityReportReadinessStatus;
+  intrinsicsSource?: string;
+  intrinsicsConfidence?: number;
+  extrinsicsStatus?: QualityReportReadinessStatus;
+  extrinsicsSource?: string;
+  extrinsicsConfidence?: number;
+  calibrationQualityScore?: number;
+  baselineEstimate?: number;
+  confidence?: number;
+  qualityScore?: number;
+  syncMethod?: MultiViewSyncMethod;
+  averageTimeDeltaMs?: number;
+  p95TimeDeltaMs?: number;
+  syncConfidence?: number;
+  matchedFrameCount?: number;
+  jointTrackStatus?: TriangulatedJointTrackStatus;
+  dualFitStatus?: DualFitStatus;
+  acceptedAsFinalAnimation?: boolean;
+  finalAnimationSource?: QualityReportFinalAnimationSource;
+  qualityGateSummary?: {
+    passed: number;
+    failed: number;
+    blockingFailed: number;
+    warningFailed: number;
+  };
+  triangulatedJointRatio?: number;
+  averageReprojectionErrorPx?: number;
+  temporalJitterAfter?: number;
+  artifactRef?: string;
+  startedAt?: string;
+  completedAt?: string;
+  durationMs?: number;
+  artifactRefs: Record<string, string>;
+  warnings: string[];
+};
+
 export type MotionPipelineReport = {
   schema: "mocap.motion_pipeline_report.v1";
   takeId: string;
@@ -490,7 +1177,7 @@ export type MotionPipelineReport = {
     cleanup: "cleanup_quality_v1_5";
   };
   fallback: {
-    motionFallbackUsed: false;
+    motionFallbackUsed: boolean;
     reasons: string[];
   };
   artifacts: {
@@ -502,6 +1189,8 @@ export type MotionPipelineReport = {
     previewSummary: string;
     overlayPreview?: string;
     bvh: string;
+    optimizedSolvedMotion?: string;
+    optimizedBvh?: string;
   };
   quality: {
     score: number;
@@ -509,6 +1198,7 @@ export type MotionPipelineReport = {
     warnings: string[];
     errors: string[];
   };
+  stages?: MotionPipelineStageStatus[];
   whamInputUsage?: WhamInputUsageMetrics;
   createdAt: string;
 };

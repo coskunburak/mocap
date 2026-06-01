@@ -39,6 +39,52 @@ Result screen
   -> shows WHAM outputs and Multi-View Diagnostics when available
 ```
 
+## Dual Camera Reconstruction Durumu
+
+Bu bölüm mevcut repo davranışını anlatır; hedeflenen gelecek mimariyle karıştırılmamalıdır.
+
+1. Tek kamera WHAM yapısı korunmuştur. `selectedVideoCount <= 1` ve solo capture akışı single-camera WHAM yolunda kalır.
+2. Final animasyon/BVH için güvenli production yol hâlâ primary camera WHAM solve'dur.
+3. Dual camera tarafında backend reconstruction stage eklenmiştir. Bu stage, final animasyonu otomatik olarak dual-camera solve'a çevirmek için değil, diagnostic artifact ve metric üretmek için çalışır.
+4. Dual camera diagnostic hattı:
+   - per-camera 2D pose extraction
+   - frame sync
+   - camera calibration
+   - DLT triangulation
+   - `dual_reconstruction.json`
+   - `multi_view_reconstruction.json`
+   - `quality_report.multiView` metric'leri
+   - `motion_pipeline_report_json` reconstruction stage kayıtları
+5. Calibration, sync veya keypoint verisi eksikse sistem fake başarı üretmez. Artifact ve report'larda `missing_calibration`, `missing_sync`, `missing_pose_frames`, `diagnostic_only` veya ilgili fallback reason açıkça görünmelidir.
+6. Final animation hâlâ primary WHAM'dan geliyorsa `quality_report_json` bunu `primaryCameraFallbackUsed: true` ve `finalAnimationSource: "primary_wham"` ile belirtir. Bu durumda dual-camera triangulation sonucu final BVH kaynağı olarak iddia edilmez.
+7. Yeni dual/multi-view artifact'leri:
+   - `pose_frames_device_0.json`
+   - `pose_frames_device_1.json`
+   - `multi_view_sync.json`
+   - `camera_calibration.json`
+   - `dual_reconstruction.json`
+   - `multi_view_reconstruction.json`
+   - `pose_frames.json`, sadece güvenli diagnostic world-landmark formatı üretildiğinde
+8. Yeni metric'ler:
+   - `matchedFrameCount`
+   - `averageTimeDeltaMs`
+   - `syncConfidence`
+   - `reprojectionErrorPx`
+   - `reprojectionP95Px`
+   - `triangulatedLandmarkRatio`
+   - `fallbackLandmarkRatio`
+   - `calibrationQualityScore`
+   - `intrinsicsFallbackUsed`
+   - `primaryCameraFallbackUsed`
+   - `finalAnimationSource`
+9. Sonraki faz:
+   - audio/native sync
+   - gerçek calibration clip
+   - AprilTag/checkerboard/human-pose calibration
+   - triangulated 3D constraints into WHAM/SMPL
+   - direct kinematic/biomechanical fitting
+   - final BVH from true dual-camera solve
+
 ## Repoda Olanlar
 
 - React Native / Expo Dev Client mobile app.
@@ -390,14 +436,19 @@ npm --prefix backend run test:triangulation
 npm --prefix backend run test:pose-extraction
 npm --prefix backend run test:frame-sync
 npm --prefix backend run test:camera-calibration
+npm --prefix backend run test:dual-reconstruction-artifacts
+npm --prefix backend run test:motion-pipeline-stages
 npm --prefix backend run test:multi-view-reconstruction
 npm --prefix backend run test:multi-view-orchestrator
+npm --prefix backend run test:reconstruction-types
 npm --prefix backend run test:wham-input-usage
 npm --prefix backend run test:quality-report-multiview
 npm --prefix backend run test:multi-view-artifacts
 npm --prefix backend run test:single-camera-regression
 npm --prefix backend run test:multiview-golden
+npm --prefix backend run test:dual-camera-golden-e2e
 npm --prefix backend run test:real-device-qa-validator
+npm --prefix backend run test:capture-metadata-contract
 ```
 
 Root/mobile:
@@ -427,6 +478,7 @@ Dual/pro reconstruction başarılı olduğunda worker şunları yazabilir:
 | `camera_calibration_json` | `camera_calibration_json` |
 | `dual_reconstruction_json` | `dual_reconstruction_json` |
 | `multi_view_reconstruction_json` | `multi_view_reconstruction_json` |
+| `pose_frames_json` | `pose_frames_json`, sadece diagnostic world-landmark çıktısı güvenliyse |
 
 Mevcut single-camera artifact seti korunur:
 
@@ -456,6 +508,8 @@ Dual/pro için rapor şunları içerebilir:
 - reconstruction availability
 - whether WHAM constraints were used
 - primary WHAM fallback state/reason
+- `primaryCameraFallbackUsed`
+- `finalAnimationSource`
 - sync metrics
 - calibration metrics
 - triangulation metrics

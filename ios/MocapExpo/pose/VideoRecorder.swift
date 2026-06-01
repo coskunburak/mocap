@@ -26,12 +26,18 @@ final class VideoRecorder {
         let fps: Double
         let width: Int
         let height: Int
+        let recordingStartWallClockMs: Double
+        let recordingStartMonotonicMs: Double?
+        let firstFrameTimestampMs: Double?
+        let framePresentationTimestampsMs: [Double]
+        let frameCount: Int
+        let hasAudioTrack: Bool
         let fileSizeBytes: Int64
         let codec: String
         let container: String
 
         func asDictionary() -> [String: Any] {
-            [
+            var dictionary: [String: Any] = [
                 "takeId": takeId,
                 "localUri": url.absoluteString,
                 "startedAt": Self.iso8601.string(from: startedAt),
@@ -40,11 +46,22 @@ final class VideoRecorder {
                 "fps": fps,
                 "width": width,
                 "height": height,
+                "recordingStartWallClockMs": recordingStartWallClockMs,
+                "framePresentationTimestampsMs": framePresentationTimestampsMs,
+                "frameCount": frameCount,
+                "hasAudioTrack": hasAudioTrack,
                 "fileSizeBytes": fileSizeBytes,
                 "codec": codec,
                 "container": container,
                 "platform": "ios"
             ]
+            if let recordingStartMonotonicMs {
+                dictionary["recordingStartMonotonicMs"] = recordingStartMonotonicMs
+            }
+            if let firstFrameTimestampMs {
+                dictionary["firstFrameTimestampMs"] = firstFrameTimestampMs
+            }
+            return dictionary
         }
 
         private static let iso8601: ISO8601DateFormatter = {
@@ -63,6 +80,8 @@ final class VideoRecorder {
     private var firstSampleTime: CMTime?
     private var lastSampleTime: CMTime?
     private var startedAt: Date?
+    private var recordingStartMonotonicMs: Double?
+    private var framePresentationTimestampsMs: [Double] = []
     private var frameCount = 0
     private var width = 0
     private var height = 0
@@ -88,6 +107,8 @@ final class VideoRecorder {
         self.firstSampleTime = nil
         self.lastSampleTime = nil
         self.startedAt = Date()
+        self.recordingStartMonotonicMs = ProcessInfo.processInfo.systemUptime * 1000.0
+        self.framePresentationTimestampsMs = []
         self.frameCount = 0
         self.width = 0
         self.height = 0
@@ -111,8 +132,12 @@ final class VideoRecorder {
             guard writerInput.isReadyForMoreMediaData else { return }
 
             if writerInput.append(sampleBuffer) {
+                let sampleTime = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
                 frameCount += 1
-                lastSampleTime = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
+                lastSampleTime = sampleTime
+                framePresentationTimestampsMs.append(
+                    presentationTimestampMs(sampleTime)
+                )
                 state = .recording
             } else if writer.status == .failed {
                 state = .failed
@@ -173,6 +198,15 @@ final class VideoRecorder {
                     fps: measuredFps,
                     width: self.width,
                     height: self.height,
+                    recordingStartWallClockMs:
+                        (self.startedAt ?? endedAt).timeIntervalSince1970 * 1000.0,
+                    recordingStartMonotonicMs: self.recordingStartMonotonicMs,
+                    firstFrameTimestampMs:
+                        self.framePresentationTimestampsMs.first,
+                    framePresentationTimestampsMs:
+                        self.framePresentationTimestampsMs,
+                    frameCount: self.frameCount,
+                    hasAudioTrack: false,
                     fileSizeBytes: fileSize,
                     codec: "h264",
                     container: "mov"
@@ -265,6 +299,12 @@ final class VideoRecorder {
         return max(0, endedAt.timeIntervalSince(startedAt) * 1000.0)
     }
 
+    private func presentationTimestampMs(_ sampleTime: CMTime) -> Double {
+        guard let firstSampleTime else { return 0 }
+        let seconds = CMTimeGetSeconds(CMTimeSubtract(sampleTime, firstSampleTime))
+        return seconds.isFinite ? max(0, seconds * 1000.0) : 0
+    }
+
     private func videosDirectory() throws -> URL {
         let root = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("mocap", isDirectory: true)
@@ -295,6 +335,8 @@ final class VideoRecorder {
         firstSampleTime = nil
         lastSampleTime = nil
         startedAt = nil
+        recordingStartMonotonicMs = nil
+        framePresentationTimestampsMs = []
         frameCount = 0
         width = 0
         height = 0

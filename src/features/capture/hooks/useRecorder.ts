@@ -37,11 +37,15 @@ type RecorderOptions = {
   deviceId?: string;
   deviceRole?: "primary" | "secondary" | "front" | "back" | "left" | "right" | "calibration";
   deviceIndex?: number;
+  cameraId?: string;
+  cameraRole?: "primary" | "secondary" | "front" | "back" | "left" | "right" | "calibration";
   captureSessionId?: string;
   clockOffsetMs?: number | null;
   multiCameraSessionId?: string;
   approxCameraAngle?: number;
   calibrationClipId?: string;
+  localClockTimeMs?: number;
+  uploadOrder?: number;
   cameraPosition?: CaptureCameraPosition;
   orientation?: CaptureVideoOrientation;
 };
@@ -56,11 +60,15 @@ type NormalizedRecorderOptions = {
   deviceId?: string;
   deviceRole: "primary" | "secondary" | "front" | "back" | "left" | "right" | "calibration";
   deviceIndex: number;
+  cameraId?: string;
+  cameraRole?: "primary" | "secondary" | "front" | "back" | "left" | "right" | "calibration";
   captureSessionId?: string;
   clockOffsetMs?: number | null;
   multiCameraSessionId?: string;
   approxCameraAngle?: number;
   calibrationClipId?: string;
+  localClockTimeMs?: number;
+  uploadOrder?: number;
   cameraPosition: CaptureCameraPosition;
   orientation: CaptureVideoOrientation;
 };
@@ -103,11 +111,15 @@ export function useRecorder() {
     deviceId: undefined,
     deviceRole: "primary",
     deviceIndex: 0,
+    cameraId: undefined,
+    cameraRole: undefined,
     captureSessionId: undefined,
     clockOffsetMs: 0,
     multiCameraSessionId: undefined,
     approxCameraAngle: undefined,
     calibrationClipId: undefined,
+    localClockTimeMs: undefined,
+    uploadOrder: undefined,
     cameraPosition: "back",
     orientation: "portrait",
   });
@@ -128,11 +140,15 @@ export function useRecorder() {
         deviceId: options?.deviceId,
         deviceRole: options?.deviceRole ?? "primary",
         deviceIndex: options?.deviceIndex ?? 0,
+        cameraId: options?.cameraId,
+        cameraRole: options?.cameraRole,
         captureSessionId: options?.captureSessionId,
         clockOffsetMs: options?.clockOffsetMs ?? 0,
         multiCameraSessionId: options?.multiCameraSessionId,
         approxCameraAngle: options?.approxCameraAngle,
         calibrationClipId: options?.calibrationClipId,
+        localClockTimeMs: options?.localClockTimeMs,
+        uploadOrder: options?.uploadOrder,
         cameraPosition: options?.cameraPosition ?? "back",
         orientation: options?.orientation ?? "portrait",
       };
@@ -197,6 +213,8 @@ export function useRecorder() {
         deviceId: optsRef.current.deviceId ?? localDeviceId(),
         deviceRole: optsRef.current.deviceRole,
         deviceIndex: optsRef.current.deviceIndex,
+        cameraId: optsRef.current.cameraId,
+        cameraRole: optsRef.current.cameraRole,
         captureMode:
           optsRef.current.captureMode === "pro-4-camera"
             ? "pro_4_camera"
@@ -206,6 +224,8 @@ export function useRecorder() {
         multiCameraSessionId: optsRef.current.multiCameraSessionId,
         approxCameraAngle: optsRef.current.approxCameraAngle,
         calibrationClipId: optsRef.current.calibrationClipId,
+        localClockTimeMs: optsRef.current.localClockTimeMs,
+        uploadOrder: optsRef.current.uploadOrder ?? optsRef.current.deviceIndex,
         quality,
         orientation: optsRef.current.orientation,
         camera: {
@@ -233,6 +253,11 @@ export function useRecorder() {
         fps: recording.fps,
         width: recording.width,
         height: recording.height,
+        frameCount: recording.frameCount,
+        firstFrameTimestampMs: recording.firstFrameTimestampMs,
+        framePresentationTimestampsMs: recording.framePresentationTimestampsMs,
+        hasAudioTrack: recording.hasAudioTrack,
+        audioSampleRate: recording.audioSampleRate,
         fileSizeBytes: recording.fileSizeBytes,
         codec: recording.codec,
         container: recording.container,

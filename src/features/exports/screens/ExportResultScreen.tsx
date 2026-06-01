@@ -13,6 +13,8 @@ import {
   artifactDisplayName,
   buildMultiViewMetricRows,
   buildWhamUsageRows,
+  hasMultiViewDiagnosticContent,
+  isRelevantMultiViewSection,
   multiViewArtifactGroups,
   multiViewStatusMessages,
   sourceLabel,
@@ -204,8 +206,15 @@ export default function ExportResultScreen() {
       exports[0],
     [exports],
   );
-  const multiViewSection = quality?.multiView;
+  const qualityMultiViewSection = quality?.multiView;
+  const multiViewSection = isRelevantMultiViewSection(qualityMultiViewSection)
+    ? qualityMultiViewSection
+    : undefined;
   const multiViewArtifacts = useMemo(() => multiViewArtifactGroups(exports), [exports]);
+  const showMultiViewDiagnostics = hasMultiViewDiagnosticContent(
+    multiViewSection,
+    multiViewArtifacts,
+  );
   const multiViewRows = useMemo(
     () => (multiViewSection ? buildMultiViewMetricRows(multiViewSection) : null),
     [multiViewSection],
@@ -389,7 +398,7 @@ export default function ExportResultScreen() {
         </Card>
       ) : null}
 
-      {multiViewSection || multiViewArtifacts.length > 0 ? (
+      {showMultiViewDiagnostics ? (
         <Card tone="accent" style={styles.card}>
           <View style={styles.listHeader}>
             <Text style={styles.label}>Multi-View Diagnostics</Text>

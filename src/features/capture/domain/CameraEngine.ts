@@ -27,6 +27,13 @@ export type VideoRecordingResult = Readonly<{
   fps: number;
   width: number;
   height: number;
+  recordingStartWallClockMs?: number;
+  recordingStartMonotonicMs?: number;
+  firstFrameTimestampMs?: number;
+  framePresentationTimestampsMs?: readonly number[];
+  frameCount?: number;
+  hasAudioTrack?: boolean;
+  audioSampleRate?: number;
   fileSizeBytes: number;
   codec: string;
   container: "mov" | "mp4";

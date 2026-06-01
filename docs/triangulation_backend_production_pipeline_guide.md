@@ -80,25 +80,31 @@ Core rule:
   - `src/domain/mocap/pipeline/calibration/StereoCalibration.ts`
   - `src/domain/mocap/models/MultiViewPoseFrame.ts`
 
-## Prototype Remaining Pieces
+## Dual Camera Reconstruction Durumu
 
-- Live dual-camera triangulation currently lives in the mobile app/prototype path.
-- Backend worker does not have a production per-camera 2D pose extraction stage.
-- Backend worker does not have frame synchronization for multi-video pose observations.
-- Backend worker does not have camera calibration/projection matrix generation for reconstruction.
-- Backend worker does not triangulate multi-camera observations into 3D landmarks.
-- Backend worker does not write:
-  - `pose_frames_device_json`
-  - `camera_calibration_json`
-  - `multi_view_sync_json`
-  - `dual_reconstruction_json`
-  - `multi_view_reconstruction_json`
-- Current `quality_report.json` does not include true multi-view metrics.
-- Current result screen understands source labels, but does not yet surface full reconstruction metrics.
+Mevcut repo davranışı:
+
+- Tek kamera WHAM yapısı korunmuştur. Solo jobs ve `selectedVideoCount <= 1` single-camera WHAM production yolunda kalır.
+- Dual camera tarafında backend reconstruction stage eklenmiştir.
+- Dual camera hattı per-camera 2D pose extraction, frame sync, camera calibration, DLT triangulation, `dual_reconstruction.json`, `multi_view_reconstruction.json` ve quality metric üretir.
+- Worker, dual/pro diagnostic reconstruction başarılı olduğunda `pose_frames_device_json`, `multi_view_sync_json`, `camera_calibration_json`, `dual_reconstruction_json`, `multi_view_reconstruction_json` ve uyumlu olduğunda diagnostic `pose_frames_json` artifact'lerini yazabilir.
+- `quality_report_json` artık `QualityReport.multiView` altında additive multi-view metric'leri içerebilir.
+- Result screen, single-camera ekranını bozmadan Multi-View Diagnostics bölümünü gösterebilir.
+- Calibration, sync veya keypoint verisi eksikse sistem fake başarı üretmez; status/fallback reason açıkça raporlanır.
+- Final animation hâlâ primary WHAM'dan geliyorsa `quality_report_json` bunu `primaryCameraFallbackUsed: true` ve `finalAnimationSource: "primary_wham"` ile belirtir.
+
+## Prototype / Future Remaining Pieces
+
+- Live dual-camera capture ve real-device QA hâlâ fiziksel cihaz doğrulaması ister.
+- Audio/native sync production seviyesine taşınmamıştır.
+- Gerçek calibration clip, AprilTag/checkerboard veya human-pose calibration solver hâlâ sonraki fazdır.
+- Triangulated 3D constraints henüz WHAM/SMPL solve içine production constraint olarak bağlanmamıştır.
+- Direct kinematic/biomechanical fitting ve final BVH from true dual-camera solve henüz tamamlanmamıştır.
+- Mevcut dual/pro stage diagnostic altyapıdır; Move.ai seviyesinde kalite iddiası değildir.
 
 ## Why Backend Multi-Video Reconstruction Is Not Complete Yet
 
-The worker currently passes all normalized video paths to the WHAM adapter, but the Python WHAM adapter uses only the first video:
+Backend artık dual/pro işler için diagnostic reconstruction artifact ve metric üretebilir. Ancak final motion solving hâlâ primary WHAM yolundadır. Worker normalized video paths listesini WHAM adapter'a geçirir, fakat Python WHAM adapter actual WHAM inference için ilk videoyu kullanır:
 
 - `backend/src/worker/processJob.ts` passes multiple paths via `normalizedVideoPaths`.
 - `backend/worker/model_adapters/wham_solver.py` selects `args.video[0]` for actual WHAM inference.
@@ -108,9 +114,10 @@ Therefore, dual/pro jobs are currently:
 - multi-video grouped,
 - multi-video normalized,
 - labeled as `dual_camera` or `multi_view`,
-- but not truly reconstructed from multiple camera views.
+- can produce diagnostic multi-view reconstruction artifacts and metrics,
+- but final BVH is not yet generated from a true dual-camera solve.
 
-The missing production stage is:
+Target production path artık kısmen diagnostic olarak kuruludur; eksik olan bölüm bu path'in final WHAM/SMPL solve'a gerçek constraint veya direct fitting girdisi olarak bağlanmasıdır:
 
 ```text
 normalized videos

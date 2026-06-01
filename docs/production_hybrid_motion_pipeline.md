@@ -1,16 +1,26 @@
 # Production WHAM Motion Pipeline
 
-MocapExpo production motion capture is no longer hybrid. The only supported worker path is:
+MocapExpo production final animation path şu anda WHAM/SMPL/SMPLify merkezlidir. Single-camera WHAM üretim yolu korunur; dual-camera reconstruction stage eklemeli diagnostic katman olarak çalışır ve final BVH'yi otomatik olarak true dual-camera solve'a çevirmez.
 
 ```text
 source video + mocap.capture.v1 metadata
   -> backend processing job
   -> FFmpeg normalization
+  -> optional dual-camera reconstruction diagnostics
   -> WHAM solve
   -> SMPL parameters and SMPLify metadata
   -> cleanup, validation, preview summary
   -> BVH and JSON artifacts
 ```
+
+## Dual Camera Reconstruction Durumu
+
+- Tek kamera WHAM yapısı korunmuştur. `selectedVideoCount <= 1` ve solo capture mevcut single-camera WHAM yolunu kullanır.
+- Dual camera tarafında backend reconstruction stage eklenmiştir: per-camera 2D pose extraction, frame sync, camera calibration, DLT triangulation, reconstruction artifact persistence ve quality metric üretimi.
+- Bu stage diagnostic olarak çalışır. Calibration, sync veya keypoint eksikse fake başarı üretmez; durum artifact/report içinde açıkça görünür.
+- Final animation hâlâ primary WHAM'dan geliyorsa `quality_report_json` bunu `primaryCameraFallbackUsed: true` ve `finalAnimationSource: "primary_wham"` ile belirtir.
+- `motion_pipeline_report_json` dual/pro işler için reconstruction stage'lerini ve fallback reason'larını eklemeli olarak kaydeder.
+- Sonraki fazlar audio/native sync, gerçek calibration clip, AprilTag/checkerboard/human-pose calibration, triangulated 3D constraints into WHAM/SMPL, direct kinematic/biomechanical fitting ve final BVH from true dual-camera solve'dur.
 
 ## Required Configuration
 
@@ -28,7 +38,7 @@ source video + mocap.capture.v1 metadata
 
 ## Artifact Contract
 
-The worker writes:
+Worker single-camera WHAM path için şunları yazar:
 
 - `normalized_video_mp4`
 - `smpl_parameters_json`
@@ -40,6 +50,30 @@ The worker writes:
 - `motion_pipeline_report_json`
 - optional `wham_overlay_preview_mp4`
 - `bvh`
+
+Dual/pro diagnostic reconstruction çalıştığında ek olarak şunlar yazılabilir:
+
+- `pose_frames_device_0.json`
+- `pose_frames_device_1.json`
+- `multi_view_sync.json`
+- `camera_calibration.json`
+- `dual_reconstruction.json`
+- `multi_view_reconstruction.json`
+- `pose_frames.json`, sadece diagnostic world-landmark formatı güvenliyse
+
+`quality_report_json` içinde multi-view metric'leri optional/additive olmalıdır:
+
+- `matchedFrameCount`
+- `averageTimeDeltaMs`
+- `syncConfidence`
+- `reprojectionErrorPx`
+- `reprojectionP95Px`
+- `triangulatedLandmarkRatio`
+- `fallbackLandmarkRatio`
+- `calibrationQualityScore`
+- `intrinsicsFallbackUsed`
+- `primaryCameraFallbackUsed`
+- `finalAnimationSource`
 
 ## Deployment Notes
 

@@ -63,6 +63,17 @@ function assertRecordingResult(value: any): VideoRecordingResult {
     throw new Error("[CameraEngine] Recorded video is empty.");
   }
 
+  const optionalNumber = (key: string) =>
+    typeof value[key] === "number" && Number.isFinite(value[key])
+      ? value[key]
+      : undefined;
+  const framePresentationTimestampsMs = Array.isArray(value.framePresentationTimestampsMs)
+    ? value.framePresentationTimestampsMs.filter(
+        (timestamp: unknown): timestamp is number =>
+          typeof timestamp === "number" && Number.isFinite(timestamp),
+      )
+    : undefined;
+
   return {
     takeId: value.takeId,
     localUri: value.localUri,
@@ -72,6 +83,20 @@ function assertRecordingResult(value: any): VideoRecordingResult {
     fps: value.fps,
     width: value.width,
     height: value.height,
+    recordingStartWallClockMs: optionalNumber("recordingStartWallClockMs"),
+    recordingStartMonotonicMs: optionalNumber("recordingStartMonotonicMs"),
+    firstFrameTimestampMs: optionalNumber("firstFrameTimestampMs"),
+    framePresentationTimestampsMs:
+      framePresentationTimestampsMs && framePresentationTimestampsMs.length > 0
+        ? framePresentationTimestampsMs
+        : undefined,
+    frameCount:
+      Number.isInteger(value.frameCount) && value.frameCount >= 0
+        ? value.frameCount
+        : undefined,
+    hasAudioTrack:
+      typeof value.hasAudioTrack === "boolean" ? value.hasAudioTrack : undefined,
+    audioSampleRate: optionalNumber("audioSampleRate"),
     fileSizeBytes: value.fileSizeBytes,
     codec: value.codec,
     container: value.container === "mov" ? "mov" : "mp4",

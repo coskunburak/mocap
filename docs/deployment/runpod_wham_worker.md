@@ -4,6 +4,15 @@ This deployment runs the real backend WHAM/SMPL worker. It is the production
 path for the mobile Export Result screen's `WHAM Premium Solve` card. The
 QA-only `WHAM_PRECOMPUTED_OUTPUT_PKL` path must never be set here.
 
+## Dual Camera Notu
+
+Dual/pro capture işlerinde backend ek olarak reconstruction diagnostic stage çalıştırabilir; bu RunPod WHAM gereksinimlerini kaldırmaz. Mevcut güvenli production final animation yolu hâlâ primary camera WHAM solve'dur.
+
+- RunPod worker WHAM repo, checkpoint, SMPL asset ve CUDA/Python runtime gereksinimlerini aynı şekilde ister.
+- Dual-camera diagnostic artifact'leri (`multi_view_sync.json`, `camera_calibration.json`, `dual_reconstruction.json`, `multi_view_reconstruction.json`) final BVH'nin true dual-camera solve'dan geldiği anlamına gelmez.
+- Final animation primary WHAM'dan geldiyse `quality_report_json` içinde `primaryCameraFallbackUsed: true` ve `finalAnimationSource: "primary_wham"` görünmelidir.
+- Calibration, sync veya keypoint eksikse sistem fake başarı üretmemeli; diagnostic status ve fallback reason rapora yazılmalıdır.
+
 ## Image Contract
 
 Build the worker image from the backend directory:

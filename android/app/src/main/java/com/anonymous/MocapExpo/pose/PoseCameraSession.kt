@@ -4,6 +4,7 @@ import android.app.Activity
 import android.content.Context
 import android.hardware.camera2.CaptureRequest
 import android.media.MediaMetadataRetriever
+import android.os.SystemClock
 import android.util.Range
 import android.view.Surface
 import androidx.camera.camera2.interop.Camera2Interop
@@ -66,6 +67,10 @@ object PoseCameraSession {
     val fps: Double,
     val width: Int,
     val height: Int,
+    val recordingStartWallClockMs: Double,
+    val recordingStartMonotonicMs: Double?,
+    val frameCount: Int?,
+    val hasAudioTrack: Boolean?,
     val fileSizeBytes: Long,
     val codec: String,
     val container: String,
@@ -82,6 +87,10 @@ object PoseCameraSession {
         putDouble("fps", fps)
         putInt("width", width)
         putInt("height", height)
+        putDouble("recordingStartWallClockMs", recordingStartWallClockMs)
+        recordingStartMonotonicMs?.let { putDouble("recordingStartMonotonicMs", it) }
+        frameCount?.let { putInt("frameCount", it) }
+        hasAudioTrack?.let { putBoolean("hasAudioTrack", it) }
         putDouble("fileSizeBytes", fileSizeBytes.toDouble())
         putString("codec", codec)
         putString("container", container)
@@ -122,6 +131,7 @@ object PoseCameraSession {
   private var recordingOptions: RecordingOptions? = null
   private var recordingFile: File? = null
   private var recordingStartedAtMs = 0L
+  private var recordingStartedAtMonotonicMs = 0L
   private var recordingCompletion: ((RecordingResult?, Throwable?) -> Unit)? = null
 
   fun attachPreviewView(view: PreviewView?) {
@@ -266,6 +276,7 @@ object PoseCameraSession {
       recordingOptions = options
       recordingFile = outputFile
       recordingStartedAtMs = System.currentTimeMillis()
+      recordingStartedAtMonotonicMs = SystemClock.elapsedRealtime()
 
       !isRunning || videoCaptureUseCase == null || previousConfig != nextConfig
     }
@@ -473,9 +484,10 @@ object PoseCameraSession {
           val file = recordingFile
           val options = recordingOptions
           val startedAtMs = recordingStartedAtMs
+          val startedAtMonotonicMs = recordingStartedAtMonotonicMs
           clearRecordingLocked()
           recordingState = RecordingState.IDLE
-          FinalizeSnapshot(completion, file, options, startedAtMs)
+          FinalizeSnapshot(completion, file, options, startedAtMs, startedAtMonotonicMs)
         }
 
         val completion = snapshot.completion ?: return
@@ -508,6 +520,7 @@ object PoseCameraSession {
     val file: File?,
     val options: RecordingOptions?,
     val startedAtMs: Long,
+    val startedAtMonotonicMs: Long,
   )
 
   private fun handleImageProxy(imageProxy: ImageProxy) {
@@ -543,6 +556,7 @@ object PoseCameraSession {
     recordingOptions = null
     recordingFile = null
     recordingStartedAtMs = 0L
+    recordingStartedAtMonotonicMs = 0L
     recordingCompletion = null
     if (recordingState != RecordingState.FAILED) {
       recordingState = RecordingState.IDLE
@@ -574,6 +588,8 @@ object PoseCameraSession {
     var height = 0
     var durationMs = (endedAtMs - startedAtMs).coerceAtLeast(0).toDouble()
     var fps = options.fps.toDouble()
+    var frameCount: Int? = null
+    var hasAudioTrack: Boolean? = null
 
     try {
       retriever.setDataSource(file.absolutePath)
@@ -589,6 +605,10 @@ object PoseCameraSession {
       fps = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_CAPTURE_FRAMERATE)
         ?.toDoubleOrNull()
         ?: fps
+      frameCount = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_FRAME_COUNT)
+        ?.toIntOrNull()
+      hasAudioTrack =
+        retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_HAS_AUDIO) == "yes"
     } finally {
       retriever.release()
     }
@@ -606,6 +626,11 @@ object PoseCameraSession {
       fps = fps,
       width = width,
       height = height,
+      recordingStartWallClockMs = startedAtMs.toDouble(),
+      recordingStartMonotonicMs =
+        if (startedAtMonotonicMs > 0L) startedAtMonotonicMs.toDouble() else null,
+      frameCount = frameCount,
+      hasAudioTrack = hasAudioTrack,
       fileSizeBytes = file.length(),
       codec = "h264",
       container = "mp4",

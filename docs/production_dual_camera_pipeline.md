@@ -1,6 +1,51 @@
 # Production Dual Camera Mocap Pipeline v1
 
-Bu döküman, MocapExpo projesinde "Move AI" kalitesinde bir çift kamera (dual-camera) hareket yakalama hattı oluşturmak için gerekli olan teknik detayları ve uygulama adımlarını içerir. Mevcut `PeerHost`, `PeerGuest`, `Triangulator` gibi bileşenlerin üzerine inşa edilerek profesyonel bir ürün seviyesine taşınması hedeflenmektedir.
+Bu döküman, MocapExpo projesinde çift kamera (dual-camera) hareket yakalama hattını üretim seviyesine taşımak için gerekli olan teknik detayları ve uygulama adımlarını içerir. Bu hedef, mevcut sürümde Move.ai seviyesinde kalite iddiası anlamına gelmez; güvenilir final dual-camera animasyon için hâlâ gerçek calibration, sağlam sync, multi-view constraint entegrasyonu ve kinematic/biomechanical fitting fazları gerekir.
+
+## Dual Camera Reconstruction Durumu
+
+Mevcut repo davranışı:
+
+1. Tek kamera WHAM yapısı korunmuştur. `selectedVideoCount <= 1` ve solo capture akışı single-camera WHAM production yolunda kalır.
+2. Final animasyon/BVH için güvenli production path hâlâ primary camera WHAM solve'dur.
+3. Dual camera tarafında backend reconstruction stage eklenmiştir. Bu stage şu aşamada diagnostic artifact ve metric üretir; final animasyonu otomatik olarak true dual-camera solve'a çevirdiği iddia edilmemelidir.
+4. Dual camera hattı:
+   - per-camera 2D pose extraction
+   - frame sync
+   - camera calibration
+   - DLT triangulation
+   - `dual_reconstruction.json`
+   - `multi_view_reconstruction.json`
+   - `quality_report.multiView` metric'leri
+5. Calibration, sync veya keypoint verisi eksikse sistem fake başarı üretmez. Durumlar artifact/report içinde `missing_calibration`, `missing_sync`, `missing_pose_frames`, `diagnostic_only` veya ilgili fallback reason olarak görünmelidir.
+6. Final animation hâlâ primary WHAM'dan geliyorsa `quality_report_json` bunu `primaryCameraFallbackUsed: true` ve `finalAnimationSource: "primary_wham"` ile açıkça belirtir.
+7. Yeni artifact'ler:
+   - `pose_frames_device_0.json`
+   - `pose_frames_device_1.json`
+   - `multi_view_sync.json`
+   - `camera_calibration.json`
+   - `dual_reconstruction.json`
+   - `multi_view_reconstruction.json`
+   - `pose_frames.json`, sadece diagnostic world-landmark formatı güvenliyse
+8. Yeni metric'ler:
+   - `matchedFrameCount`
+   - `averageTimeDeltaMs`
+   - `syncConfidence`
+   - `reprojectionErrorPx`
+   - `reprojectionP95Px`
+   - `triangulatedLandmarkRatio`
+   - `fallbackLandmarkRatio`
+   - `calibrationQualityScore`
+   - `intrinsicsFallbackUsed`
+   - `primaryCameraFallbackUsed`
+   - `finalAnimationSource`
+9. Sonraki faz:
+   - audio/native sync
+   - gerçek calibration clip
+   - AprilTag/checkerboard/human-pose calibration
+   - triangulated 3D constraints into WHAM/SMPL
+   - direct kinematic/biomechanical fitting
+   - final BVH from true dual-camera solve
 
 ## Mimari Hedef (End-to-End Pipeline)
 
@@ -113,7 +158,7 @@ Kullanıcıya çekimin kalitesini söyleyen rapor ekranı.
 
 ## İlk Milestone (Başlangıç Hedefleri)
 
-1.  **MultiViewSetup Yenileme:** Move AI tarzı adım adım setup flow.
+1.  **MultiViewSetup Yenileme:** Adım adım dual-camera setup flow.
 2.  **Bağlantı Sağlamlaştırma:** Gerçek cihazda (Physical device) TCP kopmalarının yönetimi.
 3.  **Debug Panel:** Host ekranında Remote FPS ve Match/Drop sayıları.
 4.  **3D Robot Preview:** 2D çizgiler yerine varsayılan olarak robotun gösterilmesi.

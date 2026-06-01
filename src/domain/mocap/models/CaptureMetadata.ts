@@ -19,6 +19,23 @@ export type CaptureVideoOrientation =
   | "landscape_right"
   | "unknown";
 
+export type CaptureVideoResolution = Readonly<{
+  width: number;
+  height: number;
+}>;
+
+export type IntrinsicMatrixK = readonly [
+  number,
+  number,
+  number,
+  number,
+  number,
+  number,
+  number,
+  number,
+  number,
+];
+
 export type CameraIntrinsics = Readonly<{
   fx: number;
   fy: number;
@@ -27,12 +44,28 @@ export type CameraIntrinsics = Readonly<{
   skew?: number;
   width: number;
   height: number;
+  intrinsicMatrixK?: IntrinsicMatrixK;
+  matrix?: IntrinsicMatrixK;
+}>;
+
+export type LensDistortion = readonly number[];
+
+export type SensorSize = Readonly<{
+  widthMm?: number;
+  heightMm?: number;
 }>;
 
 export type CaptureVideoMetadata = Readonly<{
   fps: number;
   width: number;
   height: number;
+  durationMs?: number;
+  resolution?: CaptureVideoResolution;
+  firstFrameTimestampMs?: number;
+  framePresentationTimestampsMs?: readonly number[];
+  frameCount?: number;
+  hasAudioTrack?: boolean;
+  audioSampleRate?: number;
   codec: string;
   orientation: CaptureVideoOrientation;
   isMirrored: boolean;
@@ -43,7 +76,12 @@ export type CaptureVideoMetadata = Readonly<{
 export type CaptureCameraMetadata = Readonly<{
   position: CaptureCameraPosition;
   focalLengthMm: number | null;
+  focalLength?: number | null;
   intrinsics: CameraIntrinsics | null;
+  cameraIntrinsics?: CameraIntrinsics | null;
+  intrinsicMatrixK?: IntrinsicMatrixK | null;
+  lensDistortion?: LensDistortion | null;
+  sensorSize?: SensorSize | null;
   lensModel: string | null;
 }>;
 
@@ -58,6 +96,9 @@ export type CaptureQualityMetadata = Readonly<{
 export type CaptureSyncMetadata = Readonly<{
   syncMethod: "single_device_clock" | "network_time_sync" | "audio_marker" | "manual";
   clockOffsetMs: number | null;
+  networkClockOffsetMs?: number | null;
+  localClockTimeMs?: number;
+  manualOffsetMs?: number | null;
   audioSyncMarker: string | null;
 }>;
 
@@ -74,13 +115,39 @@ export type CaptureMetadata = Readonly<{
   deviceId: string;
   deviceRole: CaptureDeviceRole;
   deviceIndex: number;
+  cameraId?: string;
+  cameraRole?: CaptureDeviceRole;
   captureMode: CaptureModeV1;
   multiCameraSessionId?: string;
   approxCameraAngle?: number;
   calibrationClipId?: string;
   recordingStartedAt: string;
   recordingEndedAt: string;
+  recordingStartTimeMs?: number;
+  recordingEndTimeMs?: number;
+  recordingStartWallClockMs?: number;
+  recordingStartMonotonicMs?: number;
+  firstFrameTimestampMs?: number;
+  framePresentationTimestampsMs?: readonly number[];
+  frameCount?: number;
+  localClockTimeMs?: number;
+  serverReceivedAtMs?: number;
+  networkClockOffsetMs?: number | null;
+  manualOffsetMs?: number | null;
+  hasAudioTrack?: boolean;
+  audioSampleRate?: number;
+  uploadOrder?: number;
   durationMs: number;
+  resolution?: CaptureVideoResolution;
+  width?: number;
+  height?: number;
+  fps?: number;
+  cameraIntrinsics?: CameraIntrinsics | null;
+  intrinsicMatrixK?: IntrinsicMatrixK | null;
+  lensDistortion?: LensDistortion | null;
+  focalLength?: number | null;
+  sensorSize?: SensorSize | null;
+  approximateCameraAngle?: number;
   video: CaptureVideoMetadata;
   camera: CaptureCameraMetadata;
   quality: CaptureQualityMetadata;

@@ -107,8 +107,16 @@ export type KnownExportArtifactFormat =
   | "motion_pipeline_report_json"
   | "wham_overlay_preview_mp4"
   | "pose_frames_device_json"
+  | "pose_frames_json"
+  | "calibration_observations_json"
   | "multi_view_sync_json"
   | "camera_calibration_json"
+  | "capture_volume_json"
+  | "triangulated_joint_track_json"
+  | "dual_fit_report_json"
+  | "optimized_solved_motion_json"
+  | "optimized_smpl_parameters_json"
+  | "optimized_bvh"
   | "dual_reconstruction_json"
   | "multi_view_reconstruction_json";
 

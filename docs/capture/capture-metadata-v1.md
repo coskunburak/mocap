@@ -67,3 +67,45 @@ Required: `schema`, `takeId`, `captureSessionId`, `deviceId`, `deviceRole`, `dev
 
 Camera intrinsics and focal length may be `null` in V1. Workers must handle missing intrinsics by using single-camera model assumptions or failing with `metadata_intrinsics_required` only when a pipeline explicitly requires calibration.
 
+## Optional Phase 3.1 Fields
+
+All Phase 3.1 sync/calibration fields are optional and additive. Older uploads without these fields remain valid.
+
+| Field | Location | Current source |
+| --- | --- | --- |
+| `cameraId`, `cameraRole` | root | Mobile builder derives from device/camera role when known. |
+| `recordingStartWallClockMs` | root | Native iOS/Android recording start wall-clock when available; mobile can derive from `startedAt`. |
+| `recordingStartMonotonicMs` | root | Native iOS/Android local monotonic clock at recording start. Not comparable across devices without clock sync metadata. |
+| `firstFrameTimestampMs` | root and `video` | iOS video sample timestamp when available. |
+| `framePresentationTimestampsMs` | root and `video` | iOS video sample PTS values when available. Android does not provide per-frame PTS yet. |
+| `frameCount` | root and `video` | iOS recorded frame count; Android uses container metadata when retrievable. |
+| `resolution`, `width`, `height`, `fps` | root and/or `video` | Mobile/native recording result. |
+| `serverReceivedAtMs` | root | Backend upload completion time. |
+| `networkClockOffsetMs`, `manualOffsetMs` | root and/or `sync` | Optional sync metadata. Missing values are diagnostic, not fatal. |
+| `hasAudioTrack`, `audioSampleRate` | root and/or `video` | Native recorder currently records video only, so audio sync must not be claimed. |
+| `cameraIntrinsics`, `intrinsicMatrixK` | root and/or `camera` | Optional only. Native recorders do not currently provide real intrinsics. |
+| `lensDistortion`, `focalLength`, `sensorSize` | root and/or `camera` | Optional only. Native recorders do not currently provide distortion/sensor metadata. |
+| `approximateCameraAngle` | root | Optional placement hint for dual/pro capture. |
+
+## Phase 3.1 Availability Audit
+
+| Question | Current answer |
+| --- | --- |
+| Recorder captures audio? | No. iOS uses a video-only `AVAssetWriterInput`; Android CameraX recording does not call `withAudioEnabled()`. |
+| Upload includes `cameraId`? | Yes when mobile builder creates it; old payloads may omit it. |
+| Upload includes `deviceId`? | Yes in current upload contract. |
+| Upload includes camera/device role? | Yes as `deviceRole`; `cameraRole` is optional. |
+| Recording wall-clock start? | Yes as ISO `recordingStartedAt`; Phase 3.1 also adds optional `recordingStartWallClockMs`. |
+| Recording monotonic start? | Native iOS/Android now expose optional local monotonic start. |
+| First frame timestamp? | Optional; iOS can expose it, Android does not yet. |
+| Per-frame presentation timestamps? | Optional; iOS can expose them, Android does not yet. |
+| FPS, width, height, duration? | Yes. |
+| Frame count? | Optional; iOS provides it, Android preserves it only when container metadata exposes it. |
+| iOS intrinsics/lens metadata? | Not currently emitted by the recorder. |
+| Android intrinsics/lens metadata? | Not currently emitted by the recorder. |
+| Lens distortion coefficients? | Not currently emitted by either platform. |
+| Backend preserves fields? | Yes. `capture_metadata` stores the full JSON payload plus backend `serverReceivedAtMs`. |
+| Backend discards unknown metadata? | No; validator checks required V1 shape and preserves the object. |
+| `manualOffsetMs` can be added later? | Yes; it is optional and tolerated under root or `sync`. |
+| Server/upload timing metadata? | Yes, optional `serverReceivedAtMs` is added on upload completion. |
+| Network clock offset metadata? | Optional `networkClockOffsetMs` is represented but only real client-provided values should be used. |

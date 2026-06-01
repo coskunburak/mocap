@@ -202,7 +202,10 @@ export class UploadService {
       1,
       config.limits.maxMetadataBytes,
     );
-    const captureMetadata = validateCaptureMetadata(obj.captureMetadata);
+    const captureMetadata = {
+      ...validateCaptureMetadata(obj.captureMetadata),
+      serverReceivedAtMs: Date.now(),
+    };
 
     const session = await this.uploads.getSession(userId, uploadSessionId);
     if (session.takeId !== takeId) {

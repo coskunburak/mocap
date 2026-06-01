@@ -6,12 +6,46 @@ export type QualityReportMultiViewSource =
   | "multi_view"
   | "pro_4_camera";
 
+export type QualityReportFinalAnimationSource =
+  | "primary_wham"
+  | "dual_triangulation_diagnostic"
+  | "dual_triangulation_constraint"
+  | "true_dual_solve"
+  | "unavailable";
+
 export type QualityReportMultiViewSection = Readonly<{
   enabled: boolean;
   source: QualityReportMultiViewSource;
   reconstructionAvailable: boolean;
   reconstructionUsedForConstraints: boolean;
   primaryWhamFallbackUsed: boolean;
+  primaryCameraFallbackUsed?: boolean;
+  finalAnimationSource?: QualityReportFinalAnimationSource;
+  reconstructionStatus?: string;
+  dualReconstructionStatus?: string;
+  trueDualSolveAvailable?: boolean;
+  poseDetectorSource?: string;
+  poseExtractionStatus?: string;
+  poseFramesDevice0Status?: string;
+  poseFramesDevice1Status?: string;
+  averageKeypointConfidence?: number;
+  missingPoseFrameRatio?: number;
+  syncStatus?: string;
+  syncMethod?: string;
+  syncConfidence?: number;
+  averageTimeDeltaMs?: number;
+  p95TimeDeltaMs?: number;
+  syncDiagnosticOnly?: boolean;
+  intrinsicsStatus?: string;
+  intrinsicsSource?: string;
+  intrinsicsConfidence?: number;
+  extrinsicsStatus?: string;
+  extrinsicsSource?: string;
+  extrinsicsConfidence?: number;
+  calibrationQualityScore?: number;
+  captureVolumeStatus?: string;
+  baselineEstimate?: number;
+  reprojectionErrorPx?: number;
   primaryWhamFallbackReason?: string;
   whamInputUsage?: Readonly<{
     primaryVideoUsed: boolean;
@@ -27,12 +61,15 @@ export type QualityReportMultiViewSection = Readonly<{
     matchedFrameCount?: number;
     droppedFrameCount?: number;
     averageTimeDeltaMs?: number;
+    p95TimeDeltaMs?: number;
     reprojectionErrorPx?: number;
     reprojectionP95Px?: number;
     triangulatedLandmarkRatio?: number;
     fallbackLandmarkRatio?: number;
     calibrationQualityScore?: number;
+    baselineEstimate?: number;
     intrinsicsFallbackUsed?: number;
+    extrinsicsFallbackUsed?: number;
     multiViewQualityGain?: number;
   }>;
   warnings?: readonly string[];
@@ -49,10 +86,20 @@ export type MultiViewArtifactGroup = Readonly<{
   files: readonly ApiExportFile[];
 }>;
 
+const NOT_AVAILABLE = "Not available";
+
 const MULTI_VIEW_ARTIFACT_LABELS: Record<string, string> = {
   pose_frames_device_json: "Per-camera pose JSON",
+  pose_frames_json: "Diagnostic pose frames JSON",
+  calibration_observations_json: "Calibration observations JSON",
   multi_view_sync_json: "Sync report JSON",
   camera_calibration_json: "Camera calibration JSON",
+  capture_volume_json: "Capture volume JSON",
+  triangulated_joint_track_json: "Triangulated joint track JSON",
+  dual_fit_report_json: "Dual fitting report JSON",
+  optimized_solved_motion_json: "Optimized solved motion JSON",
+  optimized_smpl_parameters_json: "Optimized SMPL parameters JSON",
+  optimized_bvh: "Optimized dual-solve BVH",
   dual_reconstruction_json: "Dual reconstruction JSON",
   multi_view_reconstruction_json: "Multi-view reconstruction JSON",
 };
@@ -75,19 +122,56 @@ const WARNING_LABELS: Record<string, string> = {
   camera_intrinsics_missing: "Camera intrinsics are missing.",
   camera_intrinsics_fov_fallback_used:
     "Camera intrinsics were missing; FOV fallback was used.",
+  camera_extrinsics_role_angle_fallback_used:
+    "Camera extrinsics used camera-role angle fallback.",
+  calibration_approximate:
+    "Camera calibration is approximate; dual-camera reconstruction is diagnostic.",
+  missing_calibration: "Camera calibration is missing.",
+  invalid_calibration: "Camera calibration is invalid.",
+  approximate: "Calibration or synchronization is approximate.",
   calibration_quality_low: "Calibration quality is low.",
   sync_confidence_low: "Frame synchronization confidence is low.",
   sync_offset_high: "Frame synchronization offset is high.",
+  sync_diagnostic_approximation:
+    "Frame synchronization used diagnostic index-based approximation.",
   reprojection_error_high: "Reprojection error is high.",
   triangulation_coverage_low: "Triangulation coverage is low.",
   single_camera_solver_fallback_used: "Primary camera solver fallback was used.",
 };
+
+export function isRelevantMultiViewSection(
+  section: QualityReportMultiViewSection | null | undefined,
+) {
+  return (
+    section?.source === "dual_camera" ||
+    section?.source === "multi_view" ||
+    section?.source === "pro_4_camera"
+  );
+}
+
+export function hasMultiViewDiagnosticContent(
+  section: QualityReportMultiViewSection | null | undefined,
+  artifactGroups: readonly MultiViewArtifactGroup[],
+) {
+  return isRelevantMultiViewSection(section) || artifactGroups.length > 0;
+}
 
 export function sourceLabel(source: QualityReportMultiViewSource | undefined) {
   if (source === "dual_camera") return "Dual Camera";
   if (source === "multi_view") return "Multi-View";
   if (source === "pro_4_camera") return "Pro 4 Camera";
   return "Single Camera";
+}
+
+export function finalAnimationSourceLabel(
+  source: QualityReportFinalAnimationSource | undefined,
+) {
+  if (source === "primary_wham") return "Primary WHAM";
+  if (source === "dual_triangulation_diagnostic") return "Dual Triangulation Diagnostic";
+  if (source === "dual_triangulation_constraint") return "Dual Triangulation Constraint";
+  if (source === "true_dual_solve") return "True Dual Solve";
+  if (source === "unavailable") return "Unavailable";
+  return undefined;
 }
 
 export function fallbackReasonLabel(reason: string | undefined) {
@@ -130,27 +214,37 @@ export function buildMultiViewMetricRows(
   const metrics = section.metrics;
   return {
     sync: compactRows([
-      ["matched frames", metricNumber(metrics?.matchedFrameCount)],
-      ["dropped frames", metricNumber(metrics?.droppedFrameCount)],
-      ["avg sync delta", metricNumber(metrics?.averageTimeDeltaMs, { suffix: "ms" })],
-      ["sync confidence", metricPercent(metrics?.syncConfidence)],
+      ["Sync Confidence", metricPercent(metrics?.syncConfidence)],
+      ["Matched Frames", metricNumber(metrics?.matchedFrameCount)],
+      ["Average Sync Delta", metricNumber(metrics?.averageTimeDeltaMs, { suffix: "ms" })],
+      ["P95 Sync Delta", metricNumber(metrics?.p95TimeDeltaMs, { suffix: "ms" })],
+      ["Dropped Frames", metricNumber(metrics?.droppedFrameCount)],
     ]),
     calibration: compactRows([
-      ["calibration quality", metricPercent(metrics?.calibrationQualityScore)],
+      ["Calibration Quality", metricPercent(metrics?.calibrationQualityScore)],
+      ["Baseline", metricNumber(metrics?.baselineEstimate, { suffix: "m" })],
       [
-        "intrinsics fallback",
+        "Intrinsics Fallback",
         metrics?.intrinsicsFallbackUsed == null
           ? undefined
           : metrics.intrinsicsFallbackUsed > 0
             ? "Yes"
             : "No",
       ],
+      [
+        "Extrinsics Fallback",
+        metrics?.extrinsicsFallbackUsed == null
+          ? undefined
+          : metrics.extrinsicsFallbackUsed > 0
+            ? "Yes"
+            : "No",
+      ],
     ]),
     triangulation: compactRows([
-      ["reprojection avg", metricNumber(metrics?.reprojectionErrorPx, { suffix: "px" })],
-      ["reprojection p95", metricNumber(metrics?.reprojectionP95Px, { suffix: "px" })],
-      ["triangulated", metricPercent(metrics?.triangulatedLandmarkRatio)],
-      ["fallback", metricPercent(metrics?.fallbackLandmarkRatio)],
+      ["Reprojection Error", metricNumber(metrics?.reprojectionErrorPx, { suffix: "px" })],
+      ["Reprojection P95", metricNumber(metrics?.reprojectionP95Px, { suffix: "px" })],
+      ["Triangulated Coverage", metricPercent(metrics?.triangulatedLandmarkRatio)],
+      ["Fallback Landmark Ratio", metricPercent(metrics?.fallbackLandmarkRatio)],
     ]),
   };
 }
@@ -160,15 +254,23 @@ export function buildWhamUsageRows(
 ): readonly DisplayRow[] {
   const usage = section.whamInputUsage;
   return compactRows([
-    ["source", sourceLabel(section.source)],
+    ["Source", sourceLabel(section.source)],
     [
-      "primary camera",
+      "Primary Camera",
       usage?.primaryVideoUsed || section.primaryWhamFallbackUsed ? "Used by WHAM" : undefined,
     ],
-    ["extra cameras", metricNumber(usage?.additionalVideosProvided)],
-    ["reconstruction", booleanLabel(section.reconstructionAvailable)],
-    ["constraints used", booleanLabel(section.reconstructionUsedForConstraints)],
-    ["primary fallback", booleanLabel(section.primaryWhamFallbackUsed)],
+    ["Extra Cameras", metricNumber(usage?.additionalVideosProvided)],
+    ["Reconstruction Available", booleanLabel(section.reconstructionAvailable)],
+    [
+      "Reconstruction Status",
+      section.reconstructionStatus ? readableCode(section.reconstructionStatus) : NOT_AVAILABLE,
+    ],
+    ["Constraints Used", booleanLabel(section.reconstructionUsedForConstraints)],
+    [
+      "Primary WHAM Fallback",
+      booleanLabel(section.primaryCameraFallbackUsed ?? section.primaryWhamFallbackUsed),
+    ],
+    ["Final Animation Source", finalAnimationSourceLabel(section.finalAnimationSource) ?? NOT_AVAILABLE],
   ]);
 }
 
@@ -176,6 +278,9 @@ export function multiViewStatusMessages(
   section: QualityReportMultiViewSection,
 ): readonly string[] {
   const messages: string[] = [];
+  if (section.finalAnimationSource === "primary_wham") {
+    messages.push("Final animation currently comes from primary-camera WHAM.");
+  }
   if (section.reconstructionAvailable && !section.reconstructionUsedForConstraints) {
     messages.push(
       "Multi-view reconstruction was used for diagnostics only; WHAM still used the primary camera.",

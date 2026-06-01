@@ -74,6 +74,7 @@ export default function ProjectDetailScreen() {
       };
     }, [projectId]),
   );
+  //mocap expo şuanda çalışabilir düzeyde mi? Production level 
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -164,19 +165,11 @@ export default function ProjectDetailScreen() {
               badge={takeBadge(take)}
               tone={takeTone(take)}
               onPress={() =>
-                navigation.navigate(routes.MotionPreview, {
+                navigation.navigate(routes.Review, {
                   takeId: take.id,
                 })
               }
               actions={[
-                {
-                  label: "Preview",
-                  variant: "primary",
-                  onPress: () =>
-                    navigation.navigate(routes.MotionPreview, {
-                      takeId: take.id,
-                    }),
-                },
                 {
                   label: "Review",
                   variant: "secondary",
@@ -187,7 +180,7 @@ export default function ProjectDetailScreen() {
                 },
                 {
                   label: "Export",
-                  variant: "secondary",
+                  variant: "primary",
                   onPress: () =>
                     navigation.navigate(routes.Export, {
                       takeId: take.id,
@@ -259,10 +252,10 @@ const styles = StyleSheet.create({
   metricCard: {
     minWidth: 140,
     flexGrow: 1,
-    borderRadius: 8,
+    borderRadius: radii.md,
     padding: spacing.md,
     gap: spacing.xs,
-    backgroundColor: "rgba(255, 255, 255, 0.045)",
+    backgroundColor: "rgba(16, 29, 44, 0.78)",
     borderWidth: 1,
     borderColor: colors.border,
   },

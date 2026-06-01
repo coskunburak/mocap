@@ -2,6 +2,7 @@ import { mkdir, rm, writeFile } from "fs/promises";
 import path from "path";
 import { config } from "../config";
 import type { CaptureVideo, ProcessingJob } from "../domain/types";
+import type { CalibrationTargetDetectorAdapter } from "./calibration/calibrationDetectorTypes";
 import {
   CaptureSessionRepository,
   ExportRepository,
@@ -20,12 +21,24 @@ import {
   validateBvhText,
   validateSolvedMotion,
 } from "./export/exportValidation";
+import {
+  artifactRefsFromPersistedMultiViewArtifacts,
+  buildMotionPipelineStage,
+  buildReconstructionDiagnosticStages,
+  sortMotionPipelineStages,
+} from "./export/motionPipelineStages";
+import { runDualCameraFittingOptimization } from "./fitting/dualCameraOptimizer";
+import { validateDualFitReportArtifact } from "./fitting/dualFitArtifacts";
 import { trySolvePremiumMotion } from "./export/premiumMotionSolver";
+import { buildCaptureMetadataDiagnostics } from "./captureMetadataDiagnostics";
 import {
   type PersistedMultiViewArtifact,
   persistMultiViewArtifacts,
 } from "./reconstruction/multiViewArtifacts";
+import type { FrameSyncOptions } from "./reconstruction/frameSync";
+import type { CameraIntrinsicsInput } from "./reconstruction/cameraCalibration";
 import {
+  MultiViewOrchestratorError,
   type MultiViewPoseAdapter,
   resolveWorkerPipelineBranch,
   resolveMultiViewStageFailure,
@@ -38,6 +51,11 @@ import {
 } from "./whamInputUsage";
 import type {
   MotionPipelineReport,
+  MotionPipelineStageStatus,
+  CalibrationObservationsArtifact,
+  CalibrationTargetType,
+  DualFitReportArtifact,
+  PerCameraPoseArtifact,
   PoseFramesArtifact,
   SolvedMotionArtifact,
   WhamFallbackReason,
@@ -51,6 +69,7 @@ type Deps = {
   exports?: ExportRepository;
   storage?: ObjectStorage;
   multiViewPoseAdapter?: MultiViewPoseAdapter;
+  calibrationTargetDetectorAdapter?: CalibrationTargetDetectorAdapter;
 };
 
 type ProcessedSource = {
@@ -88,6 +107,27 @@ class WorkerProcessingError extends Error {
 
 function workerDir(jobId: string) {
   return path.join(config.worker.tempDir, jobId);
+}
+
+async function createConfiguredMultiViewPoseAdapter() {
+  const { createConfiguredRtmposeMmposePoseAdapter } = await import(
+    "./pose/rtmposeMmposeAdapter"
+  );
+  return createConfiguredRtmposeMmposePoseAdapter();
+}
+
+async function createConfiguredCalibrationTargetDetectorAdapter() {
+  const { createConfiguredCalibrationTargetDetectorAdapter } = await import(
+    "./calibration/aprilTagCheckerboardAdapter"
+  );
+  return createConfiguredCalibrationTargetDetectorAdapter();
+}
+
+async function configuredCalibrationTargetType() {
+  const { calibrationDetectorRuntimeConfigFromEnv } = await import(
+    "./calibration/calibrationDetectorRuntime"
+  );
+  return calibrationDetectorRuntimeConfigFromEnv().targetType;
 }
 
 async function safeRm(dir: string) {
@@ -152,6 +192,381 @@ function whamSolvedPoseArtifact(input: {
   };
 }
 
+function poseArtifactsFromMultiViewError(error: unknown): PerCameraPoseArtifact[] {
+  if (!(error instanceof MultiViewOrchestratorError)) return [];
+  const details = error.details;
+  if (!details || typeof details !== "object") return [];
+  const poseArtifacts = (details as { poseArtifacts?: unknown }).poseArtifacts;
+  if (!Array.isArray(poseArtifacts)) return [];
+  return poseArtifacts.filter(
+    (artifact): artifact is PerCameraPoseArtifact =>
+      Boolean(
+        artifact &&
+          typeof artifact === "object" &&
+          (artifact as { schema?: unknown }).schema ===
+            "mocap.pose_frames_device.v1",
+      ),
+  );
+}
+
+function recordOrNull(value: unknown): Record<string, unknown> | null {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function finiteNumber(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function finiteNumberArray(value: unknown): number[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const numbers = value.filter(
+    (item): item is number => typeof item === "number" && Number.isFinite(item),
+  );
+  return numbers.length === value.length ? numbers : undefined;
+}
+
+function booleanValue(value: unknown): boolean | undefined {
+  return typeof value === "boolean" ? value : undefined;
+}
+
+function wallClockMsFromUnknown(value: unknown): number | undefined {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value !== "string" || value.trim().length === 0) return undefined;
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+function matrix3x3FromUnknown(value: unknown): CameraIntrinsicsInput["matrix"] | undefined {
+  const numbers = finiteNumberArray(value);
+  if (!numbers || numbers.length !== 9) return undefined;
+  return numbers as unknown as CameraIntrinsicsInput["matrix"];
+}
+
+function frameSyncOptionsFromCaptureVideos(
+  videos: readonly CaptureVideo[],
+): FrameSyncOptions | undefined {
+  const networkClockOffsetMsByDevice: Record<number, number> = {};
+  const recordingStartWallClockMsByDevice: Record<number, number> = {};
+  const recordingStartMonotonicMsByDevice: Record<number, number> = {};
+  const firstFrameTimestampMsByDevice: Record<number, number> = {};
+  const framePresentationTimestampsMsByDevice: Record<number, number[]> = {};
+  const fpsByDevice: Record<number, number> = {};
+  const frameCountByDevice: Record<number, number> = {};
+  const hasAudioTrackByDevice: Record<number, boolean> = {};
+  const manualOffsetMsByDevice: Record<number, number> = {};
+
+  for (const video of videos) {
+    const captureMetadata = recordOrNull(video.captureMetadata);
+    const videoMetadata = recordOrNull(captureMetadata?.video);
+    const syncMetadata =
+      recordOrNull(video.syncMetadata) ?? recordOrNull(captureMetadata?.sync);
+    const clockOffsetMs =
+      finiteNumber(syncMetadata?.networkClockOffsetMs) ??
+      finiteNumber(captureMetadata?.networkClockOffsetMs) ??
+      finiteNumber(syncMetadata?.clockOffsetMs);
+    const manualOffsetMs =
+      finiteNumber(syncMetadata?.manualOffsetMs) ??
+      finiteNumber(captureMetadata?.manualOffsetMs);
+    const recordingStartWallClockMs =
+      finiteNumber(captureMetadata?.recordingStartWallClockMs) ??
+      finiteNumber(videoMetadata?.recordingStartWallClockMs) ??
+      finiteNumber(captureMetadata?.recordingStartTimeMs) ??
+      finiteNumber(videoMetadata?.recordingStartTimeMs) ??
+      wallClockMsFromUnknown(captureMetadata?.recordingStartedAt);
+    const recordingStartMonotonicMs =
+      finiteNumber(captureMetadata?.recordingStartMonotonicMs) ??
+      finiteNumber(videoMetadata?.recordingStartMonotonicMs);
+    const firstFrameTimestampMs =
+      finiteNumber(captureMetadata?.firstFrameTimestampMs) ??
+      finiteNumber(videoMetadata?.firstFrameTimestampMs);
+    const framePresentationTimestampsMs =
+      finiteNumberArray(captureMetadata?.framePresentationTimestampsMs) ??
+      finiteNumberArray(videoMetadata?.framePresentationTimestampsMs);
+    const fps = finiteNumber(captureMetadata?.fps) ?? finiteNumber(videoMetadata?.fps);
+    const frameCount =
+      finiteNumber(captureMetadata?.frameCount) ??
+      finiteNumber(videoMetadata?.frameCount);
+    const hasAudioTrack =
+      booleanValue(captureMetadata?.hasAudioTrack) ??
+      booleanValue(videoMetadata?.hasAudioTrack);
+
+    if (clockOffsetMs !== undefined) {
+      networkClockOffsetMsByDevice[video.deviceIndex] = clockOffsetMs;
+    }
+    if (recordingStartWallClockMs !== undefined) {
+      recordingStartWallClockMsByDevice[video.deviceIndex] =
+        recordingStartWallClockMs;
+    }
+    if (recordingStartMonotonicMs !== undefined) {
+      recordingStartMonotonicMsByDevice[video.deviceIndex] =
+        recordingStartMonotonicMs;
+    }
+    if (firstFrameTimestampMs !== undefined) {
+      firstFrameTimestampMsByDevice[video.deviceIndex] = firstFrameTimestampMs;
+    }
+    if (framePresentationTimestampsMs) {
+      framePresentationTimestampsMsByDevice[video.deviceIndex] =
+        framePresentationTimestampsMs;
+    }
+    if (fps !== undefined && fps > 0) {
+      fpsByDevice[video.deviceIndex] = fps;
+    }
+    if (frameCount !== undefined && frameCount >= 0) {
+      frameCountByDevice[video.deviceIndex] = frameCount;
+    }
+    if (hasAudioTrack !== undefined) {
+      hasAudioTrackByDevice[video.deviceIndex] = hasAudioTrack;
+    }
+    if (manualOffsetMs !== undefined) {
+      manualOffsetMsByDevice[video.deviceIndex] = manualOffsetMs;
+    }
+  }
+
+  const hasNetworkClockOffsets =
+    Object.keys(networkClockOffsetMsByDevice).length > 0;
+  const hasWallClockStarts =
+    Object.keys(recordingStartWallClockMsByDevice).length > 0;
+  const hasMonotonicStarts =
+    Object.keys(recordingStartMonotonicMsByDevice).length > 0;
+  const hasFirstFrameTimestamps =
+    Object.keys(firstFrameTimestampMsByDevice).length > 0;
+  const hasFramePresentationTimestamps =
+    Object.keys(framePresentationTimestampsMsByDevice).length > 0;
+  const hasFps = Object.keys(fpsByDevice).length > 0;
+  const hasFrameCounts = Object.keys(frameCountByDevice).length > 0;
+  const hasAudioTrackMetadata = Object.keys(hasAudioTrackByDevice).length > 0;
+  const hasManualOffsets = Object.keys(manualOffsetMsByDevice).length > 0;
+  if (
+    !hasNetworkClockOffsets &&
+    !hasWallClockStarts &&
+    !hasMonotonicStarts &&
+    !hasFirstFrameTimestamps &&
+    !hasFramePresentationTimestamps &&
+    !hasFps &&
+    !hasFrameCounts &&
+    !hasAudioTrackMetadata &&
+    !hasManualOffsets
+  ) {
+    return undefined;
+  }
+
+  return {
+    audioAnalysisAvailable: false,
+    ...(hasNetworkClockOffsets ? { networkClockOffsetMsByDevice } : {}),
+    ...(hasWallClockStarts ? { recordingStartWallClockMsByDevice } : {}),
+    ...(hasMonotonicStarts ? { recordingStartMonotonicMsByDevice } : {}),
+    ...(hasFirstFrameTimestamps ? { firstFrameTimestampMsByDevice } : {}),
+    ...(hasFramePresentationTimestamps
+      ? { framePresentationTimestampsMsByDevice }
+      : {}),
+    ...(hasFps ? { fpsByDevice } : {}),
+    ...(hasFrameCounts ? { frameCountByDevice } : {}),
+    ...(hasAudioTrackMetadata ? { hasAudioTrackByDevice } : {}),
+    ...(hasManualOffsets ? { manualOffsetMsByDevice } : {}),
+  };
+}
+
+function cameraIntrinsicsFromCaptureMetadata(
+  captureMetadata: Record<string, unknown> | null,
+): CameraIntrinsicsInput | null {
+  const camera = recordOrNull(captureMetadata?.camera);
+  const intrinsics =
+    recordOrNull(camera?.intrinsics) ??
+    recordOrNull(camera?.cameraIntrinsics) ??
+    recordOrNull(captureMetadata?.cameraIntrinsics);
+  const matrix =
+    matrix3x3FromUnknown(captureMetadata?.intrinsicMatrixK) ??
+    matrix3x3FromUnknown(camera?.intrinsicMatrixK) ??
+    matrix3x3FromUnknown(intrinsics?.intrinsicMatrixK) ??
+    matrix3x3FromUnknown(intrinsics?.matrix);
+  const distortionCoefficients =
+    finiteNumberArray(captureMetadata?.lensDistortion) ??
+    finiteNumberArray(camera?.lensDistortion) ??
+    finiteNumberArray(intrinsics?.distortionCoefficients);
+  if (matrix) {
+    return {
+      matrix,
+      ...(distortionCoefficients ? { distortionCoefficients } : {}),
+      source: "capture_metadata",
+    };
+  }
+  if (!intrinsics) return null;
+  const fx = finiteNumber(intrinsics.fx);
+  const fy = finiteNumber(intrinsics.fy);
+  const cx = finiteNumber(intrinsics.cx);
+  const cy = finiteNumber(intrinsics.cy);
+  const skew = finiteNumber(intrinsics.skew);
+  const width = finiteNumber(intrinsics.width);
+  const height = finiteNumber(intrinsics.height);
+  if (fx === undefined || cx === undefined || cy === undefined) {
+    return null;
+  }
+  return {
+    fx,
+    ...(fy !== undefined ? { fy } : {}),
+    cx,
+    cy,
+    ...(skew !== undefined ? { skew } : {}),
+    ...(width !== undefined ? { width } : {}),
+    ...(height !== undefined ? { height } : {}),
+    ...(distortionCoefficients ? { distortionCoefficients } : {}),
+    source: "capture_metadata",
+  };
+}
+
+function fovDegreesFromCaptureMetadata(
+  captureMetadata: Record<string, unknown> | null,
+): number | undefined {
+  const camera = recordOrNull(captureMetadata?.camera);
+  return finiteNumber(camera?.fovDegrees) ?? finiteNumber(captureMetadata?.fovDegrees);
+}
+
+function approxCameraAngleFromCaptureMetadata(
+  captureMetadata: Record<string, unknown> | null,
+): number | undefined {
+  return (
+    finiteNumber(captureMetadata?.approximateCameraAngle) ??
+    finiteNumber(captureMetadata?.approxCameraAngle)
+  );
+}
+
+function calibrationTargetTypeFromCaptureMetadata(
+  sources: readonly ProcessedSource[],
+): CalibrationTargetType | undefined {
+  for (const source of sources) {
+    const captureMetadata = recordOrNull(source.video.captureMetadata);
+    const value =
+      stringValue(captureMetadata?.calibrationTargetType) ??
+      stringValue(recordOrNull(captureMetadata?.calibration)?.targetType);
+    if (value && isCalibrationTargetType(value)) return value;
+  }
+  return undefined;
+}
+
+function calibrationDetectorConfigFromCaptureMetadata(
+  sources: readonly ProcessedSource[],
+): Record<string, unknown> | undefined {
+  for (const source of sources) {
+    const captureMetadata = recordOrNull(source.video.captureMetadata);
+    const configValue =
+      recordOrNull(captureMetadata?.calibrationDetectorConfig) ??
+      recordOrNull(recordOrNull(captureMetadata?.calibration)?.detectorConfig);
+    if (configValue) return configValue;
+  }
+  return undefined;
+}
+
+function stringValue(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim().length > 0
+    ? value.trim()
+    : undefined;
+}
+
+function isCalibrationTargetType(value: string): value is CalibrationTargetType {
+  return ["apriltag", "checkerboard", "charuco", "human_pose_calibration"].includes(
+    value,
+  );
+}
+
+function replaceMotionPipelineStage(
+  stages: MotionPipelineStageStatus[],
+  stage: MotionPipelineStageStatus,
+) {
+  const index = stages.findIndex((item) => item.stageName === stage.stageName);
+  if (index >= 0) {
+    stages[index] = stage;
+    return;
+  }
+  stages.push(stage);
+}
+
+function dualFitStageStatusForWorker(
+  status: DualFitReportArtifact["status"],
+): MotionPipelineStageStatus["status"] {
+  if (status === "failed" || status === "optimization_failed") return "failed";
+  if (status === "ready") return "ready";
+  return "diagnostic_only";
+}
+
+function dualFitQualityGateSummary(report: DualFitReportArtifact) {
+  return {
+    passed: report.qualityGates.filter((gate) => gate.passed).length,
+    failed: report.qualityGates.filter((gate) => !gate.passed).length,
+    blockingFailed: report.qualityGates.filter(
+      (gate) => !gate.passed && gate.severity === "blocking",
+    ).length,
+    warningFailed: report.qualityGates.filter(
+      (gate) => !gate.passed && gate.severity === "warning",
+    ).length,
+  };
+}
+
+function acceptDualFitReport(
+  report: DualFitReportArtifact,
+  artifactRefs: Record<string, string>,
+): DualFitReportArtifact {
+  return {
+    ...report,
+    status: "ready",
+    reason:
+      "Optimized dual-camera motion and BVH passed export validation and quality gates.",
+    metrics: {
+      ...report.metrics,
+      acceptedAsFinalAnimation: true,
+    },
+    acceptedAsFinalAnimation: true,
+    finalAnimationSourceCandidate: "true_dual_solve",
+    artifactRefs: {
+      ...report.artifactRefs,
+      ...artifactRefs,
+    },
+    warnings: Array.from(
+      new Set([
+        ...report.warnings.filter(
+          (warning) => warning !== "dual_fit_rejected_primary_wham_final",
+        ),
+        "dual_fit_accepted_true_dual_solve",
+      ]),
+    ),
+  };
+}
+
+function rejectDualFitReport(
+  report: DualFitReportArtifact,
+  reason: string,
+  artifactRefs: Record<string, string> = {},
+): DualFitReportArtifact {
+  return {
+    ...report,
+    status:
+      report.status === "ready" || report.acceptedAsFinalAnimation
+        ? "optimization_failed"
+        : report.status,
+    reason,
+    metrics: {
+      ...report.metrics,
+      acceptedAsFinalAnimation: false,
+    },
+    acceptedAsFinalAnimation: false,
+    finalAnimationSourceCandidate: "primary_wham",
+    artifactRefs: {
+      ...report.artifactRefs,
+      ...artifactRefs,
+    },
+    warnings: Array.from(
+      new Set([
+        ...report.warnings.filter(
+          (warning) => warning !== "dual_fit_accepted_true_dual_solve_candidate",
+        ),
+        reason,
+        "dual_fit_rejected_primary_wham_final",
+      ]),
+    ),
+  };
+}
+
 export class WorkerJobProcessor {
   private readonly jobs: JobRepository;
   private readonly takes: TakeRepository;
@@ -160,6 +575,9 @@ export class WorkerJobProcessor {
   private readonly exports: ExportRepository;
   private readonly storage: ObjectStorage;
   private readonly multiViewPoseAdapter: MultiViewPoseAdapter | undefined;
+  private readonly calibrationTargetDetectorAdapter:
+    | CalibrationTargetDetectorAdapter
+    | undefined;
 
   constructor(deps: Deps = {}) {
     this.jobs = deps.jobs ?? new JobRepository();
@@ -169,6 +587,8 @@ export class WorkerJobProcessor {
     this.exports = deps.exports ?? new ExportRepository();
     this.storage = deps.storage ?? new ObjectStorage();
     this.multiViewPoseAdapter = deps.multiViewPoseAdapter;
+    this.calibrationTargetDetectorAdapter =
+      deps.calibrationTargetDetectorAdapter;
   }
 
   async process(job: ProcessingJob) {
@@ -215,6 +635,16 @@ export class WorkerJobProcessor {
         : useDualInput
           ? uploadedSources.slice(0, 2)
           : uploadedSources.slice(0, 1);
+      const captureMetadataDiagnostics = usesMultiSourceInput
+        ? buildCaptureMetadataDiagnostics(
+            sources.map((source) => ({
+              deviceIndex: source.deviceIndex,
+              deviceId: source.deviceId,
+              deviceRole: source.deviceRole,
+              captureMetadata: source.captureMetadata,
+            })),
+          )
+        : undefined;
       const pipelineBranch = resolveWorkerPipelineBranch({
         captureMode: take.captureMode,
         selectedVideoCount: sources.length,
@@ -229,6 +659,7 @@ export class WorkerJobProcessor {
             captureMode: take.captureMode,
             selectedVideoCount: sources.length,
             branch: pipelineBranch,
+            ...(captureMetadataDiagnostics ? { captureMetadataDiagnostics } : {}),
           },
         );
       }
@@ -239,6 +670,8 @@ export class WorkerJobProcessor {
           ? "multi_view_reconstruction_disabled"
           : "none";
       const processedSources: ProcessedSource[] = [];
+      const pipelineStages: MotionPipelineStageStatus[] = [];
+      const videoNormalizationStartedAt = Date.now();
 
       await this.jobs.updateState({
         jobId: job.id,
@@ -253,6 +686,7 @@ export class WorkerJobProcessor {
           captureMode: take.captureMode,
           sourceCount: sources.length,
           videoStorageKeys: sources.map((source) => source.videoStorageKey),
+          ...(captureMetadataDiagnostics ? { captureMetadataDiagnostics } : {}),
         },
       });
 
@@ -298,6 +732,25 @@ export class WorkerJobProcessor {
         });
       }
 
+      pipelineStages.push(
+        buildMotionPipelineStage({
+          stageName: "video_normalization",
+          status: "completed",
+          reason: usesMultiSourceInput
+            ? "Selected multi-source videos were normalized independently."
+            : "Selected primary source video was normalized.",
+          startedAtMs: videoNormalizationStartedAt,
+          completedAtMs: Date.now(),
+          artifactRefs: Object.fromEntries(
+            processedSources.map((source) => [
+              `normalized_device_${source.video.deviceIndex}`,
+              source.normalizedKey,
+            ]),
+          ),
+          warnings: [],
+        }),
+      );
+
       const primarySource = processedSources[0];
       if (!primarySource) {
         throw new WorkerProcessingError("No source video was prepared.", "source_video_missing");
@@ -305,10 +758,17 @@ export class WorkerJobProcessor {
       let multiViewDiagnostic: MultiViewDiagnosticSummary | undefined;
       let qualityReportMultiViewDiagnostic:
         | QualityReportMultiViewDiagnosticInput
-        | undefined;
+        | undefined = captureMetadataDiagnostics
+        ? {
+            reconstructionAvailable: false,
+            captureMetadataDiagnostics,
+            warnings: captureMetadataDiagnostics.missingMetadataWarnings,
+          }
+        : undefined;
       let persistedMultiViewArtifacts: PersistedMultiViewArtifact[] = [];
       let multiViewArtifactPersistenceWarnings: string[] = [];
       if (pipelineBranch.kind === "multi_view_reconstruction") {
+        const reconstructionStartedAt = Date.now();
         await this.jobs.updateState({
           jobId: job.id,
           state: "solving_motion",
@@ -317,31 +777,91 @@ export class WorkerJobProcessor {
           metrics: {
             captureMode: take.captureMode,
             branch: pipelineBranch,
+            ...(captureMetadataDiagnostics ? { captureMetadataDiagnostics } : {}),
           },
         });
         let reconstruction:
           | Awaited<ReturnType<typeof runMultiViewReconstruction>>
           | undefined;
+        let calibrationObservations: CalibrationObservationsArtifact | undefined;
         try {
+          const poseAdapter =
+            this.multiViewPoseAdapter ??
+            (await createConfiguredMultiViewPoseAdapter());
+          const calibrationDetectorAdapter =
+            this.calibrationTargetDetectorAdapter ??
+            (await createConfiguredCalibrationTargetDetectorAdapter());
+          if (calibrationDetectorAdapter) {
+            calibrationObservations =
+              await calibrationDetectorAdapter.detectCalibrationObservations({
+                takeId: job.takeId,
+                jobId: job.id,
+                sessionId: captureSessionIds[0] ?? null,
+                targetType:
+                  calibrationTargetTypeFromCaptureMetadata(processedSources) ??
+                  (await configuredCalibrationTargetType()),
+                detectorConfig:
+                  calibrationDetectorConfigFromCaptureMetadata(processedSources),
+                outputArtifactName: "calibration_observations.json",
+                cameras: processedSources.map((source) => {
+                  const captureMetadata = recordOrNull(source.video.captureMetadata);
+                  const cameraId =
+                    typeof captureMetadata?.cameraId === "string" &&
+                    captureMetadata.cameraId.trim().length > 0
+                      ? captureMetadata.cameraId.trim()
+                      : `device_${source.video.deviceIndex}`;
+                  return {
+                    cameraId,
+                    deviceId: source.video.deviceId ?? undefined,
+                    normalizedVideoPath: source.normalizedPath,
+                    videoMetadata: {
+                      fps: source.normalizedProbe.fps,
+                      width: source.normalizedProbe.width,
+                      height: source.normalizedProbe.height,
+                      durationMs: source.normalizedProbe.durationMs,
+                    },
+                  };
+                }),
+              });
+          }
           reconstruction = await runMultiViewReconstruction({
             takeId: job.takeId,
             jobId: job.id,
             source: motionSource === "multi_view" ? "multi_view" : "dual_camera",
-            processedSources: processedSources.map((source) => ({
-              deviceIndex: source.video.deviceIndex,
-              deviceRole: source.video.deviceRole,
-              videoStorageKey: source.video.videoStorageKey,
-              normalizedStorageKey: source.normalizedKey,
-              normalizedPath: source.normalizedPath,
-              fps: source.normalizedProbe.fps,
-              width: source.normalizedProbe.width,
-              height: source.normalizedProbe.height,
-              durationMs: source.normalizedProbe.durationMs,
-            })),
+            processedSources: processedSources.map((source) => {
+              const captureMetadata = recordOrNull(source.video.captureMetadata);
+              const cameraId =
+                typeof captureMetadata?.cameraId === "string" &&
+                captureMetadata.cameraId.trim().length > 0
+                  ? captureMetadata.cameraId.trim()
+                  : `device_${source.video.deviceIndex}`;
+              return {
+                cameraId,
+                deviceId: source.video.deviceId ?? undefined,
+                deviceIndex: source.video.deviceIndex,
+                deviceRole: source.video.deviceRole,
+                videoStorageKey: source.video.videoStorageKey,
+                normalizedStorageKey: source.normalizedKey,
+                normalizedPath: source.normalizedPath,
+                fps: source.normalizedProbe.fps,
+                width: source.normalizedProbe.width,
+                height: source.normalizedProbe.height,
+                durationMs: source.normalizedProbe.durationMs,
+                intrinsics: cameraIntrinsicsFromCaptureMetadata(captureMetadata),
+                fovDegrees: fovDegreesFromCaptureMetadata(captureMetadata),
+                approxCameraAngleDegrees:
+                  approxCameraAngleFromCaptureMetadata(captureMetadata),
+              };
+            }),
             outputDir: path.join(dir, "multi_view_reconstruction"),
-            poseAdapter: this.multiViewPoseAdapter,
+            poseAdapter,
+            syncOptions: frameSyncOptionsFromCaptureVideos(
+              processedSources.map((source) => source.video),
+            ),
+            ...(calibrationObservations ? { calibrationObservations } : {}),
           });
         } catch (error) {
+          const failedPoseArtifacts = poseArtifactsFromMultiViewError(error);
           const action = resolveMultiViewStageFailure({
             error,
             allowPrimaryWhamFallback: config.worker.allowPrimaryWhamFallback,
@@ -360,10 +880,82 @@ export class WorkerJobProcessor {
           };
           qualityReportMultiViewDiagnostic = {
             reconstructionAvailable: false,
-            warnings: [action.errorCode],
+            captureMetadataDiagnostics,
+            ...(calibrationObservations ? { calibrationObservations } : {}),
+            warnings: [
+              action.errorCode,
+              ...(calibrationObservations?.warnings ?? []),
+              ...(captureMetadataDiagnostics?.missingMetadataWarnings ?? []),
+            ],
             errorCode: action.errorCode,
             errorMessage: action.errorMessage,
+            ...(failedPoseArtifacts.length
+              ? { poseArtifacts: failedPoseArtifacts }
+              : {}),
           };
+          if (action.shouldContinueWithPrimaryWham && failedPoseArtifacts.length > 0) {
+            try {
+              const persistenceResult = await persistMultiViewArtifacts({
+                takeId: job.takeId,
+                jobId: job.id,
+                source:
+                  take.captureMode === "pro_4_camera"
+                    ? "pro_4_camera"
+                    : motionSource === "multi_view"
+                      ? "multi_view"
+                      : "dual_camera",
+                poseArtifacts: failedPoseArtifacts,
+                ...(calibrationObservations
+                  ? { calibrationObservations }
+                  : {}),
+                storage: {
+                  uploadJson: (key, value) => this.storage.putJson(key, value),
+                },
+                exportsRepository: {
+                  createExportFile: ({ format, artifactName, storageKey, sizeBytes }) =>
+                    this.exports.create({
+                      userId: job.userId,
+                      projectId: job.projectId,
+                      takeId: job.takeId,
+                      jobId: job.id,
+                      preset: job.preset,
+                      format,
+                      artifactName,
+                      storageKey,
+                      fileSizeBytes: sizeBytes,
+                    }),
+                },
+              });
+              persistedMultiViewArtifacts = persistenceResult.artifacts;
+              multiViewArtifactPersistenceWarnings = persistenceResult.warnings;
+            } catch {
+              multiViewArtifactPersistenceWarnings = [
+                ...multiViewArtifactPersistenceWarnings,
+                "multi_view_pose_artifact_persistence_failed",
+              ];
+            }
+          }
+          pipelineStages.push(
+            ...buildReconstructionDiagnosticStages({
+              source: motionSource,
+              branchKind: pipelineBranch.kind,
+              reconstructionAvailable: false,
+              errorCode: action.errorCode,
+              errorMessage: action.errorMessage,
+              artifactRefs: artifactRefsFromPersistedMultiViewArtifacts(
+                persistedMultiViewArtifacts,
+              ),
+              ...(calibrationObservations ? { calibrationObservations } : {}),
+              warnings: [
+                action.errorCode,
+                ...(calibrationObservations?.warnings ?? []),
+                ...(captureMetadataDiagnostics?.missingMetadataWarnings ?? []),
+                ...multiViewArtifactPersistenceWarnings,
+              ],
+              startedAtMs: reconstructionStartedAt,
+              completedAtMs: Date.now(),
+            }),
+          );
           if (!action.shouldContinueWithPrimaryWham) {
             throw new WorkerProcessingError(
               "Multi-view reconstruction failed and primary WHAM fallback is disabled.",
@@ -372,6 +964,9 @@ export class WorkerJobProcessor {
                 captureMode: take.captureMode,
                 branch: pipelineBranch,
                 multiView: multiViewDiagnostic,
+                ...(captureMetadataDiagnostics
+                  ? { captureMetadataDiagnostics }
+                  : {}),
               },
             );
           }
@@ -388,6 +983,15 @@ export class WorkerJobProcessor {
             metrics: {
               captureMode: take.captureMode,
               multiView: multiViewDiagnostic,
+              ...(captureMetadataDiagnostics
+                ? { captureMetadataDiagnostics }
+                : {}),
+              ...(persistedMultiViewArtifacts.length
+                ? { multiViewArtifacts: persistedMultiViewArtifacts }
+                : {}),
+              ...(multiViewArtifactPersistenceWarnings.length
+                ? { warnings: multiViewArtifactPersistenceWarnings }
+                : {}),
             },
           });
         }
@@ -408,14 +1012,31 @@ export class WorkerJobProcessor {
           };
           qualityReportMultiViewDiagnostic = {
             reconstructionAvailable: true,
+            captureMetadataDiagnostics,
             syncReport: reconstruction.syncReport,
+            calibrationObservations: reconstruction.calibrationObservations,
             cameraCalibration: reconstruction.calibrationArtifact,
+            captureVolume: reconstruction.captureVolumeArtifact,
             reconstruction: reconstruction.reconstructionArtifact,
+            jointTrack: reconstruction.triangulatedJointTrackArtifact,
+            dualReconstruction: reconstruction.dualReconstructionArtifact,
+            multiViewReconstruction:
+              reconstruction.multiViewReconstructionSummaryArtifact,
+            poseArtifacts: reconstruction.poseArtifacts,
             warnings: Array.from(
               new Set([
                 ...reconstruction.syncReport.warnings,
+                ...(reconstruction.calibrationObservations?.warnings ?? []),
                 ...reconstruction.calibrationArtifact.warnings,
+                ...reconstruction.captureVolumeArtifact.warnings,
                 ...reconstruction.reconstructionArtifact.warnings,
+                ...(reconstruction.triangulatedJointTrackArtifact?.warnings ?? []),
+                ...(captureMetadataDiagnostics?.missingMetadataWarnings ?? []),
+                ...(reconstruction.dualReconstructionArtifact?.warnings ?? []),
+                ...(
+                  reconstruction.multiViewReconstructionSummaryArtifact
+                    ?.qualitySummary.warnings ?? []
+                ),
               ]),
             ),
           };
@@ -423,6 +1044,7 @@ export class WorkerJobProcessor {
           primaryWhamFallbackUsed = true;
           primaryWhamFallbackReason =
             "multi_view_reconstruction_diagnostic_only";
+          let artifactPersistenceErrorMessage: string | undefined;
           try {
             const persistenceResult = await persistMultiViewArtifacts({
               takeId: job.takeId,
@@ -435,8 +1057,16 @@ export class WorkerJobProcessor {
                     : "dual_camera",
               poseArtifacts: reconstruction.poseArtifacts,
               syncReport: reconstruction.syncReport,
+              calibrationObservations: reconstruction.calibrationObservations,
               cameraCalibration: reconstruction.calibrationArtifact,
+              captureVolume: reconstruction.captureVolumeArtifact,
               reconstruction: reconstruction.reconstructionArtifact,
+              triangulatedJointTrack:
+                reconstruction.triangulatedJointTrackArtifact,
+              dualReconstruction: reconstruction.dualReconstructionArtifact,
+              multiViewReconstruction:
+                reconstruction.multiViewReconstructionSummaryArtifact,
+              diagnosticPoseFrames: reconstruction.diagnosticPoseFramesArtifact,
               storage: {
                 uploadJson: (key, value) => this.storage.putJson(key, value),
               },
@@ -458,19 +1088,52 @@ export class WorkerJobProcessor {
             persistedMultiViewArtifacts = persistenceResult.artifacts;
             multiViewArtifactPersistenceWarnings = persistenceResult.warnings;
           } catch (error) {
-            throw new WorkerProcessingError(
-              "Multi-view artifact persistence failed.",
+            artifactPersistenceErrorMessage =
+              error instanceof Error
+                ? error.message
+                : "Multi-view artifact persistence failed.";
+            multiViewArtifactPersistenceWarnings = [
+              ...multiViewArtifactPersistenceWarnings,
               "multi_view_artifact_persistence_failed",
-              {
-                captureMode: take.captureMode,
-                branch: pipelineBranch,
-                message:
-                  error instanceof Error
-                    ? error.message
-                    : "Multi-view artifact persistence failed.",
-              },
+            ];
+            qualityReportMultiViewDiagnostic.warnings = Array.from(
+              new Set([
+                ...(qualityReportMultiViewDiagnostic.warnings ?? []),
+                ...multiViewArtifactPersistenceWarnings,
+              ]),
             );
           }
+          pipelineStages.push(
+            ...buildReconstructionDiagnosticStages({
+              source: motionSource,
+              branchKind: pipelineBranch.kind,
+              reconstructionAvailable: true,
+              reconstructionStatus:
+                reconstruction.triangulatedJointTrackArtifact?.status ??
+                reconstruction.dualReconstructionArtifact?.status ??
+                reconstruction.multiViewReconstructionSummaryArtifact?.status ??
+                "ready",
+              errorCode: artifactPersistenceErrorMessage
+                ? "multi_view_artifact_persistence_failed"
+                : undefined,
+              errorMessage: artifactPersistenceErrorMessage,
+              artifactRefs: artifactRefsFromPersistedMultiViewArtifacts(
+                persistedMultiViewArtifacts,
+              ),
+              syncReport: reconstruction.syncReport,
+              calibrationObservations: reconstruction.calibrationObservations,
+              cameraCalibration: reconstruction.calibrationArtifact,
+              captureVolume: reconstruction.captureVolumeArtifact,
+              triangulatedJointTrack:
+                reconstruction.triangulatedJointTrackArtifact,
+              warnings: [
+                ...(qualityReportMultiViewDiagnostic.warnings ?? []),
+                ...multiViewArtifactPersistenceWarnings,
+              ],
+              startedAtMs: reconstructionStartedAt,
+              completedAtMs: Date.now(),
+            }),
+          );
           await this.jobs.updateState({
             jobId: job.id,
             state: "solving_motion",
@@ -480,13 +1143,31 @@ export class WorkerJobProcessor {
             metrics: {
               captureMode: take.captureMode,
               multiView: multiViewDiagnostic,
+              ...(captureMetadataDiagnostics
+                ? { captureMetadataDiagnostics }
+                : {}),
               multiViewArtifacts: persistedMultiViewArtifacts,
               warnings: multiViewArtifactPersistenceWarnings,
             },
           });
         }
+      } else if (motionSource !== "single_camera") {
+        pipelineStages.push(
+          ...buildReconstructionDiagnosticStages({
+            source: motionSource,
+            branchKind: pipelineBranch.kind,
+            reconstructionAvailable: false,
+            warnings:
+              primaryWhamFallbackReason === "none"
+                ? captureMetadataDiagnostics?.missingMetadataWarnings ?? []
+                : [
+                    primaryWhamFallbackReason,
+                    ...(captureMetadataDiagnostics?.missingMetadataWarnings ?? []),
+                  ],
+          }),
+        );
       }
-      const whamInputUsage = buildWhamInputUsageMetrics({
+      let whamInputUsage = buildWhamInputUsageMetrics({
         source: motionSource,
         selectedVideos: processedSources.map((source) => ({
           deviceIndex: source.video.deviceIndex,
@@ -521,12 +1202,14 @@ export class WorkerJobProcessor {
           normalizedVideos: processedSources.map((source) => source.normalizedKey),
           whamInputUsage,
           ...(multiViewDiagnostic ? { multiView: multiViewDiagnostic } : {}),
+          ...(captureMetadataDiagnostics ? { captureMetadataDiagnostics } : {}),
           ...(persistedMultiViewArtifacts.length
             ? { multiViewArtifacts: persistedMultiViewArtifacts }
             : {}),
         },
       });
 
+      const primaryWhamStartedAt = Date.now();
       const premiumAttempt = await trySolvePremiumMotion({
         takeId: job.takeId,
         jobId: job.id,
@@ -612,6 +1295,372 @@ export class WorkerJobProcessor {
         fileSizeBytes: rawSolvedFile.sizeBytes,
       });
 
+      pipelineStages.push(
+        buildMotionPipelineStage({
+          stageName: "primary_wham",
+          status: "completed",
+          reason: primaryWhamFallbackUsed
+            ? "WHAM produced the final animation from the primary selected video; multi-view reconstruction remained diagnostic."
+            : "WHAM produced the final animation from the primary selected video.",
+          startedAtMs: primaryWhamStartedAt,
+          completedAtMs: Date.now(),
+          artifactRefs: {
+            smpl_parameters_json: smplParametersKey,
+            raw_solved_motion_json: rawSolvedKey,
+            ...(overlayPreviewKey
+              ? { wham_overlay_preview_mp4: overlayPreviewKey }
+              : {}),
+          },
+          warnings:
+            primaryWhamFallbackReason === "none"
+              ? []
+              : ["single_camera_solver_fallback_used", primaryWhamFallbackReason],
+        }),
+      );
+
+      let optimizedSolvedMotionForFinal: SolvedMotionArtifact | undefined;
+      let optimizedSolvedMotionKey: string | undefined;
+      let optimizedBvhKey: string | undefined;
+      let optimizedBvhText: string | undefined;
+      let acceptedDualCameraFinal = false;
+
+      if (pipelineBranch.kind === "multi_view_reconstruction" && motionSource !== "single_camera") {
+        const fittingStartedAt = Date.now();
+        try {
+          const fittingResult = runDualCameraFittingOptimization({
+            takeId: job.takeId,
+            jobId: job.id,
+            whamInitialization: rawSolved,
+            smplInitialization: rawSolved.smpl,
+            jointTrack: qualityReportMultiViewDiagnostic?.jointTrack,
+            poseArtifacts: qualityReportMultiViewDiagnostic?.poseArtifacts,
+            cameraCalibration: qualityReportMultiViewDiagnostic?.cameraCalibration,
+            artifactRefs: artifactRefsFromPersistedMultiViewArtifacts(
+              persistedMultiViewArtifacts,
+            ),
+          });
+          let dualFitReport = fittingResult.report;
+          const optimizedArtifactRefs: Record<string, string> = {};
+
+          if (fittingResult.optimizedMotion) {
+            const optimizedValidation = validateSolvedMotion(
+              fittingResult.optimizedMotion,
+            );
+            if (!optimizedValidation.ok) {
+              dualFitReport = rejectDualFitReport(
+                dualFitReport,
+                `Optimized solved motion failed validation: ${optimizedValidation.errors.join("; ")}`,
+              );
+            } else {
+              const candidateBvh = writeBvh(fittingResult.optimizedMotion);
+              const optimizedBvhValidation = validateBvhText(
+                candidateBvh,
+                fittingResult.optimizedMotion.frameCount,
+              );
+              const optimizedBvhPath = path.join(dir, "optimized_result.bvh");
+              const optimizedBlenderResultPath = path.join(
+                dir,
+                "optimized_blender_smoke_test.json",
+              );
+              await writeFile(optimizedBvhPath, candidateBvh, "utf8");
+              const optimizedBlender = await runBlenderSmokeTest(
+                optimizedBvhPath,
+                optimizedBlenderResultPath,
+              );
+              const optimizedErrors = [
+                ...optimizedValidation.errors,
+                ...optimizedBvhValidation.errors,
+                ...optimizedBlender.errors,
+              ];
+              const optimizedWarnings = [
+                ...optimizedValidation.warnings,
+                ...optimizedBvhValidation.warnings,
+                ...optimizedBlender.warnings,
+              ];
+
+              if (!optimizedBvhValidation.ok || !optimizedBlender.ok) {
+                dualFitReport = rejectDualFitReport(
+                  dualFitReport,
+                  `Optimized BVH export was rejected: ${optimizedErrors.join("; ")}`,
+                );
+              } else {
+                const acceptedOptimizedMotion: SolvedMotionArtifact = {
+                  ...fittingResult.optimizedMotion,
+                  validation: {
+                    ok: true,
+                    warnings: Array.from(
+                      new Set([
+                        ...fittingResult.optimizedMotion.validation.warnings,
+                        ...optimizedWarnings,
+                      ]),
+                    ),
+                    errors: [],
+                  },
+                  optimizedFrom: fittingResult.optimizedMotion.optimizedFrom
+                    ? {
+                        ...fittingResult.optimizedMotion.optimizedFrom,
+                        acceptedAsFinalAnimation: true,
+                      }
+                    : undefined,
+                };
+                optimizedSolvedMotionKey = artifactStorageKey(
+                  job.takeId,
+                  job.id,
+                  "optimized_solved_motion.json",
+                );
+                const optimizedSolvedMotionFile = await this.storage.putJson(
+                  optimizedSolvedMotionKey,
+                  acceptedOptimizedMotion,
+                );
+                await this.exports.create({
+                  userId: job.userId,
+                  projectId: job.projectId,
+                  takeId: job.takeId,
+                  jobId: job.id,
+                  preset: job.preset,
+                  format: "optimized_solved_motion_json",
+                  storageKey: optimizedSolvedMotionFile.storageKey,
+                  artifactName: "optimized_solved_motion_json",
+                  fileSizeBytes: optimizedSolvedMotionFile.sizeBytes,
+                });
+
+                optimizedBvhKey = artifactStorageKey(
+                  job.takeId,
+                  job.id,
+                  "optimized_result.bvh",
+                );
+                const optimizedBvhFile = await this.storage.putText(
+                  optimizedBvhKey,
+                  candidateBvh,
+                  "application/octet-stream",
+                );
+                await this.exports.create({
+                  userId: job.userId,
+                  projectId: job.projectId,
+                  takeId: job.takeId,
+                  jobId: job.id,
+                  preset: job.preset,
+                  format: "optimized_bvh",
+                  storageKey: optimizedBvhFile.storageKey,
+                  artifactName: "optimized_bvh",
+                  fileSizeBytes: optimizedBvhFile.sizeBytes,
+                });
+                optimizedArtifactRefs.optimized_solved_motion_json =
+                  optimizedSolvedMotionKey;
+                optimizedArtifactRefs.optimized_bvh = optimizedBvhKey;
+                optimizedSolvedMotionForFinal = acceptedOptimizedMotion;
+                optimizedBvhText = candidateBvh;
+                acceptedDualCameraFinal = true;
+                primaryWhamFallbackUsed = false;
+                primaryWhamFallbackReason = "none";
+                whamInputUsage = buildWhamInputUsageMetrics({
+                  source: motionSource,
+                  selectedVideos: processedSources.map((source) => ({
+                    deviceIndex: source.video.deviceIndex,
+                    storageKey: source.video.videoStorageKey,
+                  })),
+                  primaryDeviceIndex: primarySource.video.deviceIndex,
+                  multiViewReconstructionAvailable,
+                  multiViewConstraintsUsed: true,
+                  primaryWhamFallbackUsed: false,
+                  primaryWhamFallbackReason: "none",
+                });
+                replaceMotionPipelineStage(
+                  pipelineStages,
+                  buildMotionPipelineStage({
+                    stageName: "primary_wham",
+                    status: "completed",
+                    reason:
+                      "WHAM produced the primary initialization; accepted dual-camera fitting supplies the final animation.",
+                    startedAtMs: primaryWhamStartedAt,
+                    completedAtMs: Date.now(),
+                    artifactRefs: {
+                      smpl_parameters_json: smplParametersKey,
+                      raw_solved_motion_json: rawSolvedKey,
+                      ...(overlayPreviewKey
+                        ? { wham_overlay_preview_mp4: overlayPreviewKey }
+                        : {}),
+                    },
+                    warnings: [],
+                  }),
+                );
+                dualFitReport = acceptDualFitReport(
+                  dualFitReport,
+                  optimizedArtifactRefs,
+                );
+              }
+            }
+          }
+
+          if (
+            dualFitReport.acceptedAsFinalAnimation &&
+            (!optimizedSolvedMotionForFinal || !optimizedBvhKey)
+          ) {
+            dualFitReport = rejectDualFitReport(
+              dualFitReport,
+              "Optimized output was not fully persisted; primary WHAM remains final.",
+              optimizedArtifactRefs,
+            );
+            acceptedDualCameraFinal = false;
+            optimizedSolvedMotionForFinal = undefined;
+            optimizedBvhText = undefined;
+          }
+          const dualFitValidation =
+            validateDualFitReportArtifact(dualFitReport);
+          if (!dualFitValidation.ok) {
+            throw new WorkerProcessingError(
+              "Dual fitting report failed validation.",
+              "dual_fit_report_invalid",
+              dualFitValidation,
+            );
+          }
+
+          const fittingPersistenceResult = await persistMultiViewArtifacts({
+            takeId: job.takeId,
+            jobId: job.id,
+            source:
+              take.captureMode === "pro_4_camera"
+                ? "pro_4_camera"
+                : motionSource === "multi_view"
+                  ? "multi_view"
+                  : "dual_camera",
+            dualFitReport,
+            storage: {
+              uploadJson: (key, value) => this.storage.putJson(key, value),
+            },
+            exportsRepository: {
+              createExportFile: ({ format, artifactName, storageKey, sizeBytes }) =>
+                this.exports.create({
+                  userId: job.userId,
+                  projectId: job.projectId,
+                  takeId: job.takeId,
+                  jobId: job.id,
+                  preset: job.preset,
+                  format,
+                  artifactName,
+                  storageKey,
+                  fileSizeBytes: sizeBytes,
+                }),
+            },
+          });
+          persistedMultiViewArtifacts = [
+            ...persistedMultiViewArtifacts,
+            ...fittingPersistenceResult.artifacts,
+          ];
+          multiViewArtifactPersistenceWarnings = Array.from(
+            new Set([
+              ...multiViewArtifactPersistenceWarnings,
+              ...fittingPersistenceResult.warnings,
+            ]),
+          );
+          qualityReportMultiViewDiagnostic = {
+            ...(qualityReportMultiViewDiagnostic ?? {
+              reconstructionAvailable: multiViewReconstructionAvailable,
+              captureMetadataDiagnostics,
+            }),
+            dualFitReport,
+            warnings: Array.from(
+              new Set([
+                ...(qualityReportMultiViewDiagnostic?.warnings ?? []),
+                ...dualFitReport.warnings,
+                ...fittingPersistenceResult.warnings,
+              ]),
+            ),
+          };
+          const fittingArtifactRefs =
+            artifactRefsFromPersistedMultiViewArtifacts(
+              persistedMultiViewArtifacts,
+            );
+          const reconstructionArtifactStage = pipelineStages.find(
+            (stage) => stage.stageName === "dual_reconstruction_artifacts",
+          );
+          if (
+            reconstructionArtifactStage &&
+            fittingArtifactRefs.dual_fit_report_json
+          ) {
+            reconstructionArtifactStage.artifactRefs = {
+              ...reconstructionArtifactStage.artifactRefs,
+              dual_fit_report_json: fittingArtifactRefs.dual_fit_report_json,
+              ...optimizedArtifactRefs,
+            };
+          }
+          replaceMotionPipelineStage(
+            pipelineStages,
+            buildMotionPipelineStage({
+              stageName: "dual_camera_fitting",
+              status: dualFitStageStatusForWorker(dualFitReport.status),
+              reason: dualFitReport.acceptedAsFinalAnimation
+                ? `${dualFitReport.reason ?? "Dual-camera fitting accepted optimized output."} Final animation source can switch to true_dual_solve.`
+                : `${dualFitReport.reason ?? "Dual-camera fitting completed."} Final animation remains primary WHAM.`,
+              startedAtMs: fittingStartedAt,
+              completedAtMs: Date.now(),
+              artifactRefs: {
+                ...(fittingArtifactRefs.dual_fit_report_json
+                  ? {
+                      dual_fit_report_json:
+                        fittingArtifactRefs.dual_fit_report_json,
+                    }
+                  : {}),
+                ...optimizedArtifactRefs,
+              },
+              artifactRef: fittingArtifactRefs.dual_fit_report_json,
+              dualFitStatus: dualFitReport.status,
+              acceptedAsFinalAnimation: dualFitReport.acceptedAsFinalAnimation,
+              finalAnimationSource: dualFitReport.finalAnimationSourceCandidate,
+              qualityGateSummary: dualFitQualityGateSummary(dualFitReport),
+              warnings: dualFitReport.warnings,
+            }),
+          );
+        } catch (error) {
+          acceptedDualCameraFinal = false;
+          optimizedSolvedMotionForFinal = undefined;
+          optimizedBvhText = undefined;
+          primaryWhamFallbackUsed = true;
+          primaryWhamFallbackReason = "multi_view_reconstruction_diagnostic_only";
+          whamInputUsage = buildWhamInputUsageMetrics({
+            source: motionSource,
+            selectedVideos: processedSources.map((source) => ({
+              deviceIndex: source.video.deviceIndex,
+              storageKey: source.video.videoStorageKey,
+            })),
+            primaryDeviceIndex: primarySource.video.deviceIndex,
+            multiViewReconstructionAvailable,
+            multiViewConstraintsUsed: false,
+            primaryWhamFallbackUsed,
+            primaryWhamFallbackReason,
+          });
+          const message =
+            error instanceof Error
+              ? error.message
+              : "Dual fitting foundation failed.";
+          qualityReportMultiViewDiagnostic = {
+            ...(qualityReportMultiViewDiagnostic ?? {
+              reconstructionAvailable: multiViewReconstructionAvailable,
+              captureMetadataDiagnostics,
+            }),
+            warnings: Array.from(
+              new Set([
+                ...(qualityReportMultiViewDiagnostic?.warnings ?? []),
+                "dual_camera_fitting_failed",
+                message,
+              ]),
+            ),
+          };
+          replaceMotionPipelineStage(
+            pipelineStages,
+            buildMotionPipelineStage({
+              stageName: "dual_camera_fitting",
+              status: "failed",
+              reason:
+                "Dual-camera fitting foundation failed; primary WHAM fallback remains the final animation path.",
+              startedAtMs: fittingStartedAt,
+              completedAtMs: Date.now(),
+              warnings: ["dual_camera_fitting_failed", message],
+            }),
+          );
+        }
+      }
+
       await this.jobs.updateState({
         jobId: job.id,
         state: "cleaning",
@@ -674,19 +1723,36 @@ export class WorkerJobProcessor {
         },
       });
 
-      const bvh = writeBvh(solved);
-      const bvhValidation = validateBvhText(bvh, solved.frameCount);
+      const finalAnimationStartedAt = Date.now();
+      const finalSolved =
+        acceptedDualCameraFinal && optimizedSolvedMotionForFinal
+          ? optimizedSolvedMotionForFinal
+          : solved;
+      const finalSolvedValidation =
+        finalSolved === solved ? solvedValidation : validateSolvedMotion(finalSolved);
+      if (!finalSolvedValidation.ok) {
+        throw new WorkerProcessingError(
+          "Final motion failed validation.",
+          "final_motion_invalid",
+          finalSolvedValidation,
+        );
+      }
+      const bvh =
+        acceptedDualCameraFinal && optimizedBvhText
+          ? optimizedBvhText
+          : writeBvh(solved);
+      const bvhValidation = validateBvhText(bvh, finalSolved.frameCount);
       const bvhPath = path.join(dir, "result.bvh");
       const blenderResultPath = path.join(dir, "blender_smoke_test.json");
       await writeFile(bvhPath, bvh, "utf8");
       const blender = await runBlenderSmokeTest(bvhPath, blenderResultPath);
       const allWarnings = [
-        ...solvedValidation.warnings,
+        ...finalSolvedValidation.warnings,
         ...bvhValidation.warnings,
         ...blender.warnings,
       ];
       const allErrors = [
-        ...solvedValidation.errors,
+        ...finalSolvedValidation.errors,
         ...bvhValidation.errors,
         ...blender.errors,
       ];
@@ -721,9 +1787,35 @@ export class WorkerJobProcessor {
         fileSizeBytes: bvhFile.sizeBytes,
       });
 
+      pipelineStages.push(
+        buildMotionPipelineStage({
+          stageName: "final_animation_export",
+          status: "completed",
+          reason: acceptedDualCameraFinal
+            ? "Final BVH export was generated from the accepted optimized dual-camera solve."
+            : primaryWhamFallbackUsed
+              ? "Final BVH export was generated from the primary WHAM motion path."
+              : "Final BVH export was generated from the WHAM motion path.",
+          startedAtMs: finalAnimationStartedAt,
+          completedAtMs: Date.now(),
+          artifactRefs: {
+            bvh: bvhKey,
+            solved_motion_json: solvedKey,
+            ...(optimizedSolvedMotionKey
+              ? { optimized_solved_motion_json: optimizedSolvedMotionKey }
+              : {}),
+            ...(optimizedBvhKey ? { optimized_bvh: optimizedBvhKey } : {}),
+          },
+          finalAnimationSource: acceptedDualCameraFinal
+            ? "true_dual_solve"
+            : "primary_wham",
+          warnings: allWarnings,
+        }),
+      );
+
       const quality = buildQualityReport(
         poseArtifact,
-        solved,
+        finalSolved,
         cleanup,
         {
           ok: allErrors.length === 0,
@@ -751,7 +1843,19 @@ export class WorkerJobProcessor {
         fileSizeBytes: qualityFile.sizeBytes,
       });
 
-      const preview = buildPreviewSummary(solved, quality, cleanup);
+      pipelineStages.push(
+        buildMotionPipelineStage({
+          stageName: "quality_report",
+          status: "completed",
+          reason: "Quality report was generated with additive multi-view diagnostics when available.",
+          artifactRefs: {
+            quality_report_json: qualityKey,
+          },
+          warnings: quality.warnings,
+        }),
+      );
+
+      const preview = buildPreviewSummary(finalSolved, quality, cleanup);
       const previewKey = artifactStorageKey(job.takeId, job.id, "preview_summary.json");
       const previewFile = await this.storage.putJson(previewKey, preview);
       await this.exports.create({
@@ -783,8 +1887,13 @@ export class WorkerJobProcessor {
           cleanup: "cleanup_quality_v1_5",
         },
         fallback: {
-          motionFallbackUsed: false,
-          reasons: [],
+          motionFallbackUsed: acceptedDualCameraFinal
+            ? false
+            : primaryWhamFallbackUsed,
+          reasons:
+            acceptedDualCameraFinal || primaryWhamFallbackReason === "none"
+              ? []
+              : [primaryWhamFallbackReason],
         },
         artifacts: {
           smplParameters: smplParametersKey,
@@ -795,6 +1904,8 @@ export class WorkerJobProcessor {
           previewSummary: previewKey,
           overlayPreview: overlayPreviewKey,
           bvh: bvhKey,
+          optimizedSolvedMotion: optimizedSolvedMotionKey,
+          optimizedBvh: optimizedBvhKey,
         },
         quality: {
           score: quality.score,
@@ -802,6 +1913,7 @@ export class WorkerJobProcessor {
           warnings: quality.warnings.slice(0, 12),
           errors: quality.errors,
         },
+        stages: sortMotionPipelineStages(pipelineStages),
         whamInputUsage,
         createdAt: new Date().toISOString(),
       };
@@ -831,6 +1943,7 @@ export class WorkerJobProcessor {
           qualityScore: quality.score,
           blender,
           whamInputUsage,
+          ...(captureMetadataDiagnostics ? { captureMetadataDiagnostics } : {}),
           ...(persistedMultiViewArtifacts.length
             ? { multiViewArtifacts: persistedMultiViewArtifacts }
             : {}),
@@ -840,6 +1953,8 @@ export class WorkerJobProcessor {
             solvedMotion: solvedKey,
             cleanupReport: cleanupKey,
             bvh: bvhKey,
+            optimizedSolvedMotion: optimizedSolvedMotionKey,
+            optimizedBvh: optimizedBvhKey,
             qualityReport: qualityKey,
             previewSummary: previewKey,
             overlayPreview: overlayPreviewKey,
