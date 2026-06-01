@@ -68,13 +68,13 @@ export default function ProjectDetailScreen() {
           if (active) setLoading(false);
         }
       })();
-      
+
       return () => {
         active = false;
       };
     }, [projectId]),
   );
-  //mocap expo şuanda çalışabilir düzeyde mi? Production level 
+  //mocap expo şuanda çalışabilir düzeyde mi? Production level
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
