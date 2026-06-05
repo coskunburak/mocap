@@ -5,6 +5,7 @@
  * time-sync, and relays commands / receives landmark frames.
  */
 
+import { Buffer } from "buffer";
 import { Platform } from "react-native";
 import { NetworkInfo } from "react-native-network-info";
 import TcpSocket from "react-native-tcp-socket";

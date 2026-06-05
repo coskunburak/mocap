@@ -7,7 +7,6 @@ import {
   View,
   requireNativeComponent,
 } from "react-native";
-import { useIsFocused } from "@react-navigation/native";
 import { useCameraPermission } from "react-native-vision-camera";
 import { NativeCameraEngine } from "../data/NativeCameraEngine";
 import { colors, radii, spacing, typography } from "../../../ui/theme";
@@ -24,9 +23,8 @@ const NativePosePreviewView =
     : (props: any) => <View {...props} />;
 
 export function CameraView({ onLayoutSize, isActive = true, rounded = true }: Props) {
-  const isFocused = useIsFocused();
   const { hasPermission, requestPermission } = useCameraPermission();
-  const previewEnabled = hasPermission && isFocused && isActive;
+  const previewEnabled = hasPermission && isActive;
 
   useEffect(() => {
     (async () => {

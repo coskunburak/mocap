@@ -92,14 +92,15 @@ export type MultiViewState = {
   setRemoteDevice: (device: DeviceInfo | undefined) => void;
   setSessionId: (id: string) => void;
   setBackendCaptureSession: (input: {
+    captureMode?: CaptureMode;
     projectId: string;
     takeId: string;
     captureSessionId: string;
     joinToken: string;
-    deviceRole: ProCameraRole;
-    deviceId: string;
-    deviceIndex: number;
-    approxCameraAngle: number;
+    deviceRole?: ProCameraRole | DeviceRole;
+    deviceId?: string;
+    deviceIndex?: number;
+    approxCameraAngle?: number;
     calibrationClipId?: string;
   }) => void;
   setProCalibrationClip: (clipId: string | undefined) => void;
@@ -205,14 +206,20 @@ export const useMultiViewStore = create<MultiViewState>((set) => ({
 
   setBackendCaptureSession: (input) =>
     set({
-      captureMode: "pro-4-camera",
-      peerRole: "host",
-      connectionState: "ready",
+      captureMode: input.captureMode ?? "pro-4-camera",
+      peerRole:
+        input.captureMode === "dual-camera" && input.deviceRole
+          ? (input.deviceRole as DeviceRole)
+          : "host",
+      connectionState: input.captureMode === "dual-camera" ? "connecting" : "ready",
       backendProjectId: input.projectId,
       backendTakeId: input.takeId,
       backendCaptureSessionId: input.captureSessionId,
       backendJoinToken: input.joinToken,
-      proDeviceRole: input.deviceRole,
+      proDeviceRole:
+        input.captureMode === "pro-4-camera" || !input.captureMode
+          ? (input.deviceRole as ProCameraRole | undefined)
+          : undefined,
       proDeviceId: input.deviceId,
       proDeviceIndex: input.deviceIndex,
       proApproxCameraAngle: input.approxCameraAngle,

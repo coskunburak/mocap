@@ -8,6 +8,8 @@
  * on each message type documents who typically sends it.
  */
 
+import { Buffer } from "buffer";
+
 // ─── Device identity ──────────────────────────────────────────────
 
 export type DeviceRole = "host" | "guest";
@@ -223,25 +225,21 @@ export class MessageFramer {
 
 /**
  * Encode a Float32Array as a base64 string for compact transmission.
- * React Native's btoa works on latin-1 strings, so we do byte-level encoding.
  */
 export function float32ToBase64(arr: Float32Array): string {
   const bytes = new Uint8Array(arr.buffer, arr.byteOffset, arr.byteLength);
-  let binary = "";
-  for (let i = 0; i < bytes.length; i++) {
-    binary += String.fromCharCode(bytes[i]);
-  }
-  return globalThis.btoa(binary);
+  return Buffer.from(bytes).toString("base64");
 }
 
 /**
  * Decode a base64 string back to Float32Array.
  */
 export function base64ToFloat32(b64: string): Float32Array {
-  const binary = globalThis.atob(b64);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) {
-    bytes[i] = binary.charCodeAt(i);
+  const bytes = Buffer.from(b64, "base64");
+  if (bytes.byteLength % Float32Array.BYTES_PER_ELEMENT !== 0) {
+    throw new Error("Invalid Float32Array base64 payload length");
   }
-  return new Float32Array(bytes.buffer);
+  const copy = new Uint8Array(bytes.byteLength);
+  copy.set(bytes);
+  return new Float32Array(copy.buffer);
 }
