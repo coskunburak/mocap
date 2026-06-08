@@ -3,6 +3,7 @@ import type {
   CaptureDevicePlatform,
   CaptureVideoOrientation,
 } from "../../../domain/mocap/models/CaptureMetadata";
+import type { PoseFrame } from "../../../domain/mocap/models/PoseFrame";
 
 export type CameraRecordingState =
   | "idle"
@@ -47,4 +48,5 @@ export interface CameraEngine {
   stopPreview(): Promise<void>;
   startVideoRecording(options: StartVideoRecordingOptions): Promise<void>;
   stopVideoRecording(): Promise<VideoRecordingResult>;
+  subscribePoseFrames(listener: (frame: PoseFrame, fps: number) => void): () => void;
 }

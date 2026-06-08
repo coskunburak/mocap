@@ -2,6 +2,7 @@ import type {
   CameraCalibrationArtifact,
   CaptureVolumeArtifact,
   DualFitReportArtifact,
+  DualFitQualityGateSummary,
   MotionPipelineStageName,
   MotionPipelineStageResultStatus,
   MotionPipelineStageStatus,
@@ -11,6 +12,7 @@ import type {
   QualityReportFinalAnimationSource,
 } from "../types";
 import type { PersistedMultiViewArtifact } from "../reconstruction/multiViewArtifacts";
+import { buildDualFitAcceptanceSummary } from "../fitting/fittingQuality";
 
 const RECONSTRUCTION_STAGE_NAMES: readonly MotionPipelineStageName[] = [
   "per_camera_pose_extraction",
@@ -74,12 +76,7 @@ export type BuildMotionPipelineStageInput = {
   dualFitStatus?: DualFitReportArtifact["status"];
   acceptedAsFinalAnimation?: boolean;
   finalAnimationSource?: QualityReportFinalAnimationSource;
-  qualityGateSummary?: {
-    passed: number;
-    failed: number;
-    blockingFailed: number;
-    warningFailed: number;
-  };
+  qualityGateSummary?: DualFitQualityGateSummary;
   triangulatedJointRatio?: number;
   averageReprojectionErrorPx?: number;
   temporalJitterAfter?: number;
@@ -281,16 +278,25 @@ export function buildReconstructionDiagnosticStages(
     );
     const jointTrackArtifactRef =
       jointTrackArtifactRefs.triangulated_joint_track_json;
-    const dualFitArtifactRefs = pickRefs(
-      input.artifactRefs,
-      /^(dual_fit_report_json|optimized_solved_motion_json|optimized_smpl_parameters_json|optimized_bvh)$/,
-    );
+    const dualFitArtifactRefs = {
+      ...pickRefs(
+        input.artifactRefs,
+        /^(dual_fit_report_json|optimized_solved_motion_json|optimized_smpl_parameters_json|optimized_bvh)$/,
+      ),
+      ...pickRefs(
+        input.dualFitReport?.artifactRefs,
+        /^(dual_fit_report_json|optimized_solved_motion_json|optimized_smpl_parameters_json|optimized_bvh)$/,
+      ),
+    };
     const dualFitArtifactRef = dualFitArtifactRefs.dual_fit_report_json;
-    const finalAnimationSource =
+    const acceptedDualFitFinal = Boolean(
       input.dualFitReport?.acceptedAsFinalAnimation &&
-      input.dualFitReport.finalAnimationSourceCandidate === "true_dual_solve"
-        ? "true_dual_solve"
-        : "primary_wham";
+      input.dualFitReport.finalAnimationSourceCandidate === "true_dual_solve" &&
+      Boolean(dualFitArtifactRefs.optimized_solved_motion_json) &&
+      Boolean(dualFitArtifactRefs.optimized_bvh),
+    );
+    const finalAnimationSource: QualityReportFinalAnimationSource =
+      acceptedDualFitFinal ? "true_dual_solve" : "primary_wham";
     return [
       buildMotionPipelineStage({
         stageName: "per_camera_pose_extraction",
@@ -428,21 +434,20 @@ export function buildReconstructionDiagnosticStages(
       buildMotionPipelineStage({
         stageName: "dual_camera_fitting",
         status: input.dualFitReport
-          ? dualFitStageStatus(input.dualFitReport.status)
+          ? dualFitStageStatus(input.dualFitReport.status, acceptedDualFitFinal)
           : "skipped",
         reason: input.dualFitReport
-          ? input.dualFitReport.acceptedAsFinalAnimation
+          ? acceptedDualFitFinal
             ? `Dual-camera fitting produced an accepted optimized output with status ${input.dualFitReport.status}.`
             : `Dual-camera fitting produced a report with status ${input.dualFitReport.status}; primary WHAM remains final.`
           : "Dual-camera fitting foundation did not run for this diagnostic reconstruction.",
         artifactRefs: dualFitArtifactRefs,
         artifactRef: dualFitArtifactRef,
         dualFitStatus: input.dualFitReport?.status,
-        acceptedAsFinalAnimation:
-          input.dualFitReport?.acceptedAsFinalAnimation ?? false,
+        acceptedAsFinalAnimation: acceptedDualFitFinal,
         finalAnimationSource,
         qualityGateSummary: input.dualFitReport
-          ? qualityGateSummary(input.dualFitReport)
+          ? qualityGateSummary(input.dualFitReport, acceptedDualFitFinal)
           : undefined,
         warnings: [
           ...(input.warnings ?? []),
@@ -581,14 +586,17 @@ function reconstructionStatusToStageStatus(
 
 function dualFitStageStatus(
   status: DualFitReportArtifact["status"],
+  acceptedAsFinalAnimation: boolean,
 ): MotionPipelineStageResultStatus {
+  if (acceptedAsFinalAnimation) return "ready";
   if (status === "failed" || status === "optimization_failed") return "failed";
   if (
     status === "missing_joint_track" ||
     status === "missing_wham_initialization" ||
     status === "optimization_not_implemented" ||
     status === "fallback_primary_wham" ||
-    status === "diagnostic_only"
+    status === "diagnostic_only" ||
+    status === "ready"
   ) {
     return "diagnostic_only";
   }
@@ -596,7 +604,27 @@ function dualFitStageStatus(
   return "ready";
 }
 
-function qualityGateSummary(report: DualFitReportArtifact) {
+function qualityGateSummary(
+  report: DualFitReportArtifact,
+  acceptedDualFitFinal: boolean,
+): DualFitQualityGateSummary {
+  const acceptance =
+    !acceptedDualFitFinal && report.acceptedAsFinalAnimation
+      ? buildDualFitAcceptanceSummary({
+          metrics: {
+            ...report.metrics,
+            acceptedAsFinalAnimation: false,
+          },
+          gates: report.qualityGates,
+          acceptedAsFinalAnimation: false,
+          additionalBlockingFailures: ["optimized_artifacts_missing"],
+        })
+      : report.acceptance ??
+        buildDualFitAcceptanceSummary({
+          metrics: report.metrics,
+          gates: report.qualityGates,
+          acceptedAsFinalAnimation: report.acceptedAsFinalAnimation,
+        });
   return {
     passed: report.qualityGates.filter((gate) => gate.passed).length,
     failed: report.qualityGates.filter((gate) => !gate.passed).length,
@@ -606,6 +634,13 @@ function qualityGateSummary(report: DualFitReportArtifact) {
     warningFailed: report.qualityGates.filter(
       (gate) => !gate.passed && gate.severity === "warning",
     ).length,
+    accepted: acceptance.accepted,
+    blockingFailures: acceptance.blockingFailures,
+    warnings: acceptance.warnings,
+    unavailableMetrics: acceptance.unavailableMetrics,
+    metrics: acceptance.metrics,
+    finalAnimationSourceRecommendation:
+      acceptance.finalAnimationSourceRecommendation,
   };
 }
 

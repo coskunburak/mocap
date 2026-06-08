@@ -91,6 +91,15 @@ function testMissingMetadataFallbackIsDiagnosticOnly() {
       "metadata_camera_intrinsics_incomplete",
     ),
   );
+  assert.ok(diagnostics.missingMetadataWarnings.includes("camera_intrinsics_missing"));
+  assert.ok(
+    diagnostics.missingMetadataWarnings.includes("metadata_manual_offset_missing"),
+  );
+  assert.ok(
+    diagnostics.missingMetadataWarnings.includes(
+      "approximate_camera_angle_missing",
+    ),
+  );
 }
 
 function testFrameTimestampAndAudioHonesty() {
@@ -163,6 +172,7 @@ function testIntrinsicsAreOptionalPerCamera() {
       "metadata_missing_device_1_camera_intrinsics",
     ),
   );
+  assert.ok(diagnostics.missingMetadataWarnings.includes("camera_intrinsics_missing"));
 }
 
 testMissingMetadataFallbackIsDiagnosticOnly();

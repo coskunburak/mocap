@@ -35,6 +35,7 @@ final class VideoRecorder {
         let fileSizeBytes: Int64
         let codec: String
         let container: String
+        let orientation: String
 
         func asDictionary() -> [String: Any] {
             var dictionary: [String: Any] = [
@@ -53,6 +54,7 @@ final class VideoRecorder {
                 "fileSizeBytes": fileSizeBytes,
                 "codec": codec,
                 "container": container,
+                "orientation": orientation,
                 "platform": "ios"
             ]
             if let recordingStartMonotonicMs {
@@ -209,7 +211,8 @@ final class VideoRecorder {
                     hasAudioTrack: false,
                     fileSizeBytes: fileSize,
                     codec: "h264",
-                    container: "mov"
+                    container: "mov",
+                    orientation: options.orientation
                 ),
                 nil
             )
@@ -252,7 +255,11 @@ final class VideoRecorder {
 
         let input = AVAssetWriterInput(mediaType: .video, outputSettings: settings)
         input.expectsMediaDataInRealTime = true
-        input.transform = transform(for: options.orientation)
+        input.transform = transform(
+            for: options.orientation,
+            pixelWidth: pixelWidth,
+            pixelHeight: pixelHeight
+        )
 
         guard writer.canAdd(input) else {
             throw recorderError(code: 27, message: "Cannot add video writer input.")
@@ -271,14 +278,32 @@ final class VideoRecorder {
         self.writerInput = input
     }
 
-    private func transform(for orientation: String) -> CGAffineTransform {
+    private func transform(
+        for orientation: String,
+        pixelWidth: Int,
+        pixelHeight: Int
+    ) -> CGAffineTransform {
         switch orientation {
         case "portrait":
+            if pixelHeight >= pixelWidth {
+                return .identity
+            }
             return CGAffineTransform(rotationAngle: .pi / 2)
         case "portrait_upside_down":
+            if pixelHeight >= pixelWidth {
+                return CGAffineTransform(rotationAngle: .pi)
+            }
+            return CGAffineTransform(rotationAngle: -.pi / 2)
+        case "landscape_left":
+            if pixelWidth >= pixelHeight {
+                return .identity
+            }
             return CGAffineTransform(rotationAngle: -.pi / 2)
         case "landscape_right":
-            return CGAffineTransform(rotationAngle: .pi)
+            if pixelWidth >= pixelHeight {
+                return CGAffineTransform(rotationAngle: .pi)
+            }
+            return CGAffineTransform(rotationAngle: .pi / 2)
         default:
             return .identity
         }

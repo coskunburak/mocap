@@ -340,7 +340,7 @@ function optimizedSolvedMotion(): SolvedMotionArtifact {
     jobId: JOB_ID,
     skeleton: {
       name: "mocap_humanoid_v1",
-      rotationOrder: "XYZ",
+      rotationOrder: "ZXY",
       coordinateSystem: "right_handed_y_up",
     },
     fps: 30,
@@ -361,10 +361,13 @@ function optimizedSolvedMotion(): SolvedMotionArtifact {
     },
     optimizedFrom: {
       source: "primary_wham",
-      method: "dual_camera_constrained_skeleton_adjustment",
+      method: "kinematic_post_fit",
       constraintsApplied: 3,
       acceptedAsFinalAnimation: true,
-      warnings: ["This is not full SMPL optimization."],
+      warnings: [
+        "dual_fit_method_not_full_smpl",
+        "optimized_smpl_parameters_not_produced",
+      ],
     },
   };
 }
@@ -570,7 +573,7 @@ async function testOptimizedSolvedMotionArtifactPersistence() {
   assert.equal(mocks.exportCalls[0].metadata?.frameCount, 1);
   assert.equal(
     mocks.exportCalls[0].metadata?.method,
-    "dual_camera_constrained_skeleton_adjustment",
+    "kinematic_post_fit",
   );
   assert.equal(mocks.exportCalls[0].metadata?.acceptedAsFinalAnimation, true);
 }

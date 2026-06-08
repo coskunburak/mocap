@@ -103,7 +103,7 @@ function baseSolved(): SolvedMotionArtifact {
     jobId: JOB_ID,
     skeleton: {
       name: "mocap_humanoid_v1",
-      rotationOrder: "XYZ",
+      rotationOrder: "ZXY",
       coordinateSystem: "right_handed_y_up",
     },
     fps: 30,
@@ -629,6 +629,7 @@ function buildFixtureMotionPipelineReport(input: {
       motionFallbackUsed: true,
       reasons: ["multi_view_reconstruction_diagnostic_only"],
     },
+    finalAnimationSource: "primary_wham",
     artifacts: {
       smplParameters: `takes/${TAKE_ID}/jobs/${JOB_ID}/smpl_parameters.json`,
       rawSolvedMotion: `takes/${TAKE_ID}/jobs/${JOB_ID}/raw_solved_motion.json`,
@@ -656,6 +657,7 @@ function assertMotionPipelineReport(report: MotionPipelineReport) {
   assert.deepEqual(report.fallback.reasons, [
     "multi_view_reconstruction_diagnostic_only",
   ]);
+  assert.equal(report.finalAnimationSource, "primary_wham");
   assert.equal(report.whamInputUsage?.primaryVideoUsed, true);
   assert.equal(report.whamInputUsage?.additionalVideosProvided, 1);
   assert.equal(report.whamInputUsage?.multiViewConstraintsUsed, false);

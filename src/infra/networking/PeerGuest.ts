@@ -24,6 +24,7 @@ import {
 import type { PoseFrame } from "../../domain/mocap/models/PoseFrame";
 import { countTrackedLandmarks } from "../../domain/mocap/models/PoseFrame";
 import { LANDMARK_STRIDE } from "../../domain/mocap/models/Landmark";
+import { evaluatePoseFrameQuality } from "../../domain/mocap/pipeline/pose/PoseFrameGeometry";
 
 // ─── Types ──────────────────────────────────────────────────────────
 
@@ -130,6 +131,9 @@ export class PeerGuest {
   sendFrame(frame: PoseFrame): void {
     if (this._state !== "ready") return;
 
+    const quality = evaluatePoseFrameQuality(frame);
+    if (!quality.reliable) return;
+
     const trackedCount = countTrackedLandmarks(frame, 0.3);
     const totalLandmarks = Math.floor(frame.landmarks.length / LANDMARK_STRIDE);
     const avgConfidence = totalLandmarks > 0
@@ -146,6 +150,15 @@ export class PeerGuest {
         ? float32ToBase64(frame.worldLandmarks)
         : undefined,
       trackingProfile: frame.trackingProfile ?? "pose",
+      coordinateSpace: frame.coordinateSpace ?? "image_normalized",
+      imageWidth: frame.imageWidth,
+      imageHeight: frame.imageHeight,
+      inputImageWidth: frame.inputImageWidth,
+      inputImageHeight: frame.inputImageHeight,
+      videoOrientation: frame.videoOrientation,
+      cameraPosition: frame.cameraPosition,
+      isMirrored: frame.isMirrored,
+      orientationCorrection: frame.orientationCorrection,
       trackedCount,
       confidence: avgConfidence,
     });

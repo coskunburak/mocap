@@ -1,4 +1,5 @@
-import { NativeModules, Platform } from "react-native";
+import { NativeEventEmitter, NativeModules, Platform } from "react-native";
+import type { PoseFrame, TrackingProfile } from "../../../domain/mocap/models/PoseFrame";
 import type {
   CaptureCameraPosition,
   CaptureVideoOrientation,
@@ -10,6 +11,7 @@ import type {
 } from "../domain/CameraEngine";
 
 const MODULE_NAME = "PoseEngineModule";
+const FRAME_EVENT_NAME = "PoseEngineFrame";
 const NativePoseEngine = NativeModules[MODULE_NAME];
 
 function assertAvailable() {
@@ -106,6 +108,62 @@ function assertRecordingResult(value: any): VideoRecordingResult {
   };
 }
 
+function normalizeTrackingProfile(value: unknown): TrackingProfile {
+  return value === "holistic" ? "holistic" : "pose";
+}
+
+function finiteNumber(value: unknown, fallback: number): number {
+  return typeof value === "number" && Number.isFinite(value) ? value : fallback;
+}
+
+function toFloat32Array(value: unknown): Float32Array | undefined {
+  if (!Array.isArray(value) || value.length === 0) return undefined;
+  const out = new Float32Array(value.length);
+  for (let i = 0; i < value.length; i++) {
+    const item = value[i];
+    out[i] = typeof item === "number" && Number.isFinite(item) ? item : 0;
+  }
+  return out;
+}
+
+function normalizePoseFrameEvent(value: any): PoseFrame | null {
+  if (!value || typeof value !== "object") return null;
+
+  const landmarks = toFloat32Array(value.landmarks);
+  if (!landmarks || landmarks.length < 4) return null;
+
+  return {
+    ts: finiteNumber(value.ts, Date.now()),
+    landmarks,
+    worldLandmarks: toFloat32Array(value.worldLandmarks),
+    trackingProfile: normalizeTrackingProfile(value.trackingProfile),
+    requestedTrackingProfile: normalizeTrackingProfile(value.requestedTrackingProfile),
+    frameId:
+      typeof value.frameId === "number" && Number.isInteger(value.frameId)
+        ? value.frameId
+        : undefined,
+    sourceDevice: typeof value.sourceDevice === "string" ? value.sourceDevice : Platform.OS,
+    coordinateSpace:
+      value.coordinateSpace === "preview_normalized" ? "preview_normalized" : "image_normalized",
+    imageWidth: finiteNumber(value.imageWidth, 0) > 0 ? finiteNumber(value.imageWidth, 0) : undefined,
+    imageHeight:
+      finiteNumber(value.imageHeight, 0) > 0 ? finiteNumber(value.imageHeight, 0) : undefined,
+    inputImageWidth:
+      finiteNumber(value.inputImageWidth, 0) > 0
+        ? finiteNumber(value.inputImageWidth, 0)
+        : undefined,
+    inputImageHeight:
+      finiteNumber(value.inputImageHeight, 0) > 0
+        ? finiteNumber(value.inputImageHeight, 0)
+        : undefined,
+    videoOrientation: normalizeOrientation(value.videoOrientation),
+    cameraPosition: normalizeCameraPosition(value.cameraPosition),
+    isMirrored: typeof value.isMirrored === "boolean" ? value.isMirrored : false,
+    orientationCorrection:
+      typeof value.orientationCorrection === "string" ? value.orientationCorrection : undefined,
+  };
+}
+
 export const NativeCameraEngine: CameraEngine = {
   async startPreview() {
     assertMethod("setPreviewActive");
@@ -135,5 +193,17 @@ export const NativeCameraEngine: CameraEngine = {
     assertMethod("stopVideoRecording");
     const result = await NativePoseEngine.stopVideoRecording();
     return assertRecordingResult(result);
+  },
+
+  subscribePoseFrames(listener: (frame: PoseFrame, fps: number) => void) {
+    assertAvailable();
+    const emitter = new NativeEventEmitter(NativePoseEngine);
+    const subscription = emitter.addListener(FRAME_EVENT_NAME, (event) => {
+      const frame = normalizePoseFrameEvent(event);
+      if (!frame) return;
+      listener(frame, finiteNumber(event?.fps, 0));
+    });
+
+    return () => subscription.remove();
   },
 };

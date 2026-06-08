@@ -6,12 +6,13 @@ QA-only `WHAM_PRECOMPUTED_OUTPUT_PKL` path must never be set here.
 
 ## Dual Camera Notu
 
-Dual/pro capture işlerinde backend ek olarak reconstruction diagnostic stage çalıştırabilir; bu RunPod WHAM gereksinimlerini kaldırmaz. Mevcut güvenli production final animation yolu hâlâ primary camera WHAM solve'dur.
+Dual/pro capture işlerinde backend ek olarak reconstruction diagnostic stage çalıştırabilir; bu RunPod WHAM gereksinimlerini kaldırmaz. Production dual QA için reconstruction branch'in gerçekten çalışması isteniyorsa `ENABLE_MULTI_VIEW_RECONSTRUCTION=true` değeri **RunPod worker runtime** içinde set edilmelidir. Local backend `.env` tek başına serverless job davranışını değiştirmez.
 
 - RunPod worker WHAM repo, checkpoint, SMPL asset ve CUDA/Python runtime gereksinimlerini aynı şekilde ister.
 - Dual-camera diagnostic artifact'leri (`multi_view_sync.json`, `camera_calibration.json`, `dual_reconstruction.json`, `multi_view_reconstruction.json`) final BVH'nin true dual-camera solve'dan geldiği anlamına gelmez.
 - Final animation primary WHAM'dan geldiyse `quality_report_json` içinde `primaryCameraFallbackUsed: true` ve `finalAnimationSource: "primary_wham"` görünmelidir.
 - Calibration, sync veya keypoint eksikse sistem fake başarı üretmemeli; diagnostic status ve fallback reason rapora yazılmalıdır.
+- QA sırasında `ALLOW_PRIMARY_WHAM_FALLBACK=true` kalmalıdır. Gate veya artifact validation başarısızsa final BVH primary WHAM olarak kalır.
 
 ## Image Contract
 
@@ -155,7 +156,23 @@ The minimum production posture is:
 ```text
 NODE_ENV=production
 WHAM_REQUIRE_CUDA=true
+ENABLE_MULTI_VIEW_RECONSTRUCTION=true
+ALLOW_PRIMARY_WHAM_FALLBACK=true
 ```
+
+`ENABLE_MULTI_VIEW_RECONSTRUCTION=true` reconstruction branch'i açar; `true_dual_solve` kabulü anlamına gelmez. Pose detector, sync, calibration, triangulation, fitting gates ve optimized BVH persistence ayrı ayrı geçmelidir.
+
+Set the optional reconstruction pose detector env in the same RunPod template when real dual triangulation QA is expected:
+
+```text
+MOCAPEXPO_POSE_DETECTOR=rtmpose_mmpose
+MOCAPEXPO_RTMPOSE_CLI_PATH=/workspace/pose/rtmpose_cli.py
+MOCAPEXPO_RTMPOSE_MODEL_PATH=/workspace/pose/models/rtmpose.pth
+MOCAPEXPO_RTMPOSE_CONFIG_PATH=/workspace/pose/configs/rtmpose.py
+MOCAPEXPO_RTMPOSE_TIMEOUT_MS=120000
+```
+
+If this detector is missing or fails, the worker should report `multi_view_pose_extraction_failed`, persist any safe missing-pose diagnostic artifacts, and continue primary WHAM fallback when allowed.
 
 Production startup fails if any of these are wrong:
 
@@ -239,6 +256,8 @@ Expected result:
 ```text
 "message":"WHAM production preflight passed."
 ```
+
+The preflight output also includes a safe runtime summary: DB/S3 presence, WHAM/Python/ffmpeg paths, `ENABLE_MULTI_VIEW_RECONSTRUCTION`, and `ALLOW_PRIMARY_WHAM_FALLBACK`. It does not print secrets. A RunPod serverless request with `{"input":{"jobId":"preflight"}}` returns the same summary under `runtimeEnv`.
 
 Then start the worker normally through the image entrypoint. Submit one real
 mobile/API export job and verify:

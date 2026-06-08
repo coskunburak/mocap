@@ -1,0 +1,94 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="260" viewBox="0 0 1400 260">
+  <defs>
+    <marker id="arrow" viewBox="0 0 12 12" refX="10" refY="6" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M 0 0 L 12 6 L 0 12 z" fill="#3F4F5F"/>
+    </marker>
+    <style>
+      .title { font-family: "Times New Roman", Times, serif; font-size: 30px; font-weight: 700; fill: #111827; }
+      .label { font-family: "Times New Roman", Times, serif; font-size: 23px; font-weight: 700; fill: #111827; }
+      .tr { font-family: "Times New Roman", Times, serif; font-size: 16px; fill: #4B5563; }
+      .num { font-family: Arial, sans-serif; font-size: 17px; font-weight: 700; fill: #FFFFFF; }
+    </style>
+  </defs>
+
+  <rect x="0" y="0" width="1400" height="260" fill="#FFFFFF"/>
+  <text x="700" y="42" text-anchor="middle" class="title">Processing Job Durum Akışı</text>
+
+  <g transform="translate(50 88)">
+    <g>
+      <rect x="0" y="0" width="150" height="95" rx="8" fill="#EDF2F7" stroke="#4A5568" stroke-width="2"/>
+      <circle cx="75" cy="-2" r="18" fill="#4A5568"/>
+      <text x="75" y="4" text-anchor="middle" class="num">1</text>
+      <text x="75" y="42" text-anchor="middle" class="label">Queued</text>
+      <text x="75" y="70" text-anchor="middle" class="tr">sırada bekler</text>
+    </g>
+
+    <line x1="160" y1="48" x2="197" y2="48" stroke="#3F4F5F" stroke-width="4" marker-end="url(#arrow)"/>
+
+    <g transform="translate(210 0)">
+      <rect x="0" y="0" width="150" height="95" rx="8" fill="#E8F1F8" stroke="#2B6CB0" stroke-width="2"/>
+      <circle cx="75" cy="-2" r="18" fill="#2B6CB0"/>
+      <text x="75" y="4" text-anchor="middle" class="num">2</text>
+      <text x="75" y="42" text-anchor="middle" class="label">Ingesting</text>
+      <text x="75" y="70" text-anchor="middle" class="tr">video alınır</text>
+    </g>
+
+    <line x1="370" y1="48" x2="407" y2="48" stroke="#3F4F5F" stroke-width="4" marker-end="url(#arrow)"/>
+
+    <g transform="translate(420 0)">
+      <rect x="0" y="0" width="150" height="95" rx="8" fill="#FFF4E5" stroke="#B7791F" stroke-width="2"/>
+      <circle cx="75" cy="-2" r="18" fill="#B7791F"/>
+      <text x="75" y="4" text-anchor="middle" class="num">3</text>
+      <text x="75" y="35" text-anchor="middle" class="label">
+        <tspan x="75" dy="0">Extracting</tspan>
+        <tspan x="75" dy="24">Frames</tspan>
+      </text>
+      <text x="75" y="82" text-anchor="middle" class="tr">normalize edilir</text>
+    </g>
+
+    <line x1="580" y1="48" x2="617" y2="48" stroke="#3F4F5F" stroke-width="4" marker-end="url(#arrow)"/>
+
+    <g transform="translate(630 0)">
+      <rect x="0" y="0" width="150" height="95" rx="8" fill="#EEF2FF" stroke="#4C51BF" stroke-width="2"/>
+      <circle cx="75" cy="-2" r="18" fill="#4C51BF"/>
+      <text x="75" y="4" text-anchor="middle" class="num">4</text>
+      <text x="75" y="35" text-anchor="middle" class="label">
+        <tspan x="75" dy="0">Solving</tspan>
+        <tspan x="75" dy="24">Motion</tspan>
+      </text>
+      <text x="75" y="82" text-anchor="middle" class="tr">WHAM çözümü</text>
+    </g>
+
+    <line x1="790" y1="48" x2="827" y2="48" stroke="#3F4F5F" stroke-width="4" marker-end="url(#arrow)"/>
+
+    <g transform="translate(840 0)">
+      <rect x="0" y="0" width="150" height="95" rx="8" fill="#E7F6EF" stroke="#2F855A" stroke-width="2"/>
+      <circle cx="75" cy="-2" r="18" fill="#2F855A"/>
+      <text x="75" y="4" text-anchor="middle" class="num">5</text>
+      <text x="75" y="42" text-anchor="middle" class="label">Cleaning</text>
+      <text x="75" y="70" text-anchor="middle" class="tr">hareket temizlenir</text>
+    </g>
+
+    <line x1="1000" y1="48" x2="1037" y2="48" stroke="#3F4F5F" stroke-width="4" marker-end="url(#arrow)"/>
+
+    <g transform="translate(1050 0)">
+      <rect x="0" y="0" width="150" height="95" rx="8" fill="#F0FFF4" stroke="#276749" stroke-width="2"/>
+      <circle cx="75" cy="-2" r="18" fill="#276749"/>
+      <text x="75" y="4" text-anchor="middle" class="num">6</text>
+      <text x="75" y="42" text-anchor="middle" class="label">Exporting</text>
+      <text x="75" y="70" text-anchor="middle" class="tr">BVH hazırlanır</text>
+    </g>
+
+    <line x1="1210" y1="48" x2="1247" y2="48" stroke="#3F4F5F" stroke-width="4" marker-end="url(#arrow)"/>
+
+    <g transform="translate(1260 0)">
+      <rect x="0" y="0" width="90" height="95" rx="8" fill="#ECFDF5" stroke="#047857" stroke-width="2"/>
+      <circle cx="45" cy="-2" r="18" fill="#047857"/>
+      <text x="45" y="4" text-anchor="middle" class="num">7</text>
+      <text x="45" y="42" text-anchor="middle" class="label">Done</text>
+      <text x="45" y="70" text-anchor="middle" class="tr">hazır</text>
+    </g>
+  </g>
+
+  <text x="700" y="230" text-anchor="middle" class="tr">Backend worker işi sıradan alır, hareket çözümünü üretir ve export dosyalarını sonuç ekranına hazırlar.</text>
+</svg>

@@ -560,6 +560,14 @@ export type CaptureMetadataDiagnostics = {
 export interface QualityReportMultiViewSection {
   enabled: boolean;
   source: WhamInputUsageSource;
+  pipelineBranch?: string;
+  reconstructionBranchEntered?: boolean;
+  workerRuntime?: {
+    nodeEnv: string;
+    enableMultiViewReconstruction: boolean;
+    allowPrimaryWhamFallback: boolean;
+    selectedVideoCount?: number;
+  };
   reconstructionAvailable: boolean;
   reconstructionUsedForConstraints: boolean;
   primaryWhamFallbackUsed: boolean;
@@ -604,6 +612,7 @@ export interface QualityReportMultiViewSection {
   temporalSmoothingGain?: number;
   dualFitStatus?: DualFitStatus;
   dualFitAcceptedAsFinal?: boolean;
+  dualFitAcceptance?: DualFitAcceptanceSummary;
   optimizedBvhAvailable?: boolean;
   optimizedSolvedMotionAvailable?: boolean;
   fittingTotalLoss?: number;
@@ -654,15 +663,33 @@ export interface QualityReportMultiViewSection {
     fittingTotalLoss?: number;
     initializationLoss?: number;
     triangulatedJointLoss?: number;
+    triangulatedJointMeanPositionErrorBefore?: number;
+    triangulatedJointMeanPositionErrorAfter?: number;
+    triangulatedJointP95PositionErrorBefore?: number;
+    triangulatedJointP95PositionErrorAfter?: number;
     reprojectionLoss?: number;
+    reprojectionP95PxBefore?: number;
+    reprojectionP95PxAfter?: number;
     reprojectionImprovementRatio?: number;
     boneLengthConsistencyScore?: number;
+    boneLengthMeanVariation?: number;
+    boneLengthMaxVariation?: number;
     jointLimitViolationCount?: number;
     footContactStabilityScore?: number;
+    footLockViolationCount?: number;
+    rootTranslationMeanDelta?: number;
+    rootTranslationMaxDelta?: number;
     optimizedBvhAvailable?: number;
     optimizedSolvedMotionAvailable?: number;
     reliableConstraintRatio?: number;
+    reliableConstraintCount?: number;
+    candidateConstraintCount?: number;
+    rejectedConstraintCount?: number;
+    lowConfidenceConstraintCount?: number;
+    highReprojectionConstraintCount?: number;
+    invalidConstraintCount?: number;
     optimizedMotionDelta?: number;
+    temporalJitterIncreaseRatio?: number;
     multiViewQualityGain?: number;
   };
   poseExtraction?: {
@@ -825,17 +852,93 @@ export type DualFitLossSummary = {
 export type DualFitQualityMetrics = {
   triangulatedJointRatio?: number | null;
   reliableConstraintRatio?: number | null;
+  reliableConstraintCount?: number | null;
+  candidateConstraintCount?: number | null;
+  rejectedConstraintCount?: number | null;
+  lowConfidenceConstraintCount?: number | null;
+  highReprojectionConstraintCount?: number | null;
+  invalidConstraintCount?: number | null;
+  triangulatedJointMeanPositionErrorBefore?: number | null;
+  triangulatedJointMeanPositionErrorAfter?: number | null;
+  triangulatedJointP95PositionErrorBefore?: number | null;
+  triangulatedJointP95PositionErrorAfter?: number | null;
   averageReprojectionErrorPxBefore?: number | null;
   averageReprojectionErrorPxAfter?: number | null;
+  reprojectionP95PxBefore?: number | null;
+  reprojectionP95PxAfter?: number | null;
   reprojectionImprovementRatio?: number | null;
+  calibrationQualityScore?: number | null;
   temporalJitterBefore?: number | null;
   temporalJitterAfter?: number | null;
+  temporalJitterIncreaseRatio?: number | null;
   temporalSmoothingGain?: number | null;
   boneLengthConsistencyScore?: number | null;
+  boneLengthMeanVariation?: number | null;
+  boneLengthMaxVariation?: number | null;
   jointLimitViolationCount?: number | null;
   footContactStabilityScore?: number | null;
+  footLockViolationCount?: number | null;
+  rootTranslationMeanDelta?: number | null;
+  rootTranslationMaxDelta?: number | null;
   optimizedMotionDelta?: number | null;
+  optimizedMotionValid?: boolean | null;
+  optimizedBvhValid?: boolean | null;
+  optimizedArtifactsPresent?: boolean | null;
+  fullSmplOptimization?: boolean | null;
   acceptedAsFinalAnimation: boolean;
+};
+
+export type DualFitGateFailureCode =
+  | "calibration_not_ready"
+  | "calibration_quality_low"
+  | "triangulated_joint_ratio_low"
+  | "triangulated_joint_ratio_unavailable"
+  | "reliable_constraint_ratio_low"
+  | "reliable_constraint_ratio_unavailable"
+  | "reprojection_error_high"
+  | "reprojection_error_unavailable"
+  | "reprojection_p95_high"
+  | "optimized_motion_invalid"
+  | "optimized_bvh_missing"
+  | "optimized_bvh_invalid"
+  | "optimized_artifacts_missing"
+  | "temporal_jitter_increased"
+  | "temporal_jitter_unavailable"
+  | "joint_limit_violation_high"
+  | "joint_limit_unavailable"
+  | "excessive_motion_delta"
+  | "insufficient_motion_delta"
+  | "bone_length_consistency_low"
+  | "bone_length_consistency_unavailable"
+  | "foot_contact_stability_low"
+  | "foot_contact_stability_unavailable";
+
+export type DualFitFinalAnimationSourceRecommendation =
+  | "true_dual_solve"
+  | "primary_wham";
+
+export type DualFitAcceptanceSummary = {
+  accepted: boolean;
+  blockingFailures: DualFitGateFailureCode[];
+  warnings: DualFitGateFailureCode[];
+  unavailableMetrics: string[];
+  metrics: Partial<
+    Record<keyof DualFitQualityMetrics, number | boolean | null>
+  >;
+  finalAnimationSourceRecommendation: DualFitFinalAnimationSourceRecommendation;
+};
+
+export type DualFitQualityGateSummary = {
+  passed: number;
+  failed: number;
+  blockingFailed: number;
+  warningFailed: number;
+  accepted?: boolean;
+  blockingFailures?: DualFitGateFailureCode[];
+  warnings?: DualFitGateFailureCode[];
+  unavailableMetrics?: string[];
+  metrics?: DualFitAcceptanceSummary["metrics"];
+  finalAnimationSourceRecommendation?: DualFitFinalAnimationSourceRecommendation;
 };
 
 export type DualFitQualityGateResult = {
@@ -843,15 +946,24 @@ export type DualFitQualityGateResult = {
     | "triangulated_joint_ratio"
     | "reliable_constraint_ratio"
     | "calibration_readiness"
+    | "calibration_quality"
     | "reprojection_error"
+    | "reprojection_p95"
     | "temporal_jitter"
+    | "temporal_jitter_increase"
     | "bone_length_consistency"
     | "joint_limit_violations"
-    | "foot_contact_stability";
+    | "foot_contact_stability"
+    | "root_translation_delta"
+    | "optimized_motion_delta"
+    | "optimized_motion_valid"
+    | "optimized_bvh_valid"
+    | "optimized_artifacts_present";
   passed: boolean;
   value?: number | string | boolean | null;
   threshold?: number | string | boolean | null;
   severity: "blocking" | "warning";
+  code?: DualFitGateFailureCode | null;
   reason?: string | null;
 };
 
@@ -871,6 +983,7 @@ export type DualFitReportArtifact = {
   losses: DualFitLossSummary;
   metrics: DualFitQualityMetrics;
   qualityGates: readonly DualFitQualityGateResult[];
+  acceptance?: DualFitAcceptanceSummary;
   acceptedAsFinalAnimation: boolean;
   finalAnimationSourceCandidate: "primary_wham" | "true_dual_solve";
   artifactRefs: Record<string, string>;
@@ -1006,7 +1119,7 @@ export type SolvedMotionArtifact = {
   };
   skeleton: {
     name: "mocap_humanoid_v1";
-    rotationOrder: "XYZ";
+    rotationOrder: "ZXY";
     coordinateSystem: "right_handed_y_up";
   };
   fps: number;
@@ -1021,7 +1134,7 @@ export type SolvedMotionArtifact = {
   smpl?: SmplParametersArtifact;
   optimizedFrom?: {
     source: "primary_wham";
-    method: "dual_camera_constrained_skeleton_adjustment";
+    method: "dual_camera_constrained_skeleton_adjustment" | "kinematic_post_fit";
     constraintsApplied: number;
     acceptedAsFinalAnimation: boolean;
     warnings: string[];
@@ -1146,12 +1259,7 @@ export type MotionPipelineStageStatus = {
   dualFitStatus?: DualFitStatus;
   acceptedAsFinalAnimation?: boolean;
   finalAnimationSource?: QualityReportFinalAnimationSource;
-  qualityGateSummary?: {
-    passed: number;
-    failed: number;
-    blockingFailed: number;
-    warningFailed: number;
-  };
+  qualityGateSummary?: DualFitQualityGateSummary;
   triangulatedJointRatio?: number;
   averageReprojectionErrorPx?: number;
   temporalJitterAfter?: number;
@@ -1180,6 +1288,16 @@ export type MotionPipelineReport = {
     motionFallbackUsed: boolean;
     reasons: string[];
   };
+  runtime?: {
+    nodeEnv: string;
+    captureMode: "solo" | "dual" | "pro_4_camera";
+    selectedVideoCount: number;
+    selectedPipelineBranch: string;
+    reconstructionBranchEntered: boolean;
+    enableMultiViewReconstruction: boolean;
+    allowPrimaryWhamFallback: boolean;
+  };
+  finalAnimationSource: QualityReportFinalAnimationSource;
   artifacts: {
     smplParameters: string;
     rawSolvedMotion: string;

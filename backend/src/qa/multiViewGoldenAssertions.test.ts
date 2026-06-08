@@ -90,7 +90,7 @@ function baseSolved(): SolvedMotionArtifact {
     jobId: JOB_ID,
     skeleton: {
       name: "mocap_humanoid_v1",
-      rotationOrder: "XYZ",
+      rotationOrder: "ZXY",
       coordinateSystem: "right_handed_y_up",
     },
     fps: 30,
@@ -433,6 +433,69 @@ async function testDualSyntheticGolden() {
   });
 }
 
+async function testAcceptedDualSyntheticGolden() {
+  const fixture = dualFixture();
+  const acceptedDualFitReport = {
+    ...fixture.dualFitReport,
+    status: "ready" as const,
+    reason: "Accepted optimized dual-camera solve.",
+    metrics: {
+      ...fixture.dualFitReport.metrics,
+      acceptedAsFinalAnimation: true,
+      reliableConstraintRatio: 0.72,
+      optimizedMotionDelta: 0.03,
+    },
+    acceptedAsFinalAnimation: true,
+    finalAnimationSourceCandidate: "true_dual_solve" as const,
+    artifactRefs: {
+      dual_fit_report_json:
+        `takes/${TAKE_ID}/jobs/${JOB_ID}/dual_fit_report.json`,
+      optimized_solved_motion_json:
+        `takes/${TAKE_ID}/jobs/${JOB_ID}/optimized_solved_motion.json`,
+      optimized_bvh: `takes/${TAKE_ID}/jobs/${JOB_ID}/optimized_result.bvh`,
+    },
+    warnings: ["dual_fit_accepted_true_dual_solve"],
+  };
+  const whamInputUsage = buildWhamInputUsageMetrics({
+    source: "dual_camera",
+    selectedVideos: [
+      { deviceIndex: 0, storageKey: `takes/${TAKE_ID}/original/device_0.mov` },
+      { deviceIndex: 1, storageKey: `takes/${TAKE_ID}/original/device_1.mov` },
+    ],
+    primaryDeviceIndex: 0,
+    multiViewReconstructionAvailable: true,
+    multiViewConstraintsUsed: true,
+    primaryWhamFallbackUsed: false,
+    primaryWhamFallbackReason: "none",
+  });
+  const quality = buildQualityReport(
+    basePose(),
+    baseSolved(),
+    baseCleanup(),
+    validation(),
+    "dual_camera",
+    {
+      whamInputUsage,
+      multiViewDiagnostic: {
+        reconstructionAvailable: true,
+        syncReport: fixture.syncReport,
+        cameraCalibration: fixture.cameraCalibration,
+        reconstruction: fixture.reconstruction,
+        jointTrack: fixture.jointTrack,
+        dualFitReport: acceptedDualFitReport,
+      },
+    },
+  );
+
+  assert.ok(quality.multiView);
+  assert.equal(quality.multiView.finalAnimationSource, "true_dual_solve");
+  assert.equal(quality.multiView.reconstructionUsedForConstraints, true);
+  assert.equal(quality.multiView.primaryWhamFallbackUsed, false);
+  assert.equal(quality.multiView.optimizedBvhAvailable, true);
+  assert.equal(quality.multiView.optimizedSolvedMotionAvailable, true);
+  assert.equal(quality.multiView.whamInputUsage?.multiViewConstraintsUsed, true);
+}
+
 async function testDualExportArtifacts() {
   const persisted = await persistFixture(dualFixture(), "dual_camera");
   const artifactNames = persisted.exports.map((item) => item.artifactName);
@@ -513,6 +576,7 @@ function testFallbackGolden() {
 
 async function main() {
   await testDualSyntheticGolden();
+  await testAcceptedDualSyntheticGolden();
   await testDualExportArtifacts();
   await testProFourCameraGolden();
   testFallbackGolden();

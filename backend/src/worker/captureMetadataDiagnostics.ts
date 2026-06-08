@@ -221,11 +221,18 @@ function buildMissingMetadataWarnings(input: {
     for (const field of device.missingFields) {
       warnings.add(`metadata_missing_device_${device.deviceIndex}_${field}`);
     }
+    if (device.missingFields.includes("manualOffsetMs")) {
+      warnings.add("metadata_manual_offset_missing");
+    }
+    if (device.missingFields.includes("approximateCameraAngle")) {
+      warnings.add("approximate_camera_angle_missing");
+    }
     if (!device.hasFrameTimestamps) {
       warnings.add(`metadata_missing_device_${device.deviceIndex}_frame_timestamps`);
     }
     if (!device.hasIntrinsics) {
       warnings.add(`metadata_missing_device_${device.deviceIndex}_camera_intrinsics`);
+      warnings.add("camera_intrinsics_missing");
     }
   }
 

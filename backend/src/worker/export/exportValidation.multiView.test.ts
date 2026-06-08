@@ -67,7 +67,7 @@ function baseSolved(): SolvedMotionArtifact {
     jobId: JOB_ID,
     skeleton: {
       name: "mocap_humanoid_v1",
-      rotationOrder: "XYZ",
+      rotationOrder: "ZXY",
       coordinateSystem: "right_handed_y_up",
     },
     fps: 30,
@@ -689,6 +689,14 @@ function testDualDiagnosticReconstructionSuccess() {
         primaryWhamFallbackReason: "multi_view_reconstruction_diagnostic_only",
       }),
       multiViewDiagnostic: {
+        pipelineBranch: "multi_view_reconstruction",
+        reconstructionBranchEntered: true,
+        workerRuntime: {
+          nodeEnv: "production",
+          enableMultiViewReconstruction: true,
+          allowPrimaryWhamFallback: true,
+          selectedVideoCount: 2,
+        },
         reconstructionAvailable: true,
         syncReport: syncReport(),
         calibrationObservations: calibrationObservations(),
@@ -701,6 +709,9 @@ function testDualDiagnosticReconstructionSuccess() {
   const multiView = assertMultiView(report);
 
   assert.equal(report.score, score);
+  assert.equal(multiView.pipelineBranch, "multi_view_reconstruction");
+  assert.equal(multiView.reconstructionBranchEntered, true);
+  assert.equal(multiView.workerRuntime?.enableMultiViewReconstruction, true);
   assert.equal(multiView.reconstructionAvailable, true);
   assert.equal(multiView.reconstructionUsedForConstraints, false);
   assert.equal(
@@ -843,6 +854,8 @@ function testAdapterFailureFallback() {
   const multiView = assertMultiView(report);
 
   assert.equal(multiView.reconstructionAvailable, false);
+  assert.equal(multiView.reconstructionUsedForConstraints, false);
+  assert.equal(multiView.finalAnimationSource, "primary_wham");
   assert.equal(
     multiView.primaryWhamFallbackReason,
     "multi_view_pose_extraction_failed",
@@ -1013,6 +1026,12 @@ function testDualFitReportIsReportedAdditivelyWithoutChangingFinalSource() {
 
   assert.equal(multiView.dualFitStatus, "optimization_not_implemented");
   assert.equal(multiView.dualFitAcceptedAsFinal, false);
+  assert.equal(multiView.dualFitAcceptance?.accepted, false);
+  assert.deepEqual(multiView.dualFitAcceptance?.blockingFailures, []);
+  assert.equal(
+    multiView.dualFitAcceptance?.finalAnimationSourceRecommendation,
+    "primary_wham",
+  );
   assert.equal(multiView.optimizedBvhAvailable, false);
   assert.equal(multiView.finalAnimationSource, "primary_wham");
   assert.equal(multiView.primaryCameraFallbackUsed, true);
@@ -1087,8 +1106,15 @@ function testAcceptedDualFitReportSwitchesFinalSource() {
   assert.equal(multiView.primaryCameraFallbackUsed, false);
   assert.equal(multiView.primaryWhamFallbackUsed, false);
   assert.equal(multiView.reconstructionUsedForConstraints, true);
+  assert.equal(multiView.whamInputUsage?.multiViewConstraintsUsed, true);
   assert.equal(multiView.trueDualSolveAvailable, true);
   assert.equal(multiView.dualFitAcceptedAsFinal, true);
+  assert.equal(multiView.dualFitAcceptance?.accepted, true);
+  assert.deepEqual(multiView.dualFitAcceptance?.blockingFailures, []);
+  assert.equal(
+    multiView.dualFitAcceptance?.finalAnimationSourceRecommendation,
+    "true_dual_solve",
+  );
   assert.equal(multiView.optimizedBvhAvailable, true);
   assert.equal(multiView.optimizedSolvedMotionAvailable, true);
   assert.equal(multiView.metrics?.optimizedBvhAvailable, 1);
@@ -1103,6 +1129,66 @@ function testAcceptedDualFitReportSwitchesFinalSource() {
     multiView.warnings?.includes("single_camera_solver_fallback_used"),
     false,
   );
+}
+
+function testAcceptedDualFitWithoutOptimizedArtifactsFallsBack() {
+  const acceptedWithoutArtifacts: DualFitReportArtifact = {
+    ...dualFitReportArtifact({
+      averageReprojectionErrorPxBefore: 2.1,
+      temporalJitterAfter: 0.04,
+    }),
+    status: "ready",
+    reason: "Accepted gates but optimized artifacts are missing.",
+    metrics: {
+      ...dualFitReportArtifact().metrics,
+      reliableConstraintRatio: 0.72,
+      optimizedMotionDelta: 0.03,
+      acceptedAsFinalAnimation: true,
+    },
+    acceptedAsFinalAnimation: true,
+    finalAnimationSourceCandidate: "true_dual_solve",
+    artifactRefs: {
+      dual_fit_report_json: "takes/take/jobs/job/dual_fit_report.json",
+    },
+    warnings: ["dual_fit_accepted_true_dual_solve_candidate"],
+  };
+  const report = buildQualityReport(
+    basePose(),
+    baseSolved(),
+    baseCleanup(),
+    baseValidation(),
+    "dual_camera",
+    {
+      whamInputUsage: whamUsage({
+        multiViewReconstructionAvailable: true,
+        multiViewConstraintsUsed: false,
+        primaryWhamFallbackUsed: true,
+        primaryWhamFallbackReason: "multi_view_reconstruction_diagnostic_only",
+      }),
+      multiViewDiagnostic: {
+        reconstructionAvailable: true,
+        syncReport: syncReport(),
+        cameraCalibration: cameraCalibration(),
+        reconstruction: reconstructionArtifact(),
+        jointTrack: jointTrackArtifact(),
+        dualFitReport: acceptedWithoutArtifacts,
+      },
+    },
+  );
+  const multiView = assertMultiView(report);
+
+  assert.equal(multiView.finalAnimationSource, "primary_wham");
+  assert.equal(multiView.reconstructionUsedForConstraints, false);
+  assert.equal(multiView.primaryWhamFallbackUsed, true);
+  assert.equal(multiView.dualFitAcceptedAsFinal, false);
+  assert.equal(multiView.dualFitAcceptance?.accepted, false);
+  assert.ok(
+    multiView.dualFitAcceptance?.blockingFailures.includes(
+      "optimized_artifacts_missing",
+    ),
+  );
+  assert.equal(multiView.optimizedBvhAvailable, false);
+  assert.equal(multiView.optimizedSolvedMotionAvailable, false);
 }
 
 
@@ -1265,6 +1351,7 @@ testPoseExtractionMetricsAreReportedAdditively();
 testTriangulatedJointTrackMetricsAreReportedAdditively();
 testDualFitReportIsReportedAdditivelyWithoutChangingFinalSource();
 testAcceptedDualFitReportSwitchesFinalSource();
+testAcceptedDualFitWithoutOptimizedArtifactsFallsBack();
 testNonFiniteMetricsAreDropped();
 testNoFakeMultiViewQualityGainWhenUnavailable();
 testReportRemainsParseableByExistingMobileShape();

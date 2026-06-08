@@ -2,6 +2,10 @@ import { create } from "zustand";
 import type { PoseFrame } from "../../../domain/mocap/models/PoseFrame";
 import { landmarkCount } from "../../../domain/mocap/models/Landmark";
 import { countTrackedLandmarks } from "../../../domain/mocap/models/PoseFrame";
+import {
+  evaluatePoseFrameQuality,
+  poseQualityHint,
+} from "../../../domain/mocap/pipeline/pose/PoseFrameGeometry";
 
 type CaptureStatus = "idle" | "starting" | "capturing" | "stopping" | "error";
 type EngineState = "idle" | "starting" | "running" | "stopping" | "error";
@@ -81,20 +85,33 @@ export const useCaptureStore = create<CaptureState>((set) => ({
     set({ trackingState, readyForRecording, trackingHint }),
 
   setFrame: (f, poseFps) =>
-    set((state) => ({
-      lastFrame: f,
-      recentFrames: [...state.recentFrames.slice(-23), f],
-      poseFps,
-      lmCount: landmarkCount(f.landmarks),
-      faceLmCount: f.faceLandmarks ? landmarkCount(f.faceLandmarks) : 0,
-      handLmCount:
-        (f.leftHandLandmarks ? landmarkCount(f.leftHandLandmarks) : 0) +
-        (f.rightHandLandmarks ? landmarkCount(f.rightHandLandmarks) : 0),
-      totalTrackedPoints: countTrackedLandmarks(f),
-      trackingProfile: f.trackingProfile ?? "pose",
-      hasFaceBlendshapes: Boolean(f.faceBlendshapes?.length),
-      hasPoseSegmentationMask: Boolean(f.hasPoseSegmentationMask),
-    })),
+    set((state) => {
+      const quality = evaluatePoseFrameQuality(f);
+      const trackingState = quality.reliable
+        ? "ready"
+        : quality.reason === "pose_landmarks_missing" ||
+            quality.reason === "body_landmark_coverage_low"
+          ? "searching"
+          : "stabilizing";
+
+      return {
+        lastFrame: f,
+        recentFrames: [...state.recentFrames.slice(-23), f],
+        poseFps,
+        lmCount: landmarkCount(f.landmarks),
+        faceLmCount: f.faceLandmarks ? landmarkCount(f.faceLandmarks) : 0,
+        handLmCount:
+          (f.leftHandLandmarks ? landmarkCount(f.leftHandLandmarks) : 0) +
+          (f.rightHandLandmarks ? landmarkCount(f.rightHandLandmarks) : 0),
+        totalTrackedPoints: countTrackedLandmarks(f),
+        trackingProfile: f.trackingProfile ?? "pose",
+        hasFaceBlendshapes: Boolean(f.faceBlendshapes?.length),
+        hasPoseSegmentationMask: Boolean(f.hasPoseSegmentationMask),
+        trackingState,
+        readyForRecording: quality.reliable,
+        trackingHint: poseQualityHint(quality),
+      };
+    }),
 
   resetSession: () =>
     set({

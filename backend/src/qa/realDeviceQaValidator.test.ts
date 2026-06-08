@@ -44,6 +44,7 @@ function dualRun(overrides: Record<string, unknown> = {}) {
     platforms: ["ios", "ios"],
     expectedVideoCount: 2,
     actualUploadedVideoCount: 2,
+    selectedVideoCount: 2,
     expectedBranch: "multi_view_reconstruction",
     actualBranch: "multi_view_reconstruction",
     jobStatus: "succeeded",
@@ -58,12 +59,17 @@ function dualRun(overrides: Record<string, unknown> = {}) {
       schema: "mocap.quality_report.v1",
       multiViewPresent: true,
       reconstructionAvailable: true,
+      reconstructionBranchEntered: true,
       reconstructionUsedForConstraints: false,
       primaryWhamFallbackUsed: true,
+      primaryWhamFallbackReason: "multi_view_reconstruction_diagnostic_only",
+      finalAnimationSource: "primary_wham",
       matchedFrameCount: 10,
       averageTimeDeltaMs: 5.2,
       reprojectionErrorPx: 4.1,
+      reprojectionErrorP95: 6.7,
       triangulatedLandmarkRatio: 0.75,
+      reliableConstraintRatio: 0.7,
       calibrationQualityScore: 0.8,
     },
     resultScreen: {
@@ -126,6 +132,44 @@ function testValidDualManifestPasses() {
   assertPasses(manifest([dualRun()]));
 }
 
+function testAcceptedTrueDualManifestPasses() {
+  assertPasses(
+    manifest([
+      dualRun({
+        id: "ios-ios-dual-accepted-001",
+        artifacts: [
+          "pose_frames_device_json",
+          "multi_view_sync_json",
+          "camera_calibration_json",
+          "triangulated_joint_track_json",
+          "dual_fit_report_json",
+          "optimized_solved_motion_json",
+          "optimized_bvh",
+          "dual_reconstruction_json",
+          "quality_report_json",
+          "bvh",
+        ],
+        qualityReport: {
+          schema: "mocap.quality_report.v1",
+          multiViewPresent: true,
+          reconstructionAvailable: true,
+          reconstructionBranchEntered: true,
+          reconstructionUsedForConstraints: true,
+          primaryWhamFallbackUsed: false,
+          finalAnimationSource: "true_dual_solve",
+          matchedFrameCount: 24,
+          averageTimeDeltaMs: 3.2,
+          reprojectionErrorPx: 2.1,
+          reprojectionErrorP95: 4.2,
+          triangulatedLandmarkRatio: 0.86,
+          reliableConstraintRatio: 0.8,
+          calibrationQualityScore: 0.93,
+        },
+      }),
+    ]),
+  );
+}
+
 function testDualMatchedFrameCountZeroFails() {
   assertFails(
     manifest([
@@ -134,8 +178,10 @@ function testDualMatchedFrameCountZeroFails() {
           schema: "mocap.quality_report.v1",
           multiViewPresent: true,
           reconstructionAvailable: true,
+          reconstructionBranchEntered: true,
           reconstructionUsedForConstraints: false,
           primaryWhamFallbackUsed: true,
+          finalAnimationSource: "primary_wham",
           matchedFrameCount: 0,
           averageTimeDeltaMs: 5.2,
           reprojectionErrorPx: 4.1,
@@ -190,8 +236,10 @@ function testConstraintsUsedFails() {
           schema: "mocap.quality_report.v1",
           multiViewPresent: true,
           reconstructionAvailable: true,
+          reconstructionBranchEntered: true,
           reconstructionUsedForConstraints: true,
           primaryWhamFallbackUsed: true,
+          finalAnimationSource: "primary_wham",
           matchedFrameCount: 10,
           averageTimeDeltaMs: 5.2,
           reprojectionErrorPx: 4.1,
@@ -200,7 +248,7 @@ function testConstraintsUsedFails() {
         },
       }),
     ]),
-    /reconstructionUsedForConstraints must be false/,
+    /reconstructionUsedForConstraints can be true only for true_dual_solve/,
   );
 }
 
@@ -216,6 +264,7 @@ testValidSingleCameraManifestPasses();
 testSingleCameraMultiViewVisibleFails();
 testSingleCameraMissingBvhFails();
 testValidDualManifestPasses();
+testAcceptedTrueDualManifestPasses();
 testDualMatchedFrameCountZeroFails();
 testDualMissingReconstructionArtifactFails();
 testProMissingReconstructionArtifactFails();

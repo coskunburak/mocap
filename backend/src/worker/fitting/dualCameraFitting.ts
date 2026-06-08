@@ -7,6 +7,7 @@ import type {
 } from "../types";
 import { buildDualFitMetrics } from "./fittingConstraints";
 import {
+  buildDualFitAcceptanceSummary,
   evaluateDualFitQualityGates,
   hasBlockingGateFailure,
 } from "./fittingQuality";
@@ -23,7 +24,10 @@ export function runDualCameraFittingFoundation(
   const smplInitialization = input.smplInitialization ?? input.whamInitialization?.smpl;
   const hasWhamInitialization = isUsableWhamInitialization(input.whamInitialization) &&
     Boolean(smplInitialization);
-  const metrics = buildDualFitMetrics({ jointTrack: input.jointTrack });
+  const metrics = buildDualFitMetrics({
+    jointTrack: input.jointTrack,
+    cameraCalibration: input.cameraCalibration,
+  });
   const gates = evaluateDualFitQualityGates({
     metrics,
     cameraCalibration: input.cameraCalibration,
@@ -51,6 +55,11 @@ export function runDualCameraFittingFoundation(
   if (status === "insufficient_quality") {
     warnings.add("dual_fit_quality_gate_failed");
   }
+  const acceptance = buildDualFitAcceptanceSummary({
+    metrics,
+    gates,
+    acceptedAsFinalAnimation: false,
+  });
 
   return {
     schema: "mocap.dual_fit_report.v1",
@@ -68,6 +77,7 @@ export function runDualCameraFittingFoundation(
     losses: buildLosses(metrics),
     metrics,
     qualityGates: gates,
+    acceptance,
     acceptedAsFinalAnimation: false,
     finalAnimationSourceCandidate: "primary_wham",
     artifactRefs: fittingArtifactRefs(input.artifactRefs),

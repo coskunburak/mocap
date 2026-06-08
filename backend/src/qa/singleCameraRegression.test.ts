@@ -74,7 +74,7 @@ function solved(): SolvedMotionArtifact {
     jobId: JOB_ID,
     skeleton: {
       name: "mocap_humanoid_v1",
-      rotationOrder: "XYZ",
+      rotationOrder: "ZXY",
       coordinateSystem: "right_handed_y_up",
     },
     fps: 30,
@@ -208,6 +208,7 @@ function motionPipelineReport(input: {
       motionFallbackUsed: false,
       reasons: [],
     },
+    finalAnimationSource: "primary_wham",
     artifacts: {
       smplParameters: artifactKey("smpl_parameters.json"),
       rawSolvedMotion: artifactKey("raw_solved_motion.json"),
@@ -334,6 +335,9 @@ function testSingleCameraBvhExportRegression() {
   assert.deepEqual(result.errors, []);
   assert.ok(bvh.startsWith("HIERARCHY"));
   assert.ok(bvh.includes("ROOT Hips"));
+  assert.ok(bvh.includes("CHANNELS 6 Xposition Yposition Zposition Zrotation Xrotation Yrotation"));
+  assert.ok(bvh.includes("JOINT LeftUpperArm"));
+  assert.ok(!bvh.includes("JOINT LeftArm"));
   assert.ok(bvh.includes("MOTION"));
   assert.ok(bvh.includes("Frames: 2"));
   assert.equal(/NaN|Infinity/.test(bvh), false);
@@ -422,6 +426,7 @@ function testSingleCameraMotionPipelineReportRegression() {
   assert.equal(report.engines.cleanup, "cleanup_quality_v1_5");
   assert.equal(report.fallback.motionFallbackUsed, false);
   assert.deepEqual(report.fallback.reasons, []);
+  assert.equal(report.finalAnimationSource, "primary_wham");
   assert.equal(report.artifacts.smplParameters, artifactKey("smpl_parameters.json"));
   assert.equal(report.artifacts.rawSolvedMotion, artifactKey("raw_solved_motion.json"));
   assert.equal(report.artifacts.solvedMotion, artifactKey("solved_motion.json"));

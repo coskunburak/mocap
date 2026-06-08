@@ -1,0 +1,94 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="330" viewBox="0 0 1400 330">
+  <defs>
+    <marker id="arrow" viewBox="0 0 12 12" refX="10" refY="6" markerWidth="9" markerHeight="9" orient="auto-start-reverse">
+      <path d="M 0 0 L 12 6 L 0 12 z" fill="#345B7C"/>
+    </marker>
+    <style>
+      .title { font-family: "Times New Roman", Times, serif; font-size: 30px; font-weight: 700; fill: #111827; }
+      .label { font-family: "Times New Roman", Times, serif; font-size: 23px; font-weight: 700; fill: #111827; }
+      .small { font-family: "Times New Roman", Times, serif; font-size: 17px; fill: #4B5563; }
+      .icon { font-family: Arial, sans-serif; font-size: 34px; font-weight: 700; fill: #FFFFFF; }
+    </style>
+  </defs>
+
+  <rect x="0" y="0" width="1400" height="330" fill="#FFFFFF"/>
+  <text x="700" y="42" text-anchor="middle" class="title">Okul Laboratuvarı İçin MocapExpo Kullanım Akışı</text>
+
+  <g transform="translate(55 82)">
+    <g>
+      <rect x="0" y="0" width="170" height="150" rx="10" fill="#E8F1F8" stroke="#345B7C" stroke-width="2"/>
+      <circle cx="85" cy="38" r="25" fill="#345B7C"/>
+      <text x="85" y="50" text-anchor="middle" class="icon">1</text>
+      <text x="85" y="90" text-anchor="middle" class="label">Öğrenci</text>
+      <text x="85" y="118" text-anchor="middle" class="small">hareketi planlar</text>
+    </g>
+
+    <line x1="180" y1="75" x2="222" y2="75" stroke="#345B7C" stroke-width="4" marker-end="url(#arrow)"/>
+
+    <g transform="translate(235 0)">
+      <rect x="0" y="0" width="170" height="150" rx="10" fill="#FFF4E5" stroke="#B7791F" stroke-width="2"/>
+      <circle cx="85" cy="38" r="25" fill="#B7791F"/>
+      <text x="85" y="50" text-anchor="middle" class="icon">2</text>
+      <text x="85" y="84" text-anchor="middle" class="label">
+        <tspan x="85" dy="0">Mobil</tspan>
+        <tspan x="85" dy="26">Kayıt</tspan>
+      </text>
+      <text x="85" y="127" text-anchor="middle" class="small">video alınır</text>
+    </g>
+
+    <line x1="415" y1="75" x2="457" y2="75" stroke="#345B7C" stroke-width="4" marker-end="url(#arrow)"/>
+
+    <g transform="translate(470 0)">
+      <rect x="0" y="0" width="170" height="150" rx="10" fill="#E7F6EF" stroke="#2F855A" stroke-width="2"/>
+      <circle cx="85" cy="38" r="25" fill="#2F855A"/>
+      <text x="85" y="50" text-anchor="middle" class="icon">3</text>
+      <text x="85" y="84" text-anchor="middle" class="label">
+        <tspan x="85" dy="0">Backend</tspan>
+        <tspan x="85" dy="26">Upload</tspan>
+      </text>
+      <text x="85" y="127" text-anchor="middle" class="small">video + metadata</text>
+    </g>
+
+    <line x1="650" y1="75" x2="692" y2="75" stroke="#345B7C" stroke-width="4" marker-end="url(#arrow)"/>
+
+    <g transform="translate(705 0)">
+      <rect x="0" y="0" width="170" height="150" rx="10" fill="#EEF2FF" stroke="#4C51BF" stroke-width="2"/>
+      <circle cx="85" cy="38" r="25" fill="#4C51BF"/>
+      <text x="85" y="50" text-anchor="middle" class="icon">4</text>
+      <text x="85" y="84" text-anchor="middle" class="label">
+        <tspan x="85" dy="0">WHAM /</tspan>
+        <tspan x="85" dy="26">SMPL</tspan>
+      </text>
+      <text x="85" y="127" text-anchor="middle" class="small">hareket çözümü</text>
+    </g>
+
+    <line x1="885" y1="75" x2="927" y2="75" stroke="#345B7C" stroke-width="4" marker-end="url(#arrow)"/>
+
+    <g transform="translate(940 0)">
+      <rect x="0" y="0" width="170" height="150" rx="10" fill="#FEF2F2" stroke="#C53030" stroke-width="2"/>
+      <circle cx="85" cy="38" r="25" fill="#C53030"/>
+      <text x="85" y="50" text-anchor="middle" class="icon">5</text>
+      <text x="85" y="84" text-anchor="middle" class="label">
+        <tspan x="85" dy="0">BVH / JSON</tspan>
+        <tspan x="85" dy="26">Export</tspan>
+      </text>
+      <text x="85" y="127" text-anchor="middle" class="small">animasyon dosyası</text>
+    </g>
+
+    <line x1="1120" y1="75" x2="1162" y2="75" stroke="#345B7C" stroke-width="4" marker-end="url(#arrow)"/>
+
+    <g transform="translate(1175 0)">
+      <rect x="0" y="0" width="170" height="150" rx="10" fill="#F7FAFC" stroke="#4A5568" stroke-width="2"/>
+      <circle cx="85" cy="38" r="25" fill="#4A5568"/>
+      <text x="85" y="50" text-anchor="middle" class="icon">6</text>
+      <text x="85" y="79" text-anchor="middle" class="label">
+        <tspan x="85" dy="0">Blender</tspan>
+        <tspan x="85" dy="24">Unity</tspan>
+        <tspan x="85" dy="24">Unreal</tspan>
+      </text>
+      <text x="85" y="142" text-anchor="middle" class="small">karakter animasyonu</text>
+    </g>
+  </g>
+
+  <text x="700" y="286" text-anchor="middle" class="small">Pahalı motion capture ekipmanı olmadan, eğitim ortamında karakter animasyonu üretimi yapılabilir.</text>
+</svg>

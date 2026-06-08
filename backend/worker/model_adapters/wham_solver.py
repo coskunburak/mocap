@@ -138,15 +138,81 @@ def matrix_to_euler_xyz(matrix: Any) -> list[float]:
     return [math.degrees(x), math.degrees(y), math.degrees(z)]
 
 
+def matrix_to_quaternion(matrix: Any) -> list[float]:
+    r00 = finite(matrix[0][0])
+    r01 = finite(matrix[0][1])
+    r02 = finite(matrix[0][2])
+    r10 = finite(matrix[1][0])
+    r11 = finite(matrix[1][1])
+    r12 = finite(matrix[1][2])
+    r20 = finite(matrix[2][0])
+    r21 = finite(matrix[2][1])
+    r22 = finite(matrix[2][2])
+    trace = r00 + r11 + r22
+    if trace > 0.0:
+        s = math.sqrt(trace + 1.0) * 2.0
+        return [
+            0.25 * s,
+            (r21 - r12) / s,
+            (r02 - r20) / s,
+            (r10 - r01) / s,
+        ]
+    if r00 > r11 and r00 > r22:
+        s = math.sqrt(1.0 + r00 - r11 - r22) * 2.0
+        return [
+            (r21 - r12) / s,
+            0.25 * s,
+            (r01 + r10) / s,
+            (r02 + r20) / s,
+        ]
+    if r11 > r22:
+        s = math.sqrt(1.0 + r11 - r00 - r22) * 2.0
+        return [
+            (r02 - r20) / s,
+            (r01 + r10) / s,
+            0.25 * s,
+            (r12 + r21) / s,
+        ]
+    s = math.sqrt(1.0 + r22 - r00 - r11) * 2.0
+    return [
+        (r10 - r01) / s,
+        (r02 + r20) / s,
+        (r12 + r21) / s,
+        0.25 * s,
+    ]
+
+
+def quaternion_to_euler_zxy(quaternion: list[float]) -> list[float]:
+    w, x, y, z = (finite(quaternion[0], 1.0), finite(quaternion[1]), finite(quaternion[2]), finite(quaternion[3]))
+    magnitude = math.sqrt(w * w + x * x + y * y + z * z) or 1.0
+    w /= magnitude
+    x /= magnitude
+    y /= magnitude
+    z /= magnitude
+    m12 = 2.0 * (x * y - z * w)
+    m22 = 1.0 - 2.0 * (x * x + z * z)
+    m31 = 2.0 * (x * z - y * w)
+    m32 = 2.0 * (y * z + x * w)
+    m33 = 1.0 - 2.0 * (x * x + y * y)
+    x_rad = math.asin(max(-1.0, min(1.0, m32)))
+    z_rad = math.atan2(-m12, m22)
+    y_rad = math.atan2(-m31, m33)
+    return [math.degrees(x_rad), math.degrees(y_rad), math.degrees(z_rad)]
+
+
+def matrix_to_euler_zxy(matrix: Any) -> list[float]:
+    return quaternion_to_euler_zxy(matrix_to_quaternion(matrix))
+
+
 def rotation_to_euler(value: Any) -> list[float]:
     if hasattr(value, "tolist"):
         value = value.tolist()
     if isinstance(value, (list, tuple)) and len(value) == 3:
         if all(isinstance(row, (list, tuple)) for row in value):
-            return matrix_to_euler_xyz(value)
-        return matrix_to_euler_xyz(axis_angle_to_matrix(list(value)))
+            return matrix_to_euler_zxy(value)
+        return matrix_to_euler_zxy(axis_angle_to_matrix(list(value)))
     if isinstance(value, (list, tuple)) and len(value) == 9:
-        return matrix_to_euler_xyz([value[0:3], value[3:6], value[6:9]])
+        return matrix_to_euler_zxy([value[0:3], value[3:6], value[6:9]])
     return [0.0, 0.0, 0.0]
 
 
@@ -590,7 +656,7 @@ def main() -> None:
         },
         "skeleton": {
             "name": "mocap_humanoid_v1",
-            "rotationOrder": "XYZ",
+            "rotationOrder": "ZXY",
             "coordinateSystem": "right_handed_y_up",
         },
         "fps": fps,

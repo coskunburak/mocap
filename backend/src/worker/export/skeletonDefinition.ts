@@ -6,7 +6,7 @@ export type SkeletonJoint = {
 };
 
 export const SKELETON_NAME = "mocap_humanoid_v1" as const;
-export const ROTATION_ORDER = "XYZ" as const;
+export const ROTATION_ORDER = "ZXY" as const;
 
 export const SKELETON: SkeletonJoint[] = [
   { name: "Hips", parent: null, offset: [0, 0, 0], primaryChild: "Spine" },

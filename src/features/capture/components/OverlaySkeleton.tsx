@@ -4,6 +4,7 @@ import Svg, { Circle, Line, Polyline } from "react-native-svg";
 import type { LandmarkBuffer } from "../../../domain/mocap/models/Landmark";
 import { LANDMARK_STRIDE } from "../../../domain/mocap/models/Landmark";
 import type { PoseFrame } from "../../../domain/mocap/models/PoseFrame";
+import { projectNormalizedPointToView } from "../../../domain/mocap/pipeline/pose/PoseFrameGeometry";
 import { useCaptureStore } from "../state/captureStore";
 import { colors } from "../../../ui/theme";
 
@@ -87,6 +88,7 @@ function count(buf?: LandmarkBuffer) {
 function projectJoint(
   landmarks: LandmarkBuffer | undefined,
   index: number,
+  frame: PoseFrame | undefined,
   width: number,
   height: number,
   threshold: number,
@@ -96,14 +98,21 @@ function projectJoint(
   const confidence = confAt(landmarks, index);
   if (confidence < threshold) return null;
 
-  return {
-    x: clamp01(xAt(landmarks, index)) * width,
-    y: clamp01(yAt(landmarks, index)) * height,
-  };
+  const projected = projectNormalizedPointToView(
+    clamp01(xAt(landmarks, index)),
+    clamp01(yAt(landmarks, index)),
+    frame,
+    width,
+    height,
+  );
+
+  if (!projected.visible) return null;
+  return projected;
 }
 
 function buildSegments(
   landmarks: LandmarkBuffer | undefined,
+  frame: PoseFrame | undefined,
   width: number,
   height: number,
   threshold: number,
@@ -113,8 +122,8 @@ function buildSegments(
 
   const out: Array<{ ax: number; ay: number; bx: number; by: number }> = [];
   for (const [a, b] of connections) {
-    const start = projectJoint(landmarks, a, width, height, threshold);
-    const end = projectJoint(landmarks, b, width, height, threshold);
+    const start = projectJoint(landmarks, a, frame, width, height, threshold);
+    const end = projectJoint(landmarks, b, frame, width, height, threshold);
     if (!start || !end) continue;
     out.push({ ax: start.x, ay: start.y, bx: end.x, by: end.y });
   }
@@ -124,6 +133,7 @@ function buildSegments(
 
 function buildPolyline(
   landmarks: LandmarkBuffer | undefined,
+  frame: PoseFrame | undefined,
   width: number,
   height: number,
   threshold: number,
@@ -133,7 +143,7 @@ function buildPolyline(
 
   const points: string[] = [];
   for (const index of indices) {
-    const point = projectJoint(landmarks, index, width, height, threshold);
+    const point = projectJoint(landmarks, index, frame, width, height, threshold);
     if (!point) return null;
     points.push(`${point.x},${point.y}`);
   }
@@ -143,6 +153,7 @@ function buildPolyline(
 
 function buildPoints(
   landmarks: LandmarkBuffer | undefined,
+  frame: PoseFrame | undefined,
   width: number,
   height: number,
   threshold: number,
@@ -154,7 +165,7 @@ function buildPoints(
   const out: Array<{ i: number; x: number; y: number }> = [];
 
   for (const index of targetIndices) {
-    const point = projectJoint(landmarks, index, width, height, threshold);
+    const point = projectJoint(landmarks, index, frame, width, height, threshold);
     if (!point) continue;
     out.push({ i: index, x: point.x, y: point.y });
   }
@@ -174,44 +185,44 @@ export function OverlaySkeleton({ width, height, frame }: Props) {
   const handThreshold = Math.max(0.22, jointThreshold * 0.65);
 
   const poseJoints = useMemo(
-    () => buildPoints(bodyLandmarks, width, height, jointThreshold),
-    [jointThreshold, bodyLandmarks, width, height],
+    () => buildPoints(bodyLandmarks, frame, width, height, jointThreshold),
+    [jointThreshold, bodyLandmarks, frame, width, height],
   );
 
   const poseBones = useMemo(
-    () => buildSegments(bodyLandmarks, width, height, boneThreshold, POSE_BONES),
-    [boneThreshold, bodyLandmarks, width, height],
+    () => buildSegments(bodyLandmarks, frame, width, height, boneThreshold, POSE_BONES),
+    [boneThreshold, bodyLandmarks, frame, width, height],
   );
   const faceContours = useMemo(
     () =>
       FACE_CONTOURS.map((indices) =>
-        buildPolyline(faceLandmarks, width, height, faceThreshold, indices),
+        buildPolyline(faceLandmarks, frame, width, height, faceThreshold, indices),
       ).filter(Boolean) as string[],
-    [faceLandmarks, faceThreshold, height, width],
+    [faceLandmarks, faceThreshold, frame, height, width],
   );
   const leftHandBones = useMemo(
-    () => buildSegments(leftHandLandmarks, width, height, handThreshold, HAND_BONES),
-    [handThreshold, height, leftHandLandmarks, width],
+    () => buildSegments(leftHandLandmarks, frame, width, height, handThreshold, HAND_BONES),
+    [frame, handThreshold, height, leftHandLandmarks, width],
   );
   const rightHandBones = useMemo(
-    () => buildSegments(rightHandLandmarks, width, height, handThreshold, HAND_BONES),
-    [handThreshold, height, rightHandLandmarks, width],
+    () => buildSegments(rightHandLandmarks, frame, width, height, handThreshold, HAND_BONES),
+    [frame, handThreshold, height, rightHandLandmarks, width],
   );
   const leftHandTips = useMemo(
-    () => buildPoints(leftHandLandmarks, width, height, handThreshold, [4, 8, 12, 16, 20]),
-    [handThreshold, height, leftHandLandmarks, width],
+    () => buildPoints(leftHandLandmarks, frame, width, height, handThreshold, [4, 8, 12, 16, 20]),
+    [frame, handThreshold, height, leftHandLandmarks, width],
   );
   const rightHandTips = useMemo(
-    () => buildPoints(rightHandLandmarks, width, height, handThreshold, [4, 8, 12, 16, 20]),
-    [handThreshold, height, rightHandLandmarks, width],
+    () => buildPoints(rightHandLandmarks, frame, width, height, handThreshold, [4, 8, 12, 16, 20]),
+    [frame, handThreshold, height, rightHandLandmarks, width],
   );
   const handBridges = useMemo(() => {
     const out: Array<{ ax: number; ay: number; bx: number; by: number; stroke: string }> = [];
 
-    const bodyLeftWrist = projectJoint(bodyLandmarks, 15, width, height, boneThreshold);
-    const bodyRightWrist = projectJoint(bodyLandmarks, 16, width, height, boneThreshold);
-    const leftPalm = projectJoint(leftHandLandmarks, 0, width, height, handThreshold);
-    const rightPalm = projectJoint(rightHandLandmarks, 0, width, height, handThreshold);
+    const bodyLeftWrist = projectJoint(bodyLandmarks, 15, frame, width, height, boneThreshold);
+    const bodyRightWrist = projectJoint(bodyLandmarks, 16, frame, width, height, boneThreshold);
+    const leftPalm = projectJoint(leftHandLandmarks, 0, frame, width, height, handThreshold);
+    const rightPalm = projectJoint(rightHandLandmarks, 0, frame, width, height, handThreshold);
 
     if (bodyLeftWrist && leftPalm) {
       out.push({
@@ -236,6 +247,7 @@ export function OverlaySkeleton({ width, height, frame }: Props) {
     return out;
   }, [
     boneThreshold,
+    frame,
     handThreshold,
     height,
     leftHandLandmarks,

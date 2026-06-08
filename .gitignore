@@ -13,4 +13,5 @@ ios/build/
 .venv/
 backend/.venv/
 .env
+.env.local
 backend/.env

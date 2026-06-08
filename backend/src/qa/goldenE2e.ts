@@ -47,6 +47,9 @@ type GoldenManifest = {
       minTriangulatedLandmarkRatio?: number;
       maxReprojectionErrorPx?: number;
       minCalibrationQualityScore?: number;
+      requireOptimizedBvh?: boolean;
+      requireOptimizedSolvedMotion?: boolean;
+      requireDualFitReport?: boolean;
       requireArtifactNameUnique?: boolean;
       requiredMotionPipelineStages?: string[];
     };
@@ -81,6 +84,9 @@ type QualityReport = {
     primaryWhamFallbackUsed: boolean;
     primaryCameraFallbackUsed?: boolean;
     finalAnimationSource?: string;
+    dualFitStatus?: string;
+    optimizedBvhAvailable?: boolean;
+    optimizedSolvedMotionAvailable?: boolean;
     reconstructionStatus?: string;
     primaryWhamFallbackReason?: string;
     metrics?: {
@@ -105,6 +111,7 @@ type PreparedSampleVideo = {
 
 type MotionPipelineReport = {
   schema: "mocap.motion_pipeline_report.v1";
+  finalAnimationSource?: string;
   fallback?: {
     motionFallbackUsed?: boolean;
     reasons?: string[];
@@ -291,6 +298,11 @@ function buildMultiViewExpectationChecks(input: {
   if (input.expectations.finalAnimationSource) {
     checks.finalAnimationSource =
       section.finalAnimationSource === input.expectations.finalAnimationSource;
+    if (input.motionPipeline) {
+      checks.motionPipelineFinalAnimationSource =
+        input.motionPipeline.finalAnimationSource ===
+        input.expectations.finalAnimationSource;
+    }
   }
   if (input.expectations.forbiddenFinalAnimationSources?.length) {
     checks.noForbiddenFinalAnimationSource =
@@ -323,6 +335,25 @@ function buildMultiViewExpectationChecks(input: {
       (section.metrics?.calibrationQualityScore ?? -Infinity) >=
       input.expectations.minCalibrationQualityScore;
   }
+  if (input.expectations.requireOptimizedBvh) {
+    checks.optimizedBvhAvailable = section.optimizedBvhAvailable === true;
+    checks.optimizedBvhExport = input.exports.some((file) =>
+      exportMatches(file, "optimized_bvh"),
+    );
+  }
+  if (input.expectations.requireOptimizedSolvedMotion) {
+    checks.optimizedSolvedMotionAvailable =
+      section.optimizedSolvedMotionAvailable === true;
+    checks.optimizedSolvedMotionExport = input.exports.some((file) =>
+      exportMatches(file, "optimized_solved_motion_json"),
+    );
+  }
+  if (input.expectations.requireDualFitReport) {
+    checks.dualFitReportExport = input.exports.some((file) =>
+      exportMatches(file, "dual_fit_report_json"),
+    );
+    checks.dualFitStatusPresent = Boolean(section.dualFitStatus);
+  }
   if (input.expectations.requireArtifactNameUnique) {
     checks.artifactNameUnique = hasUniqueArtifactNames(input.exports);
   }
@@ -344,8 +375,12 @@ function buildMultiViewExpectationChecks(input: {
       input.expectations.primaryWhamFallbackUsed;
   }
   if (input.motionPipeline) {
-    checks.motionPipelineDoesNotUseMultiViewConstraints =
-      input.motionPipeline.whamInputUsage?.multiViewConstraintsUsed === false;
+    const expectedConstraintsUsed =
+      input.expectations.reconstructionUsedForConstraints === true ||
+      input.expectations.finalAnimationSource === "true_dual_solve";
+    checks.motionPipelineMultiViewConstraintTruth =
+      input.motionPipeline.whamInputUsage?.multiViewConstraintsUsed ===
+      expectedConstraintsUsed;
   }
   return checks;
 }

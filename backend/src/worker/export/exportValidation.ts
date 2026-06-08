@@ -23,8 +23,17 @@ import type {
   MultiViewReconstructionSummaryArtifact,
 } from "../reconstruction/dualReconstructionArtifacts";
 import { SKELETON } from "./skeletonDefinition";
+import { buildDualFitAcceptanceSummary } from "../fitting/fittingQuality";
 
 export type QualityReportMultiViewDiagnosticInput = {
+  pipelineBranch?: string;
+  reconstructionBranchEntered?: boolean;
+  workerRuntime?: {
+    nodeEnv: string;
+    enableMultiViewReconstruction: boolean;
+    allowPrimaryWhamFallback: boolean;
+    selectedVideoCount?: number;
+  };
   reconstructionAvailable?: boolean;
   captureMetadataDiagnostics?: CaptureMetadataDiagnostics;
   syncReport?: MultiViewSyncReport;
@@ -165,10 +174,21 @@ export function buildQualityReportMultiViewSection(
   return {
     enabled: true,
     source,
+    ...(input.multiViewDiagnostic?.pipelineBranch
+      ? { pipelineBranch: input.multiViewDiagnostic.pipelineBranch }
+      : {}),
+    ...(input.multiViewDiagnostic?.reconstructionBranchEntered !== undefined
+      ? {
+          reconstructionBranchEntered:
+            input.multiViewDiagnostic.reconstructionBranchEntered,
+        }
+      : {}),
+    ...(input.multiViewDiagnostic?.workerRuntime
+      ? { workerRuntime: input.multiViewDiagnostic.workerRuntime }
+      : {}),
     reconstructionAvailable,
     reconstructionUsedForConstraints:
-      finalAnimationSource === "true_dual_solve" ||
-      (input.whamInputUsage?.multiViewConstraintsUsed ?? false),
+      finalAnimationSource === "true_dual_solve",
     primaryWhamFallbackUsed:
       finalAnimationSource === "true_dual_solve"
         ? false
@@ -215,7 +235,10 @@ export function buildQualityReportMultiViewSection(
       ? jointTrackTopLevelFields(input.multiViewDiagnostic.jointTrack)
       : {}),
     ...(input.multiViewDiagnostic?.dualFitReport
-      ? dualFitTopLevelFields(input.multiViewDiagnostic.dualFitReport)
+      ? dualFitTopLevelFields(
+          input.multiViewDiagnostic.dualFitReport,
+          finalAnimationSource === "true_dual_solve",
+        )
       : {}),
     ...(primaryWhamFallbackReason ? { primaryWhamFallbackReason } : {}),
     ...(input.whamInputUsage ? { whamInputUsage: input.whamInputUsage } : {}),
@@ -252,12 +275,9 @@ function resolveFinalAnimationSource(input: {
     return "true_dual_solve";
   }
   if (
-    input.whamInputUsage?.multiViewConstraintsUsed &&
-    input.reconstructionAvailable
+    input.whamInputUsage?.primaryVideoUsed ||
+    input.whamInputUsage?.multiViewConstraintsUsed
   ) {
-    return "dual_triangulation_constraint";
-  }
-  if (input.whamInputUsage?.primaryVideoUsed) {
     return "primary_wham";
   }
   if (input.reconstructionAvailable) {
@@ -452,8 +472,36 @@ function buildMultiViewReportMetrics(
       finiteNumber(dualFitReport.losses.triangulatedJointLoss),
     );
     setFiniteMetric(
+      "triangulatedJointMeanPositionErrorBefore",
+      finiteNumber(
+        dualFitReport.metrics.triangulatedJointMeanPositionErrorBefore,
+      ),
+    );
+    setFiniteMetric(
+      "triangulatedJointMeanPositionErrorAfter",
+      finiteNumber(
+        dualFitReport.metrics.triangulatedJointMeanPositionErrorAfter,
+      ),
+    );
+    setFiniteMetric(
+      "triangulatedJointP95PositionErrorBefore",
+      finiteNumber(dualFitReport.metrics.triangulatedJointP95PositionErrorBefore),
+    );
+    setFiniteMetric(
+      "triangulatedJointP95PositionErrorAfter",
+      finiteNumber(dualFitReport.metrics.triangulatedJointP95PositionErrorAfter),
+    );
+    setFiniteMetric(
       "reprojectionLoss",
       finiteNumber(dualFitReport.losses.reprojectionLoss),
+    );
+    setFiniteMetric(
+      "reprojectionP95PxBefore",
+      finiteNumber(dualFitReport.metrics.reprojectionP95PxBefore),
+    );
+    setFiniteMetric(
+      "reprojectionP95PxAfter",
+      finiteNumber(dualFitReport.metrics.reprojectionP95PxAfter),
     );
     setFiniteMetric(
       "reprojectionImprovementRatio",
@@ -464,12 +512,32 @@ function buildMultiViewReportMetrics(
       finiteNumber(dualFitReport.metrics.boneLengthConsistencyScore),
     );
     setFiniteMetric(
+      "boneLengthMeanVariation",
+      finiteNumber(dualFitReport.metrics.boneLengthMeanVariation),
+    );
+    setFiniteMetric(
+      "boneLengthMaxVariation",
+      finiteNumber(dualFitReport.metrics.boneLengthMaxVariation),
+    );
+    setFiniteMetric(
       "jointLimitViolationCount",
       finiteNumber(dualFitReport.metrics.jointLimitViolationCount),
     );
     setFiniteMetric(
       "footContactStabilityScore",
       finiteNumber(dualFitReport.metrics.footContactStabilityScore),
+    );
+    setFiniteMetric(
+      "footLockViolationCount",
+      finiteNumber(dualFitReport.metrics.footLockViolationCount),
+    );
+    setFiniteMetric(
+      "rootTranslationMeanDelta",
+      finiteNumber(dualFitReport.metrics.rootTranslationMeanDelta),
+    );
+    setFiniteMetric(
+      "rootTranslationMaxDelta",
+      finiteNumber(dualFitReport.metrics.rootTranslationMaxDelta),
     );
     setFiniteMetric(
       "optimizedBvhAvailable",
@@ -484,8 +552,36 @@ function buildMultiViewReportMetrics(
       finiteNumber(dualFitReport.metrics.reliableConstraintRatio),
     );
     setFiniteMetric(
+      "reliableConstraintCount",
+      finiteNumber(dualFitReport.metrics.reliableConstraintCount),
+    );
+    setFiniteMetric(
+      "candidateConstraintCount",
+      finiteNumber(dualFitReport.metrics.candidateConstraintCount),
+    );
+    setFiniteMetric(
+      "rejectedConstraintCount",
+      finiteNumber(dualFitReport.metrics.rejectedConstraintCount),
+    );
+    setFiniteMetric(
+      "lowConfidenceConstraintCount",
+      finiteNumber(dualFitReport.metrics.lowConfidenceConstraintCount),
+    );
+    setFiniteMetric(
+      "highReprojectionConstraintCount",
+      finiteNumber(dualFitReport.metrics.highReprojectionConstraintCount),
+    );
+    setFiniteMetric(
+      "invalidConstraintCount",
+      finiteNumber(dualFitReport.metrics.invalidConstraintCount),
+    );
+    setFiniteMetric(
       "optimizedMotionDelta",
       finiteNumber(dualFitReport.metrics.optimizedMotionDelta),
+    );
+    setFiniteMetric(
+      "temporalJitterIncreaseRatio",
+      finiteNumber(dualFitReport.metrics.temporalJitterIncreaseRatio),
     );
   }
   const poseExtraction = buildMultiViewPoseExtractionSummary(
@@ -553,10 +649,12 @@ function buildMultiViewReportMetrics(
 
 function dualFitTopLevelFields(
   dualFitReport: DualFitReportArtifact,
+  acceptedDualFitFinal: boolean,
 ): Pick<
   QualityReportMultiViewSection,
   | "dualFitStatus"
   | "dualFitAcceptedAsFinal"
+  | "dualFitAcceptance"
   | "optimizedBvhAvailable"
   | "optimizedSolvedMotionAvailable"
   | "fittingTotalLoss"
@@ -568,9 +666,27 @@ function dualFitTopLevelFields(
   | "jointLimitViolationCount"
   | "footContactStabilityScore"
 > {
+  const dualFitAcceptance =
+    !acceptedDualFitFinal && dualFitReport.acceptedAsFinalAnimation
+      ? buildDualFitAcceptanceSummary({
+          metrics: {
+            ...dualFitReport.metrics,
+            acceptedAsFinalAnimation: false,
+          },
+          gates: dualFitReport.qualityGates,
+          acceptedAsFinalAnimation: false,
+          additionalBlockingFailures: ["optimized_artifacts_missing"],
+        })
+      : dualFitReport.acceptance ??
+    buildDualFitAcceptanceSummary({
+      metrics: dualFitReport.metrics,
+      gates: dualFitReport.qualityGates,
+      acceptedAsFinalAnimation: dualFitReport.acceptedAsFinalAnimation,
+    });
   return {
     dualFitStatus: dualFitReport.status,
-    dualFitAcceptedAsFinal: dualFitReport.acceptedAsFinalAnimation,
+    dualFitAcceptedAsFinal: acceptedDualFitFinal,
+    dualFitAcceptance,
     optimizedBvhAvailable: Boolean(dualFitReport.artifactRefs.optimized_bvh),
     optimizedSolvedMotionAvailable: Boolean(
       dualFitReport.artifactRefs.optimized_solved_motion_json,

@@ -5,6 +5,7 @@ type Args = {
   apiBaseUrl: string;
   token: string;
   videoPath: string;
+  orientation: "portrait" | "portrait_upside_down" | "landscape_left" | "landscape_right" | "unknown";
   outputDir: string;
   preset: string;
   timeoutMs: number;
@@ -73,6 +74,7 @@ function parseArgs(argv: string[]): Args {
       "http://127.0.0.1:4010",
     token: values.get("token") ?? process.env.MOCAP_API_TOKEN ?? "dev-user-id",
     videoPath: path.resolve(videoPath),
+    orientation: parseOrientation(values.get("orientation")),
     outputDir: path.resolve(
       values.get("output-dir") ??
         path.join(process.cwd(), "..", ".local-artifacts", "wham-live-api-job", runId),
@@ -81,6 +83,25 @@ function parseArgs(argv: string[]): Args {
     timeoutMs: Number(values.get("timeout-ms") ?? 600_000),
     pollMs: Number(values.get("poll-ms") ?? 2_000),
   };
+}
+
+function parseOrientation(
+  value: string | undefined,
+): Args["orientation"] {
+  switch (value) {
+    case undefined:
+      return "unknown";
+    case "portrait":
+    case "portrait_upside_down":
+    case "landscape_left":
+    case "landscape_right":
+    case "unknown":
+      return value;
+    default:
+      throw new Error(
+        "--orientation must be portrait, portrait_upside_down, landscape_left, landscape_right, or unknown",
+      );
+  }
 }
 
 function joinUrl(baseUrl: string, route: string) {
@@ -214,6 +235,7 @@ async function run() {
       fileName: path.basename(args.videoPath),
       fileSizeBytes: videoInfo.size,
       contentType: "video/mp4",
+      orientation: args.orientation,
     },
     quality: {
       source: "wham_live_api_fixture",

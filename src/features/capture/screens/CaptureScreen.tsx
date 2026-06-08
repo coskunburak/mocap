@@ -7,6 +7,7 @@ import { routes } from "../../../app/navigation/routes";
 import { analyzeCalibration } from "../../../domain/mocap/pipeline/calibration/CalibrationAnalyzer";
 import type { PoseFrame } from "../../../domain/mocap/models/PoseFrame";
 import { colors, radii, spacing, typography } from "../../../ui/theme";
+import { NativeCameraEngine } from "../data/NativeCameraEngine";
 
 let CameraView: typeof import("../components/CameraView").CameraView;
 try {
@@ -79,6 +80,24 @@ type CaptureView = "front" | "back";
 
 const RECORD_COUNTDOWN_SECONDS = 5;
 const RECORD_COUNTDOWN_TICK_MS = 100;
+
+type RecordingStartOptions = {
+  takeName?: string;
+};
+
+type RecordingCountdownOptions = RecordingStartOptions & {
+  endsAtMs?: number;
+};
+
+function numberParam(params: Record<string, unknown> | undefined, key: string) {
+  const value = params?.[key];
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function stringParam(params: Record<string, unknown> | undefined, key: string) {
+  const value = params?.[key];
+  return typeof value === "string" && value.length > 0 ? value : undefined;
+}
 
 function trackingLabel(state: "waiting" | "searching" | "stabilizing" | "ready" | "lost") {
   switch (state) {
@@ -200,8 +219,13 @@ export default function CaptureScreen() {
   const [recordStartedAt, setRecordStartedAt] = useState<number | null>(null);
   const [elapsedMs, setElapsedMs] = useState(0);
   const countdownEndsAtRef = useRef<number | null>(null);
+  const pendingRecordingOptionsRef = useRef<RecordingStartOptions | null>(null);
 
-  const { processLocalFrame, sendFrameToHost, state: mvState } = useMultiViewCapture();
+  const { processLocalFrame, sendFrameToHost, sendCommand, state: mvState } = useMultiViewCapture();
+  const usesLiveLandmarks =
+    mvState.captureMode !== "solo" &&
+    mvState.peerRole !== "solo" &&
+    mvState.connectionState !== "disconnected";
 
   const dualRobotFrame = useMemo<PoseFrame | undefined>(() => {
     const multiFrame = mvState.lastMultiViewFrame;
@@ -218,12 +242,15 @@ export default function CaptureScreen() {
     };
   }, [mvState.lastMultiViewFrame]);
 
-  const avatarFrame = dualRobotFrame ?? lastFrame;
+  const avatarFrame = usesLiveLandmarks ? dualRobotFrame ?? lastFrame : undefined;
   const remoteAgeMs = mvState.lastRemoteFrameAt ? Date.now() - mvState.lastRemoteFrameAt : null;
   const matchedAgeMs = mvState.lastMatchedFrameAt ? Date.now() - mvState.lastMatchedFrameAt : null;
 
   const handleFrame = useCallback(
     (frame: PoseFrame) => {
+      if (!usesLiveLandmarks) {
+        return null;
+      }
       if (mvState.connectionState === "ready" || mvState.connectionState === "capturing") {
         if (mvState.peerRole === "guest") {
           sendFrameToHost(frame);
@@ -233,8 +260,35 @@ export default function CaptureScreen() {
       }
       return null;
     },
-    [mvState.connectionState, mvState.peerRole, processLocalFrame, sendFrameToHost],
+    [
+      mvState.connectionState,
+      mvState.peerRole,
+      processLocalFrame,
+      sendFrameToHost,
+      usesLiveLandmarks,
+    ],
   );
+
+  useEffect(() => {
+    if (!usesLiveLandmarks) {
+      return;
+    }
+
+    let unsubscribe: (() => void) | undefined;
+
+    try {
+      unsubscribe = NativeCameraEngine.subscribePoseFrames((frame, fps) => {
+        useCaptureStore.getState().setFrame(frame, fps);
+        handleFrame(frame);
+      });
+    } catch (e) {
+      console.warn("[CaptureScreen] pose frame subscription failed", e);
+    }
+
+    return () => {
+      unsubscribe?.();
+    };
+  }, [handleFrame, usesLiveLandmarks]);
 
   const {
     startCapture,
@@ -248,6 +302,14 @@ export default function CaptureScreen() {
   const isRecording =
     recorderState.status === "recording" || recorderState.status === "stopping";
   const isEngineBusy = status === "starting" || status === "stopping";
+  const isDualHost =
+    mvState.captureMode === "dual-camera" &&
+    mvState.peerRole === "host" &&
+    mvState.connectionState === "ready";
+  const isDualGuestControlled =
+    mvState.captureMode === "dual-camera" &&
+    mvState.peerRole === "guest" &&
+    mvState.connectionState !== "disconnected";
   const preferredCalibrationPose =
     trackingProfile === "holistic" ? "t-pose" : "a-pose";
   const calibration = useMemo(
@@ -255,6 +317,11 @@ export default function CaptureScreen() {
     [preferredCalibrationPose, recentFrames],
   );
   const readinessPercent = Math.round(calibration.readinessScore * 100);
+  const readinessDisplayPercent = usesLiveLandmarks
+    ? readinessPercent
+    : readyForRecording
+      ? 100
+      : readinessPercent;
   const modelLabel = captureModel === "full" ? "s1" : "lite";
   const captureReadyLabel = isRecording
     ? "recording"
@@ -272,14 +339,31 @@ export default function CaptureScreen() {
     });
   }, [captureModel, startCapture, trackingProfile]);
 
-  const onStartRecord = useCallback(async () => {
+  const onBeginStereoCalibration = useCallback(async () => {
     try {
-      if (status !== "capturing") {
+      setError?.(undefined);
+      if (status === "idle" || status === "error") {
+        await onStartCapture();
+      }
+      sendCommand("start_calibration", {
+        model: captureModel,
+        trackingProfile,
+        targetFps: 30,
+      });
+    } catch (e: any) {
+      setError?.(e?.message ?? "Calibration start failed.");
+    }
+  }, [captureModel, onStartCapture, sendCommand, setError, status, trackingProfile]);
+
+  const onStartRecord = useCallback(async (options?: RecordingStartOptions) => {
+    try {
+      const currentCapture = useCaptureStore.getState();
+      if (currentCapture.status !== "capturing") {
         setError?.("Start capture before recording.");
         return;
       }
-      if (!readyForRecording) {
-        setError?.(trackingHint);
+      if (!currentCapture.readyForRecording) {
+        setError?.(currentCapture.trackingHint);
         return;
       }
       if (recorderState.status !== "idle") return;
@@ -287,11 +371,15 @@ export default function CaptureScreen() {
       const isProCapture =
         mvState.captureMode === "pro-4-camera" && Boolean(mvState.backendCaptureSessionId);
       const isDualCapture =
-        !isProCapture &&
-        (mvState.connectionState === "ready" || mvState.connectionState === "capturing");
+        !isProCapture && mvState.captureMode === "dual-camera" && Boolean(mvState.backendCaptureSessionId);
+      const dualDeviceIndex =
+        mvState.proDeviceIndex ?? (mvState.peerRole === "guest" ? 1 : 0);
+      const dualDeviceRole = mvState.peerRole === "guest" ? "secondary" : "primary";
 
       await startRecording({
-        takeName: `${captureView === "front" ? "Front" : "Back"} Take ${new Date().toLocaleTimeString()}`,
+        takeName:
+          options?.takeName ??
+          `${captureView === "front" ? "Front" : "Back"} Take ${new Date().toLocaleTimeString()}`,
         trackingProfile,
         calibration: {
           ...calibration,
@@ -299,23 +387,28 @@ export default function CaptureScreen() {
         },
         captureMode: isProCapture ? "pro-4-camera" : isDualCapture ? "dual-camera" : "solo",
         viewCount: isProCapture ? 4 : isDualCapture ? 2 : 1,
-        deviceId: isProCapture ? mvState.proDeviceId : undefined,
+        deviceId: isProCapture
+          ? mvState.proDeviceId
+          : isDualCapture
+            ? mvState.localDevice?.deviceId
+            : undefined,
         deviceRole: isProCapture
           ? mvState.proDeviceRole ?? "front"
-          : mvState.peerRole === "guest"
-            ? "secondary"
+          : isDualCapture
+            ? dualDeviceRole
             : "primary",
         deviceIndex: isProCapture
           ? mvState.proDeviceIndex ?? 0
-          : mvState.peerRole === "guest"
-            ? 1
+          : isDualCapture
+            ? dualDeviceIndex
             : 0,
         captureSessionId: isProCapture
           ? mvState.backendCaptureSessionId
-          : mvState.sessionId
-            ? `cap_${mvState.sessionId}`
+          : isDualCapture
+            ? mvState.backendCaptureSessionId
             : undefined,
-        multiCameraSessionId: isProCapture ? mvState.backendCaptureSessionId : undefined,
+        multiCameraSessionId:
+          isProCapture || isDualCapture ? mvState.backendCaptureSessionId : undefined,
         approxCameraAngle: isProCapture ? mvState.proApproxCameraAngle : undefined,
         calibrationClipId: isProCapture ? mvState.proCalibrationClipId : undefined,
         clockOffsetMs: mvState.clockOffset,
@@ -367,19 +460,20 @@ export default function CaptureScreen() {
     };
   }, [isRecording, readyForRecording, status, trackingHint]);
 
-  const beginRecordingCountdown = useCallback(() => {
+  const beginRecordingCountdown = useCallback((options?: RecordingCountdownOptions) => {
+    const currentCapture = useCaptureStore.getState();
     if (isEngineBusy || recorderState.status === "stopping" || countdown != null) {
       return;
     }
     if (isRecording) {
       return;
     }
-    if (status !== "capturing") {
+    if (currentCapture.status !== "capturing") {
       setError?.("Start capture before recording.");
       return;
     }
-    if (!readyForRecording) {
-      setError?.(trackingHint);
+    if (!currentCapture.readyForRecording) {
+      setError?.(currentCapture.trackingHint);
       return;
     }
     if (recorderState.status !== "idle") {
@@ -387,20 +481,38 @@ export default function CaptureScreen() {
     }
 
     setError?.(undefined);
-    countdownEndsAtRef.current = Date.now() + RECORD_COUNTDOWN_SECONDS * 1000;
-    setCountdown(RECORD_COUNTDOWN_SECONDS);
+    pendingRecordingOptionsRef.current = { takeName: options?.takeName };
+    const endsAt = options?.endsAtMs ?? Date.now() + RECORD_COUNTDOWN_SECONDS * 1000;
+    countdownEndsAtRef.current = endsAt;
+    const remainingSeconds = Math.max(1, Math.ceil((endsAt - Date.now()) / 1000));
+    setCountdown(Math.min(RECORD_COUNTDOWN_SECONDS, remainingSeconds));
   }, [
     countdown,
     isEngineBusy,
     isRecording,
-    readyForRecording,
     recorderState.status,
     setError,
-    status,
-    trackingHint,
   ]);
 
-  const onStopRecord = useCallback(async () => {
+  const beginSynchronizedDualCountdown = useCallback(() => {
+    if (!isDualHost) {
+      beginRecordingCountdown();
+      return;
+    }
+
+    const startsAtHostMs = Date.now() + RECORD_COUNTDOWN_SECONDS * 1000;
+    const takeName = `Dual Take ${new Date().toLocaleTimeString()}`;
+
+    sendCommand("start_recording", {
+      countdownSeconds: RECORD_COUNTDOWN_SECONDS,
+      startsAtHostMs,
+      startsAtGuestMs: startsAtHostMs + mvState.clockOffset,
+      takeName,
+    });
+    beginRecordingCountdown({ endsAtMs: startsAtHostMs, takeName: `${takeName} · Host` });
+  }, [beginRecordingCountdown, isDualHost, mvState.clockOffset, sendCommand]);
+
+  const onStopRecord = useCallback(async (destination: "preview" | "upload" = "preview") => {
     try {
       if (recorderState.status !== "recording") return;
 
@@ -408,6 +520,15 @@ export default function CaptureScreen() {
       const takeId = finalized?.id ?? currentTake?.id;
       if (!takeId) {
         navigation.navigate(routes.ReviewHub as never);
+        return;
+      }
+
+      const shouldUpload =
+        destination === "upload" ||
+        (env.enableBackendCaptureFlow && finalized?.captureMode === "dual-camera");
+
+      if (shouldUpload) {
+        navigation.navigate(routes.UploadProgress as never, { takeId } as never);
         return;
       }
 
@@ -422,11 +543,18 @@ export default function CaptureScreen() {
   }, [currentTake?.id, navigation, recorderState.status, stopRecording]);
 
   const onPrimaryPress = useCallback(() => {
+    if (isDualGuestControlled) {
+      return;
+    }
+
     if (isEngineBusy || recorderState.status === "stopping") {
       return;
     }
 
     if (isRecording) {
+      if (isDualHost) {
+        sendCommand("stop_recording", { stopRequestedAtHostMs: Date.now() });
+      }
       void onStopRecord();
       return;
     }
@@ -440,14 +568,17 @@ export default function CaptureScreen() {
       return;
     }
 
-    beginRecordingCountdown();
+    beginSynchronizedDualCountdown();
   }, [
-    beginRecordingCountdown,
+    beginSynchronizedDualCountdown,
+    isDualGuestControlled,
+    isDualHost,
     isEngineBusy,
     isRecording,
     onStartCapture,
     onStopRecord,
     recorderState.status,
+    sendCommand,
     status,
   ]);
 
@@ -459,16 +590,35 @@ export default function CaptureScreen() {
     [navigation],
   );
 
+  const onRemoteStartRecording = useCallback(
+    async (params?: Record<string, unknown>) => {
+      const currentStatus = useCaptureStore.getState().status;
+      if (currentStatus === "idle" || currentStatus === "error") {
+        await onStartCapture();
+      }
+
+      const takeName = stringParam(params, "takeName");
+      beginRecordingCountdown({
+        endsAtMs:
+          numberParam(params, "startsAtGuestMs") ??
+          Date.now() + RECORD_COUNTDOWN_SECONDS * 1000,
+        takeName: takeName ? `${takeName} · Guest` : undefined,
+      });
+    },
+    [beginRecordingCountdown, onStartCapture],
+  );
+
   useEffect(() => {
     setMultiViewCallbacks({
-      onCommand: (action) => {
-        if (action === "start_capture") void onStartCapture();
+      onCommand: (action, params) => {
+        if (action === "start_capture" || action === "start_calibration") void onStartCapture();
         if (action === "stop_capture") void stopCapture();
-        if (action === "start_recording") beginRecordingCountdown();
-        if (action === "stop_recording") void stopRecording();
+        if (action === "start_recording") void onRemoteStartRecording(params);
+        if (action === "stop_recording") void onStopRecord("upload");
+        if (action === "abort_calibration") void stopCapture();
       },
     });
-  }, [beginRecordingCountdown, onStartCapture, stopCapture, stopRecording]);
+  }, [onRemoteStartRecording, onStartCapture, onStopRecord, stopCapture]);
 
   useEffect(() => {
     if (!isRecording) {
@@ -502,12 +652,14 @@ export default function CaptureScreen() {
 
       if (status !== "capturing" || isRecording) {
         countdownEndsAtRef.current = null;
+        pendingRecordingOptionsRef.current = null;
         setCountdown(null);
         return;
       }
 
       if (!readyForRecording) {
         countdownEndsAtRef.current = null;
+        pendingRecordingOptionsRef.current = null;
         setCountdown(null);
         setError?.(trackingHint);
         return;
@@ -515,6 +667,7 @@ export default function CaptureScreen() {
 
       const endsAt = countdownEndsAtRef.current;
       if (endsAt == null) {
+        pendingRecordingOptionsRef.current = null;
         setCountdown(null);
         return;
       }
@@ -523,7 +676,9 @@ export default function CaptureScreen() {
       if (remainingMs <= 0) {
         countdownEndsAtRef.current = null;
         setCountdown(null);
-        void onStartRecordRef.current();
+        const recordingOptions = pendingRecordingOptionsRef.current ?? undefined;
+        pendingRecordingOptionsRef.current = null;
+        void onStartRecordRef.current(recordingOptions);
         return;
       }
 
@@ -563,13 +718,15 @@ export default function CaptureScreen() {
       ? "It's crucial to get the best possible results"
       : isRecording
         ? `${formatElapsed(elapsedMs)} captured · WHAM processing after upload`
-        : `WHAM/SMPL · ${readyForRecording ? 100 : readinessPercent}% ready`;
+        : `WHAM/SMPL · ${readinessDisplayPercent}% ready`;
 
   return (
     <View style={styles.root}>
       <View style={styles.cameraLayer}>
         <CameraView rounded={false} onLayoutSize={(w, h) => setSize({ w, h })} />
-        <OverlaySkeleton width={size.w} height={size.h} frame={avatarFrame} />
+        {usesLiveLandmarks ? (
+          <OverlaySkeleton width={size.w} height={size.h} frame={avatarFrame} />
+        ) : null}
       </View>
 
       <View pointerEvents="none" style={styles.vignette} />
@@ -598,15 +755,20 @@ export default function CaptureScreen() {
             </Pressable>
           </View>
 
-          <Pressable
-            style={[styles.modelPill, status !== "idle" && status !== "error" && styles.pillDisabled]}
-            disabled={status !== "idle" && status !== "error"}
-            onPress={() => setCaptureModel((value) => (value === "full" ? "lite" : "full"))}
-          >
-            <Text style={styles.modelLabel}>model</Text>
-            <Text style={styles.modelValue}>{modelLabel}</Text>
-            <Text style={styles.modelChevron}>⌄</Text>
-          </Pressable>
+          {usesLiveLandmarks ? (
+            <Pressable
+              style={[
+                styles.modelPill,
+                status !== "idle" && status !== "error" && styles.pillDisabled,
+              ]}
+              disabled={status !== "idle" && status !== "error"}
+              onPress={() => setCaptureModel((value) => (value === "full" ? "lite" : "full"))}
+            >
+              <Text style={styles.modelLabel}>model</Text>
+              <Text style={styles.modelValue}>{modelLabel}</Text>
+              <Text style={styles.modelChevron}>⌄</Text>
+            </Pressable>
+          ) : null}
         </View>
 
         <View style={styles.topRightStack}>
@@ -658,12 +820,18 @@ export default function CaptureScreen() {
           <StereoCalibrationWizard
             localLandmarks={lastFrame?.landmarks}
             remoteLandmarks={mvState.lastRemoteFrame?.landmarks}
+            onBeginCalibration={onBeginStereoCalibration}
             onCalibrationComplete={(cal) => {
               useCaptureStore.getState().setError?.(undefined);
               useMultiViewStore.getState().setStereoCalibration(cal);
             }}
-            onCancel={() => setNavOpen(false)}
-            onRequestGuestCapture={() => undefined}
+            onCancel={() => {
+              sendCommand("abort_calibration");
+              setNavOpen(false);
+            }}
+            onRequestGuestCapture={(step) => {
+              sendCommand("start_calibration", { step });
+            }}
           />
         </View>
       ) : null}
@@ -701,7 +869,10 @@ export default function CaptureScreen() {
           style={[
             styles.shutterButton,
             isRecording && styles.shutterRecording,
-            (isEngineBusy || recorderState.status === "stopping" || countdown != null) &&
+            (isDualGuestControlled ||
+              isEngineBusy ||
+              recorderState.status === "stopping" ||
+              countdown != null) &&
               styles.shutterDisabled,
           ]}
           onPress={onPrimaryPress}
@@ -724,14 +895,14 @@ export default function CaptureScreen() {
               ]}
             />
             <Text style={styles.statusOrbTime}>
-              {isRecording ? formatElapsed(elapsedMs) : `${readinessPercent}%`}
+              {isRecording ? formatElapsed(elapsedMs) : `${readinessDisplayPercent}%`}
             </Text>
           </View>
           <Text style={styles.statusOrbLabel}>{captureReadyLabel}</Text>
         </View>
       </View>
 
-      {status === "capturing" || status === "starting" ? (
+      {!isDualGuestControlled && (status === "capturing" || status === "starting") ? (
         <Pressable
           style={[styles.stopCaptureButton, { bottom: insets.bottom + 22 }]}
           onPress={() => void stopCapture()}
@@ -740,27 +911,29 @@ export default function CaptureScreen() {
         </Pressable>
       ) : null}
 
-      <View style={[styles.modeRail, { bottom: insets.bottom + 98 }]}>
-        <Pressable
-          style={[styles.modeRailChip, trackingProfile === "pose" && styles.modeRailChipActive]}
-          onPress={() => {
-            if (status === "idle" || status === "error") setTrackingProfile("pose");
-          }}
-        >
-          <Text style={styles.modeRailText}>body</Text>
-        </Pressable>
-        <Pressable
-          style={[
-            styles.modeRailChip,
-            trackingProfile === "holistic" && styles.modeRailChipActive,
-          ]}
-          onPress={() => {
-            if (status === "idle" || status === "error") setTrackingProfile("holistic");
-          }}
-        >
-          <Text style={styles.modeRailText}>full</Text>
-        </Pressable>
-      </View>
+      {usesLiveLandmarks ? (
+        <View style={[styles.modeRail, { bottom: insets.bottom + 98 }]}>
+          <Pressable
+            style={[styles.modeRailChip, trackingProfile === "pose" && styles.modeRailChipActive]}
+            onPress={() => {
+              if (status === "idle" || status === "error") setTrackingProfile("pose");
+            }}
+          >
+            <Text style={styles.modeRailText}>body</Text>
+          </Pressable>
+          <Pressable
+            style={[
+              styles.modeRailChip,
+              trackingProfile === "holistic" && styles.modeRailChipActive,
+            ]}
+            onPress={() => {
+              if (status === "idle" || status === "error") setTrackingProfile("holistic");
+            }}
+          >
+            <Text style={styles.modeRailText}>full</Text>
+          </Pressable>
+        </View>
+      ) : null}
     </View>
   );
 }
