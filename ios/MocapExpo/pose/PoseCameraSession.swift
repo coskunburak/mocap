@@ -230,6 +230,10 @@ final class PoseCameraSession: NSObject, AVCaptureVideoDataOutputSampleBufferDel
         }
 
         layer.frame = view.bounds
+        if let connection = layer.connection,
+           connection.isVideoOrientationSupported {
+            connection.videoOrientation = .portrait
+        }
         if layer.superlayer !== view.layer {
             layer.removeFromSuperlayer()
             view.layer.insertSublayer(layer, at: 0)

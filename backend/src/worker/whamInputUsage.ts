@@ -50,16 +50,23 @@ export function buildWhamInputUsageMetrics(input: {
     typeof primaryVideo.storageKey === "string" && primaryVideo.storageKey.length > 0
       ? primaryVideo.storageKey
       : undefined;
+  const additionalVideosProvided = Math.max(0, input.selectedVideos.length - 1);
+  const multiViewConstraintsUsed =
+    input.multiViewConstraintsUsed &&
+    input.source !== "single_camera" &&
+    additionalVideosProvided > 0 &&
+    input.multiViewReconstructionAvailable &&
+    !input.primaryWhamFallbackUsed;
 
   return {
     source: input.source,
     primaryVideoUsed: true,
     primaryDeviceIndex,
     primaryVideoStorageKey,
-    additionalVideosProvided: Math.max(0, input.selectedVideos.length - 1),
+    additionalVideosProvided,
     additionalDeviceIndexes,
     multiViewReconstructionAvailable: input.multiViewReconstructionAvailable,
-    multiViewConstraintsUsed: false,
+    multiViewConstraintsUsed,
     primaryWhamFallbackUsed: input.primaryWhamFallbackUsed,
     primaryWhamFallbackReason: input.primaryWhamFallbackReason,
   };

@@ -84,6 +84,37 @@ def _coerce_timeout(value: Any, default_s: int) -> int:
     return max(1, parsed)
 
 
+def _truthy_env(name: str, default: bool = False) -> bool:
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    return raw.lower() in {"1", "true", "yes"}
+
+
+def _env_present(name: str) -> bool:
+    return bool(os.environ.get(name, "").strip())
+
+
+def _runtime_env_summary() -> dict[str, Any]:
+    return {
+        "runtimeKind": "runpod_serverless" if _truthy_env("RUNPOD_SERVERLESS") else "runpod_worker",
+        "nodeEnv": os.environ.get("NODE_ENV", "development"),
+        "runpodServerless": _truthy_env("RUNPOD_SERVERLESS"),
+        "databaseUrlPresent": _env_present("DATABASE_URL"),
+        "s3EndpointPresent": _env_present("S3_ENDPOINT"),
+        "s3BucketPresent": _env_present("S3_BUCKET"),
+        "s3AccessKeyPresent": _env_present("S3_ACCESS_KEY_ID"),
+        "s3SecretKeyPresent": _env_present("S3_SECRET_ACCESS_KEY"),
+        "ffmpegPath": os.environ.get("FFMPEG_PATH", "ffmpeg"),
+        "ffprobePath": os.environ.get("FFPROBE_PATH", "ffprobe"),
+        "pythonPathPresent": _env_present("PYTHON_PATH"),
+        "whamSolverScriptPresent": _env_present("WHAM_SOLVER_SCRIPT"),
+        "whamRepoDirPresent": _env_present("WHAM_REPO_DIR"),
+        "enableMultiViewReconstruction": _truthy_env("ENABLE_MULTI_VIEW_RECONSTRUCTION"),
+        "allowPrimaryWhamFallback": _truthy_env("ALLOW_PRIMARY_WHAM_FALLBACK", True),
+    }
+
+
 def handler(job: dict[str, Any]) -> dict[str, Any]:
     payload = job.get("input") or {}
     if not isinstance(payload, dict):
@@ -98,6 +129,7 @@ def handler(job: dict[str, Any]) -> dict[str, Any]:
         return {
             "ok": result["returncode"] == 0,
             "mode": "preflight",
+            "runtimeEnv": _runtime_env_summary(),
             **result,
         }
 

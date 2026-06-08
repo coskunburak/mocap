@@ -1,4 +1,5 @@
 import type {
+  CameraCalibrationArtifact,
   DualFitQualityMetrics,
   TriangulatedJointTrackArtifact,
   TriangulatedJointTrackJoint,
@@ -21,8 +22,20 @@ const BONE_PAIRS: readonly (readonly [string, string])[] = [
 export function computeBoneLengthConsistencyScore(
   jointTrack: TriangulatedJointTrackArtifact | undefined,
 ): number | undefined {
+  return computeBoneLengthConsistencyStats(jointTrack)?.score;
+}
+
+export function computeBoneLengthConsistencyStats(
+  jointTrack: TriangulatedJointTrackArtifact | undefined,
+):
+  | {
+      score: number;
+      meanVariation: number;
+      maxVariation: number;
+    }
+  | undefined {
   if (!jointTrack?.frames.length) return undefined;
-  const pairScores = BONE_PAIRS.flatMap(([startJointId, endJointId]) => {
+  const pairStats = BONE_PAIRS.flatMap(([startJointId, endJointId]) => {
     const lengths = jointTrack.frames.flatMap((frame) => {
       const start = trackedPoint(frame.joints.find((joint) => joint.jointId === startJointId));
       const end = trackedPoint(frame.joints.find((joint) => joint.jointId === endJointId));
@@ -34,16 +47,28 @@ export function computeBoneLengthConsistencyScore(
     if (mean <= 0) return [];
     const variance = average(lengths.map((length) => (length - mean) ** 2));
     const coefficientOfVariation = Math.sqrt(variance) / mean;
-    return [clamp01(1 - coefficientOfVariation)];
+    return [
+      {
+        score: clamp01(1 - coefficientOfVariation),
+        variation: coefficientOfVariation,
+      },
+    ];
   });
 
-  return pairScores.length ? average(pairScores) : undefined;
+  if (!pairStats.length) return undefined;
+  return {
+    score: average(pairStats.map((stat) => stat.score)),
+    meanVariation: average(pairStats.map((stat) => stat.variation)),
+    maxVariation: Math.max(...pairStats.map((stat) => stat.variation)),
+  };
 }
 
 export function buildDualFitMetrics(input: {
   jointTrack?: TriangulatedJointTrackArtifact;
+  cameraCalibration?: CameraCalibrationArtifact;
 }): DualFitQualityMetrics {
   const jointTrack = input.jointTrack;
+  const boneStats = computeBoneLengthConsistencyStats(jointTrack);
   return {
     triangulatedJointRatio: finiteOrNull(
       jointTrack?.metrics.triangulatedJointRatio,
@@ -53,16 +78,24 @@ export function buildDualFitMetrics(input: {
       jointTrack?.metrics.averageReprojectionErrorPx,
     ),
     averageReprojectionErrorPxAfter: null,
+    reprojectionP95PxBefore: finiteOrNull(jointTrack?.metrics.reprojectionP95Px),
+    reprojectionP95PxAfter: null,
     reprojectionImprovementRatio: null,
+    calibrationQualityScore: finiteOrNull(input.cameraCalibration?.quality.score),
     temporalJitterBefore: finiteOrNull(jointTrack?.metrics.temporalJitterBefore),
     temporalJitterAfter: finiteOrNull(jointTrack?.metrics.temporalJitterAfter),
     temporalSmoothingGain: finiteOrNull(jointTrack?.metrics.temporalSmoothingGain),
-    boneLengthConsistencyScore: finiteOrNull(
-      computeBoneLengthConsistencyScore(jointTrack),
-    ),
+    boneLengthConsistencyScore: finiteOrNull(boneStats?.score),
+    boneLengthMeanVariation: finiteOrNull(boneStats?.meanVariation),
+    boneLengthMaxVariation: finiteOrNull(boneStats?.maxVariation),
     jointLimitViolationCount: null,
     footContactStabilityScore: null,
+    footLockViolationCount: null,
     optimizedMotionDelta: null,
+    optimizedMotionValid: null,
+    optimizedBvhValid: null,
+    optimizedArtifactsPresent: null,
+    fullSmplOptimization: false,
     acceptedAsFinalAnimation: false,
   };
 }

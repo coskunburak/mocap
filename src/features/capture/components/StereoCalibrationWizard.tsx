@@ -28,6 +28,8 @@ type Props = {
   remoteLandmarks?: LandmarkBuffer;
   /** Callback when calibration completes */
   onCalibrationComplete: (result: StereoCalibrationResult) => void;
+  /** Callback when calibration begins */
+  onBeginCalibration?: () => void | Promise<void>;
   /** Callback to request calibration data from guest */
   onRequestGuestCapture?: (step: number) => void;
   /** Callback when user cancels */
@@ -73,12 +75,27 @@ export function StereoCalibrationWizard({
   localLandmarks,
   remoteLandmarks,
   onCalibrationComplete,
+  onBeginCalibration,
   onRequestGuestCapture,
   onCancel,
 }: Props) {
   const [step, setStep] = useState<WizardStep>("setup");
   const [samples, setSamples] = useState<CalibrationSample[]>([]);
   const [result, setResult] = useState<StereoCalibrationResult | null>(null);
+  const [beginning, setBeginning] = useState(false);
+
+  const handleBegin = useCallback(async () => {
+    if (beginning) return;
+    setBeginning(true);
+    try {
+      await onBeginCalibration?.();
+      setStep("capture_1");
+    } catch (e) {
+      console.warn("[StereoCalibrationWizard] begin calibration failed", e);
+    } finally {
+      setBeginning(false);
+    }
+  }, [beginning, onBeginCalibration]);
 
   const handleCapture = useCallback(() => {
     if (!localLandmarks || !remoteLandmarks) return;
@@ -137,11 +154,9 @@ export function StereoCalibrationWizard({
 
   const info = STEP_INSTRUCTIONS[step] ?? STEP_INSTRUCTIONS.setup;
 
-  const canCapture =
-    localLandmarks &&
-    remoteLandmarks &&
-    localLandmarks.length > 0 &&
-    remoteLandmarks.length > 0;
+  const localReady = Boolean(localLandmarks && localLandmarks.length > 0);
+  const remoteReady = Boolean(remoteLandmarks && remoteLandmarks.length > 0);
+  const canCapture = localReady && remoteReady;
 
   return (
     <Card tone="accent" padding="md" style={styles.container}>
@@ -190,6 +205,23 @@ export function StereoCalibrationWizard({
         <Text style={styles.infoDesc}>{info.desc}</Text>
       </View>
 
+      {(step === "setup" || step === "capture_1" || step === "capture_2" || step === "capture_3") && (
+        <View style={styles.readinessBlock}>
+          <View style={styles.readinessRow}>
+            <View style={[styles.readinessDot, localReady && styles.readinessDotReady]} />
+            <Text style={styles.readinessText}>
+              Host frame {localReady ? "ready" : "waiting"}
+            </Text>
+          </View>
+          <View style={styles.readinessRow}>
+            <View style={[styles.readinessDot, remoteReady && styles.readinessDotReady]} />
+            <Text style={styles.readinessText}>
+              Guest frame {remoteReady ? "ready" : "waiting"}
+            </Text>
+          </View>
+        </View>
+      )}
+
       {/* Quality result */}
       {result && step === "done" && (
         <View style={styles.resultBlock}>
@@ -216,11 +248,14 @@ export function StereoCalibrationWizard({
       <View style={styles.actions}>
         {step === "setup" && (
           <Button
-            label="Begin Calibration"
+            label={beginning ? "Starting..." : "Begin Calibration"}
             variant="primary"
             size="md"
             fullWidth
-            onPress={() => setStep("capture_1")}
+            loading={beginning}
+            onPress={() => {
+              void handleBegin();
+            }}
           />
         )}
 
@@ -328,6 +363,30 @@ const styles = StyleSheet.create({
   },
   infoDesc: {
     ...typography.body.md,
+    color: colors.textSecondary,
+  },
+  readinessBlock: {
+    gap: spacing.xs,
+    padding: spacing.sm,
+    borderRadius: radii.md,
+    backgroundColor: "rgba(255,255,255,0.06)",
+  },
+  readinessRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.xs,
+  },
+  readinessDot: {
+    width: 8,
+    height: 8,
+    borderRadius: radii.pill,
+    backgroundColor: colors.textMuted,
+  },
+  readinessDotReady: {
+    backgroundColor: colors.accent,
+  },
+  readinessText: {
+    ...typography.label.sm,
     color: colors.textSecondary,
   },
   resultBlock: {

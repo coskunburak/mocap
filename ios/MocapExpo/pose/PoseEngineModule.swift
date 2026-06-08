@@ -1,6 +1,7 @@
 import AVFoundation
 import Foundation
 import React
+import Vision
 
 @objc(PoseEngineModule)
 final class PoseEngineModule: RCTEventEmitter {
@@ -21,6 +22,7 @@ final class PoseEngineModule: RCTEventEmitter {
     }
 
     private static let eventStatus = "PoseEngineStatus"
+    private static let eventFrame = "PoseEngineFrame"
 
     private let moduleQueue = DispatchQueue(label: "com.mocapexpo.camera.module")
     private let stateLock = NSLock()
@@ -29,13 +31,16 @@ final class PoseEngineModule: RCTEventEmitter {
     private var hasListeners = false
     private var previewActive = false
     private var lastTargetFps = 30
+    private var poseFrameId = 0
+    private var lastPoseFrameSentAtMs = 0.0
+    private let poseFrameIntervalMs = 1000.0 / 15.0
 
     override static func requiresMainQueueSetup() -> Bool {
         false
     }
 
     override func supportedEvents() -> [String]! {
-        [Self.eventStatus]
+        [Self.eventStatus, Self.eventFrame]
     }
 
     override func startObserving() {
@@ -92,7 +97,7 @@ final class PoseEngineModule: RCTEventEmitter {
             self.sendStatus("starting")
             PoseCameraSession.shared.start(
                 fps: self.lastTargetFps,
-                onFrame: nil,
+                onFrame: self.poseFrameHandler(),
                 onError: { [weak self] message in
                     self?.sendStatus("camera_error", extra: ["message": message])
                 }
@@ -185,7 +190,7 @@ final class PoseEngineModule: RCTEventEmitter {
 
             PoseCameraSession.shared.start(
                 fps: fps,
-                onFrame: nil,
+                onFrame: self.poseFrameHandler(),
                 onError: { [weak self] message in
                     self?.sendStatus("camera_error", extra: ["message": message])
                 }
@@ -274,6 +279,141 @@ final class PoseEngineModule: RCTEventEmitter {
         DispatchQueue.main.async { [weak self] in
             self?.sendEvent(withName: Self.eventStatus, body: payload)
         }
+    }
+
+    private func poseFrameHandler() -> (CMSampleBuffer) -> Void {
+        { [weak self] sampleBuffer in
+            self?.handlePoseFrame(sampleBuffer)
+        }
+    }
+
+    private func handlePoseFrame(_ sampleBuffer: CMSampleBuffer) {
+        let nowMs = Date().timeIntervalSince1970 * 1000.0
+
+        stateLock.lock()
+        let shouldAnalyze = hasListeners && nowMs - lastPoseFrameSentAtMs >= poseFrameIntervalMs
+        if shouldAnalyze {
+            lastPoseFrameSentAtMs = nowMs
+        }
+        stateLock.unlock()
+
+        guard shouldAnalyze else { return }
+
+        guard let imageBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
+        let pixelWidth = CVPixelBufferGetWidth(imageBuffer)
+        let pixelHeight = CVPixelBufferGetHeight(imageBuffer)
+        let imageOrientation = visionOrientation(
+            pixelWidth: pixelWidth,
+            pixelHeight: pixelHeight
+        )
+        let normalizedSize = normalizedImageSize(
+            pixelWidth: pixelWidth,
+            pixelHeight: pixelHeight,
+            orientation: imageOrientation
+        )
+
+        let request = VNDetectHumanBodyPoseRequest()
+        let handler = VNImageRequestHandler(
+            cmSampleBuffer: sampleBuffer,
+            orientation: imageOrientation,
+            options: [:]
+        )
+
+        do {
+            try handler.perform([request])
+            guard let observation = request.results?.first else { return }
+            let points = try observation.recognizedPoints(.all)
+            let landmarks = mediapipeLandmarks(from: points)
+            guard landmarks.contains(where: { $0 > 0 }) else { return }
+
+            stateLock.lock()
+            poseFrameId += 1
+            let frameId = poseFrameId
+            stateLock.unlock()
+
+            let payload: [String: Any] = [
+                "ts": nowMs,
+                "frameId": frameId,
+                "fps": 15,
+                "trackingProfile": "pose",
+                "requestedTrackingProfile": "pose",
+                "sourceDevice": "ios",
+                "coordinateSpace": "image_normalized",
+                "imageWidth": normalizedSize.width,
+                "imageHeight": normalizedSize.height,
+                "inputImageWidth": pixelWidth,
+                "inputImageHeight": pixelHeight,
+                "videoOrientation": "portrait",
+                "cameraPosition": "back",
+                "isMirrored": false,
+                "orientationCorrection": String(describing: imageOrientation),
+                "landmarks": landmarks
+            ]
+
+            DispatchQueue.main.async { [weak self] in
+                self?.sendEvent(withName: Self.eventFrame, body: payload)
+            }
+        } catch {
+            sendStatus("pose_frame_error", extra: ["message": error.localizedDescription])
+        }
+    }
+
+    private func visionOrientation(
+        pixelWidth: Int,
+        pixelHeight: Int
+    ) -> CGImagePropertyOrientation {
+        if pixelHeight >= pixelWidth {
+            return .up
+        }
+        return .right
+    }
+
+    private func normalizedImageSize(
+        pixelWidth: Int,
+        pixelHeight: Int,
+        orientation: CGImagePropertyOrientation
+    ) -> (width: Int, height: Int) {
+        switch orientation {
+        case .left, .leftMirrored, .right, .rightMirrored:
+            return (width: pixelHeight, height: pixelWidth)
+        default:
+            return (width: pixelWidth, height: pixelHeight)
+        }
+    }
+
+    private func mediapipeLandmarks(
+        from points: [VNHumanBodyPoseObservation.JointName: VNRecognizedPoint]
+    ) -> [Double] {
+        var landmarks = Array(repeating: 0.0, count: 33 * 4)
+
+        func write(_ index: Int, _ joint: VNHumanBodyPoseObservation.JointName) {
+            guard let point = points[joint], point.confidence > 0.05 else { return }
+            let offset = index * 4
+            landmarks[offset] = Double(point.location.x)
+            landmarks[offset + 1] = Double(1.0 - point.location.y)
+            landmarks[offset + 2] = 0.0
+            landmarks[offset + 3] = Double(point.confidence)
+        }
+
+        write(0, .nose)
+        write(2, .leftEye)
+        write(5, .rightEye)
+        write(7, .leftEar)
+        write(8, .rightEar)
+        write(11, .leftShoulder)
+        write(12, .rightShoulder)
+        write(13, .leftElbow)
+        write(14, .rightElbow)
+        write(15, .leftWrist)
+        write(16, .rightWrist)
+        write(23, .leftHip)
+        write(24, .rightHip)
+        write(25, .leftKnee)
+        write(26, .rightKnee)
+        write(27, .leftAnkle)
+        write(28, .rightAnkle)
+
+        return landmarks
     }
 }
 

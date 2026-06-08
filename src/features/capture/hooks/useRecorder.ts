@@ -231,6 +231,7 @@ export function useRecorder() {
         camera: {
           position: optsRef.current.cameraPosition,
         },
+        isMirrored: optsRef.current.cameraPosition === "front",
         sync: {
           syncMethod:
             optsRef.current.captureMode === "dual-camera" ||

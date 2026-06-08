@@ -36,6 +36,7 @@
     "test:real-device-qa-validator": "tsx src/qa/realDeviceQaValidator.test.ts",
     "test:capture-metadata-contract": "tsx src/services/captureMetadataValidator.test.ts",
     "test:capture-metadata-diagnostics": "tsx src/worker/captureMetadataDiagnostics.test.ts",
+    "test:worker-preflight": "tsx src/worker/whamDeploymentPreflight.test.ts",
     "migrate": "node scripts/migrate.cjs",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },

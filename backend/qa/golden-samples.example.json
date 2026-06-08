@@ -67,6 +67,7 @@
         "pose_frames_device_1_json",
         "dual_reconstruction_json",
         "multi_view_reconstruction_json",
+        "dual_fit_report_json",
         "pose_frames_json"
       ],
       "multiViewExpectations": {
@@ -92,6 +93,7 @@
           "frame_sync",
           "camera_calibration",
           "dual_triangulation",
+          "dual_camera_fitting",
           "dual_reconstruction_artifacts",
           "quality_report",
           "final_animation_export"
@@ -107,6 +109,66 @@
         {
           "videoPath": "./samples/dual-camera-clap-guest.mp4",
           "metadataPath": "./samples/dual-camera-clap-guest.metadata.json",
+          "deviceIndex": 1,
+          "deviceRole": "secondary"
+        }
+      ]
+    },
+    {
+      "name": "dual-camera-accepted-true-dual-solve",
+      "source": "dual_camera",
+      "captureMode": "dual",
+      "expectedVideoCount": 2,
+      "preset": "humanoid_bvh_dual_v1",
+      "minQualityScore": 68,
+      "expectedArtifacts": [
+        "smpl_parameters_json",
+        "raw_solved_motion_json",
+        "solved_motion_json",
+        "cleanup_report_json",
+        "quality_report_json",
+        "motion_pipeline_report_json",
+        "multi_view_sync_json",
+        "camera_calibration_json",
+        "triangulated_joint_track_json",
+        "dual_fit_report_json",
+        "optimized_solved_motion_json",
+        "optimized_bvh",
+        "bvh"
+      ],
+      "multiViewExpectations": {
+        "reconstructionAvailable": true,
+        "reconstructionUsedForConstraints": true,
+        "primaryWhamFallbackUsed": false,
+        "primaryCameraFallbackUsed": false,
+        "finalAnimationSource": "true_dual_solve",
+        "requireOptimizedBvh": true,
+        "requireOptimizedSolvedMotion": true,
+        "requireDualFitReport": true,
+        "requireArtifactNameUnique": true,
+        "requiredMotionPipelineStages": [
+          "video_normalization",
+          "primary_wham",
+          "per_camera_pose_extraction",
+          "frame_sync",
+          "camera_calibration",
+          "dual_triangulation",
+          "dual_camera_fitting",
+          "dual_reconstruction_artifacts",
+          "quality_report",
+          "final_animation_export"
+        ]
+      },
+      "videos": [
+        {
+          "videoPath": "./samples/dual-camera-accepted-primary.mp4",
+          "metadataPath": "./samples/dual-camera-accepted-primary.metadata.json",
+          "deviceIndex": 0,
+          "deviceRole": "primary"
+        },
+        {
+          "videoPath": "./samples/dual-camera-accepted-secondary.mp4",
+          "metadataPath": "./samples/dual-camera-accepted-secondary.metadata.json",
           "deviceIndex": 1,
           "deviceRole": "secondary"
         }

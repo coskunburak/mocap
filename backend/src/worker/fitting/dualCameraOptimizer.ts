@@ -12,12 +12,15 @@ import type {
 import { SKELETON } from "../export/skeletonDefinition";
 import { buildDualFitMetrics } from "./fittingConstraints";
 import {
+  buildDualFitAcceptanceSummary,
   evaluateDualFitQualityGates,
   hasBlockingGateFailure,
 } from "./fittingQuality";
 import {
   DEFAULT_DUAL_FIT_CONSTRAINTS,
+  type DualCameraOptimizationInput,
   type DualCameraFittingOptimizationResult,
+  type NormalizedDualFitOptions,
   type RunDualCameraFittingFoundationInput,
   normalizeDualFitOptions,
 } from "./fittingTypes";
@@ -29,6 +32,15 @@ type ReliableConstraint = {
   point: Vector3;
   confidence: number;
   reprojectionErrorPx: number;
+};
+
+type ConstraintCollection = {
+  reliable: ReliableConstraint[];
+  totalCandidateCount: number;
+  rejectedCount: number;
+  lowConfidenceCount: number;
+  highReprojectionCount: number;
+  invalidCount: number;
 };
 
 type MutableVector3 = [number, number, number];
@@ -61,6 +73,29 @@ const JOINT_TO_SKELETON: Record<string, string> = {
 
 const ROOT_JOINT_IDS = new Set(["hips", "pelvis", "root", "left_hip", "right_hip"]);
 
+const CONTACT_JOINT_IDS = new Set([
+  "left_ankle",
+  "left_foot",
+  "right_ankle",
+  "right_foot",
+]);
+
+export function runDualCameraKinematicOptimization(
+  input: DualCameraOptimizationInput,
+): DualCameraFittingOptimizationResult {
+  return runDualCameraFittingOptimization({
+    takeId: input.takeId,
+    jobId: input.jobId,
+    whamInitialization: input.whamMotion,
+    smplInitialization: input.smplInitialization ?? input.whamMotion.smpl,
+    jointTrack: input.triangulatedJointTrack,
+    poseArtifacts: input.perCameraPoseArtifacts,
+    cameraCalibration: input.cameraCalibration,
+    artifactRefs: input.artifactRefs,
+    options: input.options,
+  });
+}
+
 export function runDualCameraFittingOptimization(
   input: RunDualCameraFittingFoundationInput,
 ): DualCameraFittingOptimizationResult {
@@ -86,22 +121,59 @@ export function runDualCameraFittingOptimization(
             options.maxJointRotationAdjustmentDegrees,
         })
       : undefined;
-  const motionDelta = optimizedMotion
+  const rawMotionDelta = optimizedMotion
     ? averageMotionDelta(input.whamInitialization, optimizedMotion)
     : null;
-  const baseMetrics = buildDualFitMetrics({ jointTrack: input.jointTrack });
+  const motionDelta = finite(rawMotionDelta) ? rawMotionDelta : null;
+  const optimizedMotionValidation = optimizedMotion
+    ? validateOptimizedMotionStructure(optimizedMotion)
+    : { ok: false, errors: ["optimized_motion_missing"] };
+  const rootDeltaMetrics = optimizedMotion
+    ? rootDeltaStats(input.whamInitialization, optimizedMotion)
+    : null;
+  const beforeRootPositionError = rootTargetErrorStats(
+    input.whamInitialization,
+    constraints.reliable,
+  );
+  const afterRootPositionError = optimizedMotion
+    ? rootTargetErrorStats(optimizedMotion, constraints.reliable)
+    : null;
+  const beforeJitter = rootJitter(input.whamInitialization);
+  const afterJitter = optimizedMotion ? rootJitter(optimizedMotion) : null;
+  const footLockMetrics = computeFootLockMetrics(input.jointTrack, options);
+  const baseMetrics = buildDualFitMetrics({
+    jointTrack: input.jointTrack,
+    cameraCalibration: input.cameraCalibration,
+  });
   const metrics: DualFitQualityMetrics = {
     ...baseMetrics,
     reliableConstraintRatio,
+    reliableConstraintCount: constraints.reliable.length,
+    candidateConstraintCount: constraints.totalCandidateCount,
+    rejectedConstraintCount: constraints.rejectedCount,
+    lowConfidenceConstraintCount: constraints.lowConfidenceCount,
+    highReprojectionConstraintCount: constraints.highReprojectionCount,
+    invalidConstraintCount: constraints.invalidCount,
+    triangulatedJointMeanPositionErrorBefore: beforeRootPositionError?.mean ?? null,
+    triangulatedJointP95PositionErrorBefore: beforeRootPositionError?.p95 ?? null,
+    triangulatedJointMeanPositionErrorAfter: afterRootPositionError?.mean ?? null,
+    triangulatedJointP95PositionErrorAfter: afterRootPositionError?.p95 ?? null,
     temporalJitterBefore:
-      baseMetrics.temporalJitterBefore ?? rootJitter(input.whamInitialization),
-    temporalJitterAfter: optimizedMotion
-      ? rootJitter(optimizedMotion)
-      : baseMetrics.temporalJitterAfter,
+      beforeJitter ?? baseMetrics.temporalJitterBefore,
+    temporalJitterAfter: afterJitter ?? baseMetrics.temporalJitterAfter,
+    temporalJitterIncreaseRatio: jitterIncreaseRatio(beforeJitter, afterJitter),
     jointLimitViolationCount: optimizedMotion
       ? jointLimitViolationCount(optimizedMotion)
       : baseMetrics.jointLimitViolationCount,
+    footContactStabilityScore: footLockMetrics.score,
+    footLockViolationCount: footLockMetrics.violationCount,
+    rootTranslationMeanDelta: rootDeltaMetrics?.mean ?? null,
+    rootTranslationMaxDelta: rootDeltaMetrics?.max ?? null,
     optimizedMotionDelta: motionDelta,
+    optimizedMotionValid: optimizedMotionValidation.ok,
+    optimizedBvhValid: null,
+    optimizedArtifactsPresent: null,
+    fullSmplOptimization: false,
     acceptedAsFinalAnimation: false,
   };
   const gates = evaluateDualFitQualityGates({
@@ -111,11 +183,13 @@ export function runDualCameraFittingOptimization(
   });
   const blockingGateFailed = hasBlockingGateFailure(gates);
   const hasSemanticAdjustment =
-    typeof motionDelta === "number" && motionDelta > 1e-6;
+    typeof motionDelta === "number" &&
+    motionDelta >= options.minOptimizedMotionDelta;
+  const hasValidOptimizedMotion = Boolean(optimizedMotion) && optimizedMotionValidation.ok;
   const acceptedAsFinalAnimation =
     hasWhamInitialization &&
     Boolean(input.jointTrack) &&
-    Boolean(optimizedMotion) &&
+    hasValidOptimizedMotion &&
     hasSemanticAdjustment &&
     !blockingGateFailed;
   const status = resolveStatus({
@@ -123,6 +197,7 @@ export function runDualCameraFittingOptimization(
     hasJointTrack: Boolean(input.jointTrack),
     hasReliableConstraints: constraints.reliable.length > 0,
     hasSemanticAdjustment,
+    hasValidOptimizedMotion,
     blockingGateFailed,
     acceptedAsFinalAnimation,
   });
@@ -131,6 +206,18 @@ export function runDualCameraFittingOptimization(
     status,
     hasReliableConstraints: constraints.reliable.length > 0,
     hasSemanticAdjustment,
+    hasValidOptimizedMotion,
+    optimizationErrors: optimizedMotionValidation.errors,
+    footLockUnavailable: footLockMetrics.score === null,
+    acceptedAsFinalAnimation,
+  });
+  const reportMetrics = {
+    ...metrics,
+    acceptedAsFinalAnimation,
+  };
+  const acceptance = buildDualFitAcceptanceSummary({
+    metrics: reportMetrics,
+    gates,
     acceptedAsFinalAnimation,
   });
   const report: DualFitReportArtifact = {
@@ -147,11 +234,9 @@ export function runDualCameraFittingOptimization(
     },
     constraints: DEFAULT_DUAL_FIT_CONSTRAINTS,
     losses: buildOptimizationLosses(metrics),
-    metrics: {
-      ...metrics,
-      acceptedAsFinalAnimation,
-    },
+    metrics: reportMetrics,
     qualityGates: gates,
+    acceptance,
     acceptedAsFinalAnimation,
     finalAnimationSourceCandidate: acceptedAsFinalAnimation
       ? "true_dual_solve"
@@ -167,46 +252,91 @@ export function runDualCameraFittingOptimization(
 
 function collectReliableConstraints(
   jointTrack: TriangulatedJointTrackArtifact | undefined,
-  options: ReturnType<typeof normalizeDualFitOptions>,
-) {
+  options: NormalizedDualFitOptions,
+): ConstraintCollection {
   const reliable: ReliableConstraint[] = [];
+  let lowConfidenceCount = 0;
+  let highReprojectionCount = 0;
+  let invalidCount = 0;
   let totalCandidateCount = 0;
   for (const frame of jointTrack?.frames ?? []) {
     for (const joint of frame.joints) {
       totalCandidateCount += 1;
-      const constraint = reliableConstraintFromJoint(frame.frameIndex, joint, options);
-      if (constraint) reliable.push(constraint);
+      const result = reliableConstraintFromJoint(frame.frameIndex, joint, options);
+      if ("constraint" in result) {
+        reliable.push(result.constraint);
+        continue;
+      }
+      if (result.reason === "low_confidence") lowConfidenceCount += 1;
+      else if (result.reason === "high_reprojection") highReprojectionCount += 1;
+      else invalidCount += 1;
     }
   }
-  return { reliable, totalCandidateCount };
+  return {
+    reliable,
+    totalCandidateCount,
+    rejectedCount: totalCandidateCount - reliable.length,
+    lowConfidenceCount,
+    highReprojectionCount,
+    invalidCount,
+  };
 }
 
 function reliableConstraintFromJoint(
   frameIndex: number,
   joint: TriangulatedJointTrackJoint,
-  options: ReturnType<typeof normalizeDualFitOptions>,
-): ReliableConstraint | null {
+  options: NormalizedDualFitOptions,
+):
+  | { constraint: ReliableConstraint }
+  | {
+      reason: "invalid" | "low_confidence" | "high_reprojection";
+    } {
   const jointId = normalizeJointId(joint.jointId);
   const skeletonJointName = JOINT_TO_SKELETON[jointId];
-  if (!skeletonJointName) return null;
-  if (joint.status !== "tracked" && joint.status !== "smoothed" && joint.status !== "interpolated") {
-    return null;
+  if (!skeletonJointName) return { reason: "invalid" };
+  if (
+    joint.status !== "tracked" &&
+    joint.status !== "smoothed" &&
+    joint.status !== "interpolated"
+  ) {
+    return {
+      reason:
+        joint.status === "low_confidence"
+          ? "low_confidence"
+          : joint.status === "high_reprojection_error"
+            ? "high_reprojection"
+            : "invalid",
+    };
   }
-  if (!finite(joint.x) || !finite(joint.y) || !finite(joint.z)) return null;
+  if (!finite(joint.x) || !finite(joint.y) || !finite(joint.z)) {
+    return { reason: "invalid" };
+  }
   const confidence = finite(joint.confidence) ? joint.confidence : 0;
-  if (confidence < 0.5) return null;
+  if (confidence < options.minConstraintConfidence) {
+    return { reason: "low_confidence" };
+  }
   const reprojectionErrorPx = finite(joint.reprojectionErrorPx)
     ? joint.reprojectionErrorPx
     : Number.POSITIVE_INFINITY;
-  if (reprojectionErrorPx > options.maxReprojectionErrorPx) return null;
-  if (new Set(joint.sourceCameraIds).size < 2) return null;
+  if (reprojectionErrorPx > options.maxReprojectionErrorPx) {
+    return { reason: "high_reprojection" };
+  }
+  if (new Set(joint.sourceCameraIds).size < 2) {
+    return { reason: "invalid" };
+  }
+  const point: Vector3 = [joint.x, joint.y, joint.z];
+  if (vectorMagnitude(point) > options.maxConstraintDistanceMeters) {
+    return { reason: "invalid" };
+  }
   return {
-    frameIndex,
-    jointId,
-    skeletonJointName,
-    point: [joint.x, joint.y, joint.z],
-    confidence,
-    reprojectionErrorPx,
+    constraint: {
+      frameIndex,
+      jointId,
+      skeletonJointName,
+      point,
+      confidence,
+      reprojectionErrorPx,
+    },
   };
 }
 
@@ -252,16 +382,20 @@ function optimizeSolvedMotion(input: {
       warnings: [
         ...input.motion.validation.warnings,
         "dual_camera_constrained_skeleton_adjustment",
+        "dual_fit_method_not_full_smpl",
         "optimized_smpl_parameters_not_produced",
       ],
       errors: [],
     },
     optimizedFrom: {
       source: "primary_wham",
-      method: "dual_camera_constrained_skeleton_adjustment",
+      method: "kinematic_post_fit",
       constraintsApplied: input.constraints.length,
       acceptedAsFinalAnimation: false,
-      warnings: ["This is not full SMPL optimization."],
+      warnings: [
+        "dual_fit_method_not_full_smpl",
+        "optimized_smpl_parameters_not_produced",
+      ],
     },
   };
 }
@@ -358,36 +492,168 @@ function buildOptimizationLosses(
 ): DualFitLossSummary {
   const initializationLoss = metrics.optimizedMotionDelta ?? null;
   const triangulatedJointLoss =
-    metrics.reliableConstraintRatio === null ||
+    metrics.triangulatedJointMeanPositionErrorAfter ??
+    metrics.triangulatedJointMeanPositionErrorBefore ??
+    (metrics.reliableConstraintRatio === null ||
     metrics.reliableConstraintRatio === undefined
       ? null
-      : 1 - metrics.reliableConstraintRatio;
+      : 1 - metrics.reliableConstraintRatio);
   const boneLengthLoss =
     metrics.boneLengthConsistencyScore === null ||
     metrics.boneLengthConsistencyScore === undefined
       ? null
       : 1 - metrics.boneLengthConsistencyScore;
+  const footContactLoss =
+    metrics.footContactStabilityScore === null ||
+    metrics.footContactStabilityScore === undefined
+      ? null
+      : 1 - metrics.footContactStabilityScore;
   const totalLoss = sumFinite([
     initializationLoss,
     triangulatedJointLoss,
-    metrics.averageReprojectionErrorPxBefore,
+    metrics.averageReprojectionErrorPxAfter ??
+      metrics.averageReprojectionErrorPxBefore,
     boneLengthLoss,
+    metrics.jointLimitViolationCount,
+    footContactLoss,
     metrics.temporalJitterAfter,
   ]);
   return {
     initializationLoss,
     triangulatedJointLoss,
-    reprojectionLoss: metrics.averageReprojectionErrorPxBefore,
+    reprojectionLoss:
+      metrics.averageReprojectionErrorPxAfter ??
+      metrics.averageReprojectionErrorPxBefore,
     boneLengthLoss,
     jointLimitLoss:
       metrics.jointLimitViolationCount === null ||
       metrics.jointLimitViolationCount === undefined
-        ? null
-        : metrics.jointLimitViolationCount,
-    footContactLoss: null,
+      ? null
+      : metrics.jointLimitViolationCount,
+    footContactLoss,
     temporalSmoothnessLoss: metrics.temporalJitterAfter,
     totalLoss,
   };
+}
+
+function rootDeltaStats(
+  before: SolvedMotionArtifact | undefined,
+  after: SolvedMotionArtifact,
+): { mean: number; max: number } | null {
+  if (!before || before.frames.length !== after.frames.length) return null;
+  const deltas = before.frames.map((frame, index) =>
+    vectorDistance(frame.rootTranslation, after.frames[index].rootTranslation),
+  ).filter(finite);
+  return deltas.length ? { mean: average(deltas), max: Math.max(...deltas) } : null;
+}
+
+function rootTargetErrorStats(
+  motion: SolvedMotionArtifact | undefined,
+  constraints: readonly ReliableConstraint[],
+): { mean: number; p95: number } | null {
+  if (!motion) return null;
+  const constraintsByFrame = groupConstraintsByFrame(constraints);
+  const errors: number[] = [];
+  for (const frame of motion.frames) {
+    const rootTarget = rootTargetFromConstraints(
+      constraintsByFrame.get(frame.frameIndex) ?? [],
+    );
+    if (!rootTarget) continue;
+    const error = vectorDistance(frame.rootTranslation, rootTarget);
+    if (finite(error)) errors.push(error);
+  }
+  return errors.length
+    ? {
+        mean: average(errors),
+        p95: percentile(errors, 0.95),
+      }
+    : null;
+}
+
+function jitterIncreaseRatio(
+  before: number | null,
+  after: number | null,
+): number | null {
+  if (!finite(before) || !finite(after)) return null;
+  if (before === 0) return after === 0 ? 0 : 1;
+  return (after - before) / before;
+}
+
+function computeFootLockMetrics(
+  jointTrack: TriangulatedJointTrackArtifact | undefined,
+  options: NormalizedDualFitOptions,
+): { score: number | null; violationCount: number | null } {
+  const frames = jointTrack?.frames ?? [];
+  if (frames.length < 2) return { score: null, violationCount: null };
+  const footPoints = frames.map((frame) =>
+    frame.joints
+      .filter((joint) => CONTACT_JOINT_IDS.has(normalizeJointId(joint.jointId)))
+      .map((joint) => ({
+        jointId: normalizeJointId(joint.jointId),
+        point: trackedPoint(joint),
+      }))
+      .filter(
+        (item): item is { jointId: string; point: Vector3 } =>
+          item.point !== null,
+      ),
+  );
+  const allY = footPoints.flatMap((frame) => frame.map((item) => item.point[1]));
+  if (!allY.length) return { score: null, violationCount: null };
+  const groundY = Math.min(...allY);
+  const contactY = groundY + 0.06;
+  const slides: number[] = [];
+  for (let frameIndex = 1; frameIndex < footPoints.length; frameIndex += 1) {
+    const previous = new Map(
+      footPoints[frameIndex - 1].map((item) => [item.jointId, item.point]),
+    );
+    for (const current of footPoints[frameIndex]) {
+      const prior = previous.get(current.jointId);
+      if (!prior) continue;
+      if (prior[1] > contactY || current.point[1] > contactY) continue;
+      slides.push(
+        Math.hypot(current.point[0] - prior[0], current.point[2] - prior[2]),
+      );
+    }
+  }
+  if (!slides.length) return { score: null, violationCount: null };
+  const violationCount = slides.filter(
+    (slide) => slide > options.maxFootSlidingMetersPerFrame,
+  ).length;
+  const averageSlide = average(slides);
+  return {
+    score: clamp01(
+      1 -
+        averageSlide /
+          Math.max(options.maxFootSlidingMetersPerFrame * 2, 1e-6),
+    ),
+    violationCount,
+  };
+}
+
+function validateOptimizedMotionStructure(
+  motion: SolvedMotionArtifact,
+): { ok: boolean; errors: string[] } {
+  const errors: string[] = [];
+  if (motion.schema !== "mocap.solved_motion.v1") {
+    errors.push("schema_invalid");
+  }
+  if (motion.frameCount !== motion.frames.length) {
+    errors.push("frame_count_mismatch");
+  }
+  if (motion.frames.length === 0) {
+    errors.push("frames_missing");
+  }
+  for (const frame of motion.frames) {
+    if (!finiteVector(frame.rootTranslation)) {
+      errors.push(`root_translation_invalid:${frame.frameIndex}`);
+    }
+    for (const [jointName, rotation] of Object.entries(frame.joints)) {
+      if (!finiteVector(rotation)) {
+        errors.push(`joint_rotation_invalid:${frame.frameIndex}:${jointName}`);
+      }
+    }
+  }
+  return { ok: errors.length === 0 && motion.validation.ok, errors };
 }
 
 function resolveStatus(input: {
@@ -395,12 +661,17 @@ function resolveStatus(input: {
   hasJointTrack: boolean;
   hasReliableConstraints: boolean;
   hasSemanticAdjustment: boolean;
+  hasValidOptimizedMotion: boolean;
   blockingGateFailed: boolean;
   acceptedAsFinalAnimation: boolean;
 }): DualFitStatus {
   if (!input.hasWhamInitialization) return "missing_wham_initialization";
   if (!input.hasJointTrack) return "missing_joint_track";
-  if (!input.hasReliableConstraints || !input.hasSemanticAdjustment) {
+  if (
+    !input.hasReliableConstraints ||
+    !input.hasSemanticAdjustment ||
+    !input.hasValidOptimizedMotion
+  ) {
     return "insufficient_quality";
   }
   if (input.blockingGateFailed) return "insufficient_quality";
@@ -412,15 +683,26 @@ function buildWarnings(input: {
   status: DualFitStatus;
   hasReliableConstraints: boolean;
   hasSemanticAdjustment: boolean;
+  hasValidOptimizedMotion: boolean;
+  optimizationErrors: readonly string[];
+  footLockUnavailable: boolean;
   acceptedAsFinalAnimation: boolean;
 }) {
   const warnings = new Set<string>();
   warnings.add("dual_fit_method_constrained_skeleton_adjustment_not_full_smpl");
+  warnings.add("dual_fit_method_not_full_smpl");
+  warnings.add("optimized_smpl_parameters_not_produced");
+  warnings.add("triangulated_joint_position_loss_limited_to_root");
   for (const gate of input.gates) {
     if (!gate.passed && gate.reason) warnings.add(gate.reason);
   }
   if (!input.hasReliableConstraints) warnings.add("dual_fit_no_reliable_constraints");
   if (!input.hasSemanticAdjustment) warnings.add("dual_fit_no_semantic_motion_delta");
+  if (!input.hasValidOptimizedMotion) warnings.add("optimized_motion_invalid");
+  for (const error of input.optimizationErrors) {
+    warnings.add(`optimized_motion_error:${error}`);
+  }
+  if (input.footLockUnavailable) warnings.add("foot_lock_metric_unavailable");
   if (!input.acceptedAsFinalAnimation) warnings.add("dual_fit_rejected_primary_wham_final");
   if (input.status === "ready") warnings.add("dual_fit_accepted_true_dual_solve_candidate");
   return Array.from(warnings);
@@ -428,7 +710,7 @@ function buildWarnings(input: {
 
 function reasonForStatus(status: DualFitStatus): string {
   if (status === "ready") {
-    return "Constrained dual-camera skeleton adjustment passed acceptance gates; optimized BVH export can become final if export validation passes.";
+    return "Kinematic dual-camera post-fit passed acceptance gates; optimized BVH export can become final if export validation passes.";
   }
   if (status === "missing_wham_initialization") {
     return "Primary WHAM solved motion and SMPL initialization are required before dual fitting can run.";
@@ -545,12 +827,46 @@ function finite(value: number | null | undefined): value is number {
   return typeof value === "number" && Number.isFinite(value);
 }
 
+function finiteVector(value: readonly number[] | undefined): value is Vector3 {
+  return (
+    Array.isArray(value) &&
+    value.length === 3 &&
+    value.every((component) => finite(component))
+  );
+}
+
+function trackedPoint(joint: TriangulatedJointTrackJoint): Vector3 | null {
+  if (!finite(joint.x) || !finite(joint.y) || !finite(joint.z)) return null;
+  if (
+    joint.status !== "tracked" &&
+    joint.status !== "smoothed" &&
+    joint.status !== "interpolated"
+  ) {
+    return null;
+  }
+  return [joint.x, joint.y, joint.z];
+}
+
 function vectorDistance(left: Vector3, right: Vector3) {
   return Math.hypot(left[0] - right[0], left[1] - right[1], left[2] - right[2]);
 }
 
+function vectorMagnitude(value: Vector3) {
+  return Math.hypot(value[0], value[1], value[2]);
+}
+
 function average(values: readonly number[]) {
   return values.reduce((sum, value) => sum + value, 0) / Math.max(1, values.length);
+}
+
+function percentile(values: readonly number[], ratio: number) {
+  if (!values.length) return 0;
+  const sorted = [...values].sort((left, right) => left - right);
+  const index = Math.min(
+    sorted.length - 1,
+    Math.max(0, Math.ceil(sorted.length * ratio) - 1),
+  );
+  return sorted[index];
 }
 
 function sumFinite(values: readonly (number | null | undefined)[]) {

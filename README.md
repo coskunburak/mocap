@@ -45,7 +45,7 @@ Bu bölüm mevcut repo davranışını anlatır; hedeflenen gelecek mimariyle ka
 
 1. Tek kamera WHAM yapısı korunmuştur. `selectedVideoCount <= 1` ve solo capture akışı single-camera WHAM yolunda kalır.
 2. Final animasyon/BVH için güvenli production yol hâlâ primary camera WHAM solve'dur.
-3. Dual camera tarafında backend reconstruction stage eklenmiştir. Bu stage, final animasyonu otomatik olarak dual-camera solve'a çevirmek için değil, diagnostic artifact ve metric üretmek için çalışır.
+3. Dual camera tarafında backend reconstruction ve ayrı kinematic post-fit stage eklenmiştir. Bu stage WHAM içine multi-view loss eklemez; WHAM primary video initialization olarak kalır.
 4. Dual camera diagnostic hattı:
    - per-camera 2D pose extraction
    - frame sync
@@ -56,7 +56,7 @@ Bu bölüm mevcut repo davranışını anlatır; hedeflenen gelecek mimariyle ka
    - `quality_report.multiView` metric'leri
    - `motion_pipeline_report_json` reconstruction stage kayıtları
 5. Calibration, sync veya keypoint verisi eksikse sistem fake başarı üretmez. Artifact ve report'larda `missing_calibration`, `missing_sync`, `missing_pose_frames`, `diagnostic_only` veya ilgili fallback reason açıkça görünmelidir.
-6. Final animation hâlâ primary WHAM'dan geliyorsa `quality_report_json` bunu `primaryCameraFallbackUsed: true` ve `finalAnimationSource: "primary_wham"` ile belirtir. Bu durumda dual-camera triangulation sonucu final BVH kaynağı olarak iddia edilmez.
+6. Final animation primary WHAM'dan geliyorsa `quality_report_json` bunu `primaryCameraFallbackUsed: true` ve `finalAnimationSource: "primary_wham"` ile belirtir. Accepted optimized output final olursa yalnızca valid optimized solved motion, valid optimized BVH, başarılı artifact persistence ve blocking gate olmaması durumunda `finalAnimationSource: "true_dual_solve"` raporlanır.
 7. Yeni dual/multi-view artifact'leri:
    - `pose_frames_device_0.json`
    - `pose_frames_device_1.json`
@@ -64,6 +64,9 @@ Bu bölüm mevcut repo davranışını anlatır; hedeflenen gelecek mimariyle ka
    - `camera_calibration.json`
    - `dual_reconstruction.json`
    - `multi_view_reconstruction.json`
+   - `dual_fit_report.json`
+   - `optimized_solved_motion.json`, yalnızca accepted optimized output geçerliyse
+   - `optimized_result.bvh`, yalnızca accepted optimized output final BVH kaynağıysa
    - `pose_frames.json`, sadece güvenli diagnostic world-landmark formatı üretildiğinde
 8. Yeni metric'ler:
    - `matchedFrameCount`
@@ -157,7 +160,7 @@ RUNPOD_API_KEY=...
 RUNPOD_API_BASE_URL=https://api.runpod.ai/v2
 RUNPOD_JOB_TIMEOUT_SECONDS=3600
 
-ENABLE_MULTI_VIEW_RECONSTRUCTION=false
+ENABLE_MULTI_VIEW_RECONSTRUCTION=true
 ALLOW_PRIMARY_WHAM_FALLBACK=true
 ```
 
@@ -266,6 +269,9 @@ RUNPOD_DISPATCH_ENABLED=true
 RUNPOD_ENDPOINT_ID=...
 RUNPOD_API_KEY=...
 RUNPOD_API_BASE_URL=https://api.runpod.ai/v2
+
+ENABLE_MULTI_VIEW_RECONSTRUCTION=true
+ALLOW_PRIMARY_WHAM_FALLBACK=true
 ```
 
 Backend'i çalıştırın:
@@ -296,9 +302,26 @@ WHAM_CONFIG_PATH=configs/yamls/demo.yaml
 WHAM_REQUIRE_CUDA=true
 WHAM_RENDER_OVERLAY_PREVIEW=true
 WHAM_SMPL_ASSET_DIR=/workspace/WHAM/dataset/body_models/smpl
+
+ENABLE_MULTI_VIEW_RECONSTRUCTION=true
+ALLOW_PRIMARY_WHAM_FALLBACK=true
+
+MOCAPEXPO_POSE_DETECTOR=rtmpose_mmpose
+MOCAPEXPO_RTMPOSE_CLI_PATH=/workspace/pose/rtmpose_cli.py
+MOCAPEXPO_RTMPOSE_MODEL_PATH=/workspace/pose/models/rtmpose.pth
 ```
 
 RunPod, backend'in kullandığı aynı S3-compatible bucket içinden upload videolarını okuyabilmeli ve artifact yazabilmelidir.
+
+Dual/pro reconstruction için local backend `.env` tek başına yeterli değildir. Job'u RunPod worker çalıştırıyorsa `ENABLE_MULTI_VIEW_RECONSTRUCTION=true` ve pose detector env değerleri RunPod worker runtime içinde de set edilmelidir. QA sırasında `ALLOW_PRIMARY_WHAM_FALLBACK=true` bırakın; reconstruction/calibration/triangulation gate'leri yetersizse final BVH primary WHAM olarak kalmalıdır.
+
+Preflight'i RunPod runtime içinde çalıştırın:
+
+```json
+{"input":{"jobId":"preflight"}}
+```
+
+Preflight çıktısı `DATABASE_URL`, S3 config, WHAM path/Python, ffmpeg/ffprobe ve multi-view flag durumunu secret sızdırmadan raporlar.
 
 ## WHAM ve SMPL Asset'leri
 
@@ -449,6 +472,7 @@ npm --prefix backend run test:multiview-golden
 npm --prefix backend run test:dual-camera-golden-e2e
 npm --prefix backend run test:real-device-qa-validator
 npm --prefix backend run test:capture-metadata-contract
+npm --prefix backend run test:worker-preflight
 ```
 
 Root/mobile:
@@ -606,6 +630,8 @@ Kontrol edin:
 - take status is ready for processing
 - job status is `queued`
 - RunPod dispatch is enabled only when intended
+- RunPod worker env has `ENABLE_MULTI_VIEW_RECONSTRUCTION=true` if dual/pro reconstruction QA is expected
+- RunPod worker preflight passes and reports the expected multi-view/fallback flags
 
 ### WHAM Preflight Fail Oluyor
 
@@ -619,6 +645,12 @@ Kontrol edin:
 
 ### Dual Camera Motion'ı İyileştirmiyor
 
-Bu mevcut sürümde beklenen durumdur. Dual/pro şu anda diagnostic reconstruction ve metric yazar; final BVH hâlâ primary camera WHAM solve'dan gelir.
+Önce raporları kontrol edin:
 
-Gerçek motion iyileştirme için sonraki adım güvenilir multi-view reconstruction'ı WHAM/SMPL fitting'e constraint olarak vermektir.
+- `motion_pipeline_report_json.runtime.reconstructionBranchEntered`
+- `quality_report_json.multiView.reconstructionAvailable`
+- `quality_report_json.multiView.reconstructionUsedForConstraints`
+- `quality_report_json.multiView.finalAnimationSource`
+- `quality_report_json.multiView.primaryWhamFallbackReason`
+
+`ENABLE_MULTI_VIEW_RECONSTRUCTION=false` ise dual/pro bilinçli olarak primary WHAM fallback kullanır. Flag true olduğu halde pose detector, sync, calibration veya triangulation başarısızsa report gerçek failure reason yazmalı ve final BVH primary WHAM kalmalıdır. `true_dual_solve` yalnızca optimized solved motion ve optimized BVH valid/persisted olduğunda ve blocking gate yoksa raporlanır.

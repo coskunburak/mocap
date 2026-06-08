@@ -171,6 +171,7 @@ function testDualFeatureEnabledUsesMultiViewBranch() {
   });
 
   assert.equal(branch.kind, "multi_view_reconstruction");
+  assert.equal(branch.reason, "multi_view_feature_enabled");
   assert.equal(branch.additionalVideosProvided, 1);
   assert.equal(branch.primaryVideoUsed, true);
   assert.equal(branch.multiViewConstraintsUsed, false);
@@ -185,6 +186,7 @@ function testProFeatureEnabledUsesMultiViewBranch() {
   });
 
   assert.equal(branch.kind, "multi_view_reconstruction");
+  assert.equal(branch.reason, "multi_view_feature_enabled");
   assert.equal(branch.additionalVideosProvided, 3);
   assert.equal(branch.primaryVideoUsed, true);
   assert.equal(branch.multiViewConstraintsUsed, false);

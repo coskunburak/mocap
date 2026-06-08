@@ -7,8 +7,8 @@ Bu döküman, MocapExpo projesinde çift kamera (dual-camera) hareket yakalama h
 Mevcut repo davranışı:
 
 1. Tek kamera WHAM yapısı korunmuştur. `selectedVideoCount <= 1` ve solo capture akışı single-camera WHAM production yolunda kalır.
-2. Final animasyon/BVH için güvenli production path hâlâ primary camera WHAM solve'dur.
-3. Dual camera tarafında backend reconstruction stage eklenmiştir. Bu stage şu aşamada diagnostic artifact ve metric üretir; final animasyonu otomatik olarak true dual-camera solve'a çevirdiği iddia edilmemelidir.
+2. Güvenli fallback path hâlâ primary camera WHAM solve'dur.
+3. Dual camera tarafında backend reconstruction ve kinematic post-fit stage eklenmiştir. Bu stage final animasyonu otomatik olarak true dual-camera solve'a çevirmez; yalnızca strict gate'ler geçerse ve optimized BVH gerçekten final export kaynağı olursa `true_dual_solve` raporlanır.
 4. Dual camera hattı:
    - per-camera 2D pose extraction
    - frame sync
@@ -17,8 +17,11 @@ Mevcut repo davranışı:
    - `dual_reconstruction.json`
    - `multi_view_reconstruction.json`
    - `quality_report.multiView` metric'leri
+   - WHAM solved motion initialization
+   - separate `kinematic_post_fit` optimizer
+   - optimized solved motion/BVH validation
 5. Calibration, sync veya keypoint verisi eksikse sistem fake başarı üretmez. Durumlar artifact/report içinde `missing_calibration`, `missing_sync`, `missing_pose_frames`, `diagnostic_only` veya ilgili fallback reason olarak görünmelidir.
-6. Final animation hâlâ primary WHAM'dan geliyorsa `quality_report_json` bunu `primaryCameraFallbackUsed: true` ve `finalAnimationSource: "primary_wham"` ile açıkça belirtir.
+6. Final animation primary WHAM'dan geliyorsa `quality_report_json` bunu `primaryCameraFallbackUsed: true` ve `finalAnimationSource: "primary_wham"` ile açıkça belirtir. Accepted optimized output final olursa `finalAnimationSource: "true_dual_solve"`, `reconstructionUsedForConstraints: true` ve `whamInputUsage.multiViewConstraintsUsed: true` olmalıdır.
 7. Yeni artifact'ler:
    - `pose_frames_device_0.json`
    - `pose_frames_device_1.json`
@@ -26,6 +29,9 @@ Mevcut repo davranışı:
    - `camera_calibration.json`
    - `dual_reconstruction.json`
    - `multi_view_reconstruction.json`
+   - `dual_fit_report.json`
+   - `optimized_solved_motion.json`, yalnızca accepted optimized output geçerliyse
+   - `optimized_result.bvh`, yalnızca accepted optimized output final BVH kaynağıysa
    - `pose_frames.json`, sadece diagnostic world-landmark formatı güvenliyse
 8. Yeni metric'ler:
    - `matchedFrameCount`
@@ -39,13 +45,64 @@ Mevcut repo davranışı:
    - `intrinsicsFallbackUsed`
    - `primaryCameraFallbackUsed`
    - `finalAnimationSource`
+   - `dualFitStatus`
+   - `dualFitAcceptance`
+   - `optimizedBvhAvailable`
+   - `optimizedSolvedMotionAvailable`
+   - `reliableConstraintRatio`
+   - `optimizedMotionDelta`
 9. Sonraki faz:
    - audio/native sync
    - gerçek calibration clip
    - AprilTag/checkerboard/human-pose calibration
-   - triangulated 3D constraints into WHAM/SMPL
-   - direct kinematic/biomechanical fitting
-   - final BVH from true dual-camera solve
+   - higher fidelity kinematic/biomechanical fitting
+   - FK/SMPL-space reprojection-after metrics
+   - real-device threshold tuning before production quality claims
+
+## Accepted Dual Solve Rules
+
+- WHAM internal multi-view loss is not implemented.
+- WHAM remains the initialization / motion prior.
+- Dual-camera triangulation acts as the fitting constraint/correction layer.
+- The optimizer is a separate kinematic/biomechanical post-fit layer.
+- The current optimizer is not full SMPL-space optimization and does not produce optimized SMPL parameters.
+- `true_dual_solve` is allowed only when fitting gates pass, optimized solved motion exists, optimized BVH validates, optimized artifacts persist, and final `result.bvh` is generated from optimized output.
+- If any gate, validation, or persistence step fails, primary WHAM fallback is expected and must be reported.
+- This is not a Move.ai-level robustness claim; real-device QA is required before claiming production quality improvement.
+
+## Production Runtime Enablement
+
+Production dual reconstruction is controlled by the worker runtime, not only by
+the local API backend:
+
+```env
+ENABLE_MULTI_VIEW_RECONSTRUCTION=true
+ALLOW_PRIMARY_WHAM_FALLBACK=true
+MOCAPEXPO_POSE_DETECTOR=rtmpose_mmpose
+MOCAPEXPO_RTMPOSE_CLI_PATH=/workspace/pose/rtmpose_cli.py
+MOCAPEXPO_RTMPOSE_MODEL_PATH=/workspace/pose/models/rtmpose.pth
+```
+
+If RunPod Serverless executes the job, those values must exist in the RunPod
+template/env. Setting only `backend/.env` on a Mac does not enable
+triangulation inside the RunPod worker.
+
+Preflight must pass in the same runtime that will execute jobs. It reports
+whether DB/S3 config is present, WHAM/Python/ffmpeg paths are configured, and
+whether multi-view reconstruction/fallback are enabled. It must not print
+secrets.
+
+For a dual/pro job with `ENABLE_MULTI_VIEW_RECONSTRUCTION=true`, reports should
+show:
+
+- `motion_pipeline_report.runtime.reconstructionBranchEntered === true`
+- `quality_report.multiView.reconstructionBranchEntered === true`
+- either persisted reconstruction artifacts, or a concrete reason such as
+  `multi_view_pose_extraction_failed`, `multi_view_sync_failed`,
+  `camera_calibration_failed`, `triangulation_failed`, or
+  `dual_fitting_rejected`
+- `finalAnimationSource === "primary_wham"` unless optimized dual output is
+  accepted and final
 
 ## Mimari Hedef (End-to-End Pipeline)
 

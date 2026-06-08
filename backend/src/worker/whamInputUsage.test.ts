@@ -75,6 +75,29 @@ function testDiagnosticOnlyReconstructionUsage() {
   );
 }
 
+function testAcceptedDualSolveUsage() {
+  const usage = buildWhamInputUsageMetrics({
+    source: "dual_camera",
+    selectedVideos: [
+      { deviceIndex: 0, storageKey: "takes/take_dual/device_0.mov" },
+      { deviceIndex: 1, storageKey: "takes/take_dual/device_1.mov" },
+    ],
+    primaryDeviceIndex: 0,
+    multiViewReconstructionAvailable: true,
+    multiViewConstraintsUsed: true,
+    primaryWhamFallbackUsed: false,
+    primaryWhamFallbackReason: "none",
+  });
+
+  assert.equal(usage.primaryVideoUsed, true);
+  assert.equal(usage.additionalVideosProvided, 1);
+  assert.deepEqual(usage.additionalDeviceIndexes, [1]);
+  assert.equal(usage.multiViewReconstructionAvailable, true);
+  assert.equal(usage.multiViewConstraintsUsed, true);
+  assert.equal(usage.primaryWhamFallbackUsed, false);
+  assert.equal(usage.primaryWhamFallbackReason, "none");
+}
+
 function testAdapterFailureFallbackUsage() {
   const usage = buildWhamInputUsageMetrics({
     source: "dual_camera",
@@ -164,6 +187,7 @@ function testFallbackReasonMapping() {
 testSingleCameraUsage();
 testDualFeatureDisabledFallbackUsage();
 testDiagnosticOnlyReconstructionUsage();
+testAcceptedDualSolveUsage();
 testAdapterFailureFallbackUsage();
 testProFourCameraUsage();
 testPrimaryDeviceOverride();

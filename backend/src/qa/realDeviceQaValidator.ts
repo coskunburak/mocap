@@ -13,10 +13,13 @@ type QaManifest = {
 
 type QaRun = {
   id?: unknown;
+  takeId?: unknown;
+  jobId?: unknown;
   mode?: unknown;
   platforms?: unknown;
   expectedVideoCount?: unknown;
   actualUploadedVideoCount?: unknown;
+  selectedVideoCount?: unknown;
   actualBranch?: unknown;
   jobStatus?: unknown;
   artifacts?: unknown;
@@ -30,13 +33,22 @@ type QualityReportQa = {
   score?: unknown;
   multiViewPresent?: unknown;
   reconstructionAvailable?: unknown;
+  reconstructionBranchEntered?: unknown;
   reconstructionUsedForConstraints?: unknown;
   primaryWhamFallbackUsed?: unknown;
   primaryWhamFallbackReason?: unknown;
+  finalAnimationSource?: unknown;
+  poseExtractionStatus?: unknown;
+  syncStatus?: unknown;
+  calibrationStatus?: unknown;
+  triangulationStatus?: unknown;
+  fittingStatus?: unknown;
   matchedFrameCount?: unknown;
   averageTimeDeltaMs?: unknown;
+  reprojectionErrorP95?: unknown;
   reprojectionErrorPx?: unknown;
   triangulatedLandmarkRatio?: unknown;
+  reliableConstraintRatio?: unknown;
   calibrationQualityScore?: unknown;
   intrinsicsFallbackUsed?: unknown;
 };
@@ -182,6 +194,12 @@ function validateCommonRun(input: {
   if (!isNonNegativeInteger(input.run.actualUploadedVideoCount)) {
     input.errors.push(`${input.runId}: actualUploadedVideoCount must be a non-negative integer`);
   }
+  if (input.run.takeId !== undefined && !isNonEmptyString(input.run.takeId)) {
+    input.errors.push(`${input.runId}: takeId must be a non-empty string when provided`);
+  }
+  if (input.run.jobId !== undefined && !isNonEmptyString(input.run.jobId)) {
+    input.errors.push(`${input.runId}: jobId must be a non-empty string when provided`);
+  }
   if (!input.qualityReport) {
     input.errors.push(`${input.runId}: qualityReport is required`);
     return;
@@ -246,8 +264,36 @@ function validateMultiViewRun(input: {
   const report = input.qualityReport;
   if (!report) return;
 
-  if (report.reconstructionUsedForConstraints === true) {
-    input.errors.push(`${input.runId}: reconstructionUsedForConstraints must be false for the current pipeline`);
+  if (input.run.selectedVideoCount !== undefined && !isPositiveInteger(input.run.selectedVideoCount)) {
+    input.errors.push(`${input.runId}: selectedVideoCount must be a positive integer when provided`);
+  }
+  if (input.run.actualBranch === "multi_view_reconstruction" && report.reconstructionBranchEntered !== true) {
+    input.errors.push(`${input.runId}: reconstructionBranchEntered must be true for multi_view_reconstruction branch`);
+  }
+  if (typeof report.finalAnimationSource !== "string") {
+    input.errors.push(`${input.runId}: qualityReport.finalAnimationSource is required for multi-view QA`);
+  }
+
+  const acceptedTrueDual = report.finalAnimationSource === "true_dual_solve";
+  if (report.reconstructionUsedForConstraints === true && !acceptedTrueDual) {
+    input.errors.push(`${input.runId}: reconstructionUsedForConstraints can be true only for true_dual_solve`);
+  }
+  if (acceptedTrueDual) {
+    if (report.reconstructionUsedForConstraints !== true) {
+      input.errors.push(`${input.runId}: true_dual_solve requires reconstructionUsedForConstraints true`);
+    }
+    if (report.primaryWhamFallbackUsed === true) {
+      input.errors.push(`${input.runId}: true_dual_solve must not use primary WHAM fallback`);
+    }
+    if (!input.artifacts.includes("optimized_bvh")) {
+      input.errors.push(`${input.runId}: true_dual_solve missing optimized_bvh`);
+    }
+    if (!input.artifacts.includes("optimized_solved_motion_json")) {
+      input.errors.push(`${input.runId}: true_dual_solve missing optimized_solved_motion_json`);
+    }
+  }
+  if (report.finalAnimationSource === "primary_wham" && report.primaryWhamFallbackUsed !== true) {
+    input.errors.push(`${input.runId}: primary_wham final source requires primaryWhamFallbackUsed true for multi-view QA`);
   }
   if (report.reconstructionAvailable === true) {
     if (report.multiViewPresent !== true) {
@@ -262,8 +308,14 @@ function validateMultiViewRun(input: {
     if (!isFiniteNumber(report.reprojectionErrorPx)) {
       input.errors.push(`${input.runId}: reprojectionErrorPx must be finite when reconstruction is available`);
     }
+    if (report.reprojectionErrorP95 !== undefined && !isFiniteNumber(report.reprojectionErrorP95)) {
+      input.errors.push(`${input.runId}: reprojectionErrorP95 must be finite when provided`);
+    }
     if (!isFiniteNumber(report.triangulatedLandmarkRatio)) {
       input.errors.push(`${input.runId}: triangulatedLandmarkRatio must be finite when reconstruction is available`);
+    }
+    if (report.reliableConstraintRatio !== undefined && !isFiniteNumber(report.reliableConstraintRatio)) {
+      input.errors.push(`${input.runId}: reliableConstraintRatio must be finite when provided`);
     }
     if (!isFiniteNumber(report.calibrationQualityScore)) {
       input.errors.push(`${input.runId}: calibrationQualityScore must be finite when reconstruction is available`);
@@ -293,6 +345,10 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function isQaMode(value: unknown): value is QaMode {
   return typeof value === "string" && VALID_MODES.includes(value as QaMode);
+}
+
+function isNonEmptyString(value: unknown): value is string {
+  return typeof value === "string" && value.trim().length > 0;
 }
 
 function stringArray(value: unknown): string[] {

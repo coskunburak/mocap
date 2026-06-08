@@ -84,6 +84,20 @@ export type FrameDataPayload = Readonly<{
   landmarksB64: string; // base64-encoded Float32Array (33 * 4 floats)
   worldLandmarksB64?: string;
   trackingProfile: "pose" | "holistic";
+  coordinateSpace?: "image_normalized" | "preview_normalized";
+  imageWidth?: number;
+  imageHeight?: number;
+  inputImageWidth?: number;
+  inputImageHeight?: number;
+  videoOrientation?:
+    | "portrait"
+    | "portrait_upside_down"
+    | "landscape_left"
+    | "landscape_right"
+    | "unknown";
+  cameraPosition?: "front" | "back" | "external" | "unknown";
+  isMirrored?: boolean;
+  orientationCorrection?: string;
   /** Bitmask or count of tracked joints so Host can decide if frame is usable */
   trackedCount: number;
   confidence: number; // average confidence 0..1

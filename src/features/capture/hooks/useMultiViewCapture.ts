@@ -27,6 +27,7 @@ import {
 } from "../../../domain/mocap/pipeline/triangulation/Triangulator";
 import type { PoseFrame } from "../../../domain/mocap/models/PoseFrame";
 import type { MultiViewPoseFrame } from "../../../domain/mocap/models/MultiViewPoseFrame";
+import { evaluatePoseFrameQuality } from "../../../domain/mocap/pipeline/pose/PoseFrameGeometry";
 import { env } from "../../../app/config/env";
 import { container } from "../../../app/di/container";
 import { useMultiViewStore } from "../state/multiViewStore";
@@ -109,7 +110,7 @@ export function useMultiViewCapture(callbacks?: MultiViewCaptureCallbacks) {
       expectedDeviceCount: 2,
       hostDevice: {
         deviceId: deviceInfo.deviceId,
-        deviceRole: "host",
+        deviceRole: "primary",
         platform: Platform.OS,
         appVersion: deviceInfo.appVersion,
       },
@@ -141,7 +142,7 @@ export function useMultiViewCapture(callbacks?: MultiViewCaptureCallbacks) {
     );
     globalHost = host;
 
-    const matcher = new FrameMatcher({ toleranceMs: 20, maxBufferSize: 30 });
+    const matcher = new FrameMatcher({ toleranceMs: 75, maxBufferSize: 45 });
     globalMatcher = matcher;
 
     const cleanup = host.addListener((event: PeerHostEvent) => {
@@ -188,6 +189,16 @@ export function useMultiViewCapture(callbacks?: MultiViewCaptureCallbacks) {
             worldLandmarks,
             trackingProfile: event.payload.trackingProfile,
             frameId: event.payload.frameId,
+            sourceDevice: store.remoteDevice?.deviceId ?? "guest",
+            coordinateSpace: event.payload.coordinateSpace ?? "image_normalized",
+            imageWidth: event.payload.imageWidth,
+            imageHeight: event.payload.imageHeight,
+            inputImageWidth: event.payload.inputImageWidth,
+            inputImageHeight: event.payload.inputImageHeight,
+            videoOrientation: event.payload.videoOrientation,
+            cameraPosition: event.payload.cameraPosition,
+            isMirrored: event.payload.isMirrored,
+            orientationCorrection: event.payload.orientationCorrection,
           };
 
           // Push to matcher
@@ -260,7 +271,7 @@ export function useMultiViewCapture(callbacks?: MultiViewCaptureCallbacks) {
     const result = await container.mocapSessionService.joinCaptureSession({
       joinToken: joinToken.trim().toUpperCase(),
       deviceId: deviceInfo.deviceId,
-      deviceRole: "guest",
+      deviceRole: "secondary",
       platform: Platform.OS,
       appVersion: deviceInfo.appVersion,
     });
@@ -366,12 +377,14 @@ export function useMultiViewCapture(callbacks?: MultiViewCaptureCallbacks) {
     (localFrame: PoseFrame): MultiViewPoseFrame | null => {
       const matcher = globalMatcher;
       if (!matcher) return null;
+      if (!evaluatePoseFrameQuality(localFrame).reliable) return null;
 
       const cal = store.stereoCalibration;
       if (!cal) return null;
 
       const match = matcher.matchLocalFrame(localFrame);
       if (!match) return null;
+      if (!evaluatePoseFrameQuality(match.frameB).reliable) return null;
 
       // Triangulate
       const P1 = cal.projectionA as unknown as ProjectionMatrix;
@@ -427,8 +440,17 @@ export function useMultiViewCapture(callbacks?: MultiViewCaptureCallbacks) {
    * Send a command from host to guest.
    */
   const sendCommand = useCallback(
-    (action: "start_capture" | "stop_capture" | "start_recording" | "stop_recording" | "start_calibration" | "abort_calibration") => {
-      globalHost?.sendCommand(action);
+    (
+      action:
+        | "start_capture"
+        | "stop_capture"
+        | "start_recording"
+        | "stop_recording"
+        | "start_calibration"
+        | "abort_calibration",
+      params?: Record<string, unknown>,
+    ) => {
+      globalHost?.sendCommand(action, params);
     },
     [],
   );

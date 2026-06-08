@@ -29,6 +29,7 @@ import {
 } from "./export/motionPipelineStages";
 import { runDualCameraFittingOptimization } from "./fitting/dualCameraOptimizer";
 import { validateDualFitReportArtifact } from "./fitting/dualFitArtifacts";
+import { buildDualFitAcceptanceSummary } from "./fitting/fittingQuality";
 import { trySolvePremiumMotion } from "./export/premiumMotionSolver";
 import { buildCaptureMetadataDiagnostics } from "./captureMetadataDiagnostics";
 import {
@@ -54,7 +55,9 @@ import type {
   MotionPipelineStageStatus,
   CalibrationObservationsArtifact,
   CalibrationTargetType,
+  DualFitGateFailureCode,
   DualFitReportArtifact,
+  DualFitQualityGateSummary,
   PerCameraPoseArtifact,
   PoseFramesArtifact,
   SolvedMotionArtifact,
@@ -82,6 +85,13 @@ type ProcessedSource = {
 
 type MultiViewDiagnosticSummary = {
   branch: string;
+  reconstructionBranchEntered?: boolean;
+  workerRuntime?: {
+    nodeEnv: string;
+    enableMultiViewReconstruction: boolean;
+    allowPrimaryWhamFallback: boolean;
+    selectedVideoCount: number;
+  };
   reconstructionAvailable: boolean;
   matchedFrameCount?: number;
   triangulatedLandmarkRatio?: number;
@@ -107,6 +117,15 @@ class WorkerProcessingError extends Error {
 
 function workerDir(jobId: string) {
   return path.join(config.worker.tempDir, jobId);
+}
+
+function captureVideoOrientation(captureMetadata: unknown): string | undefined {
+  if (!captureMetadata || typeof captureMetadata !== "object") return undefined;
+  const metadata = captureMetadata as Record<string, unknown>;
+  const video = metadata.video;
+  if (!video || typeof video !== "object") return undefined;
+  const orientation = (video as Record<string, unknown>).orientation;
+  return typeof orientation === "string" ? orientation : undefined;
 }
 
 async function createConfiguredMultiViewPoseAdapter() {
@@ -490,7 +509,16 @@ function dualFitStageStatusForWorker(
   return "diagnostic_only";
 }
 
-function dualFitQualityGateSummary(report: DualFitReportArtifact) {
+function dualFitQualityGateSummary(
+  report: DualFitReportArtifact,
+): DualFitQualityGateSummary {
+  const acceptance =
+    report.acceptance ??
+    buildDualFitAcceptanceSummary({
+      metrics: report.metrics,
+      gates: report.qualityGates,
+      acceptedAsFinalAnimation: report.acceptedAsFinalAnimation,
+    });
   return {
     passed: report.qualityGates.filter((gate) => gate.passed).length,
     failed: report.qualityGates.filter((gate) => !gate.passed).length,
@@ -500,6 +528,13 @@ function dualFitQualityGateSummary(report: DualFitReportArtifact) {
     warningFailed: report.qualityGates.filter(
       (gate) => !gate.passed && gate.severity === "warning",
     ).length,
+    accepted: acceptance.accepted,
+    blockingFailures: acceptance.blockingFailures,
+    warnings: acceptance.warnings,
+    unavailableMetrics: acceptance.unavailableMetrics,
+    metrics: acceptance.metrics,
+    finalAnimationSourceRecommendation:
+      acceptance.finalAnimationSourceRecommendation,
   };
 }
 
@@ -507,15 +542,26 @@ function acceptDualFitReport(
   report: DualFitReportArtifact,
   artifactRefs: Record<string, string>,
 ): DualFitReportArtifact {
+  const metrics = {
+    ...report.metrics,
+    optimizedMotionValid: true,
+    optimizedBvhValid: true,
+    optimizedArtifactsPresent: Boolean(
+      artifactRefs.optimized_solved_motion_json && artifactRefs.optimized_bvh,
+    ),
+    acceptedAsFinalAnimation: true,
+  };
   return {
     ...report,
     status: "ready",
     reason:
       "Optimized dual-camera motion and BVH passed export validation and quality gates.",
-    metrics: {
-      ...report.metrics,
+    metrics,
+    acceptance: buildDualFitAcceptanceSummary({
+      metrics,
+      gates: report.qualityGates,
       acceptedAsFinalAnimation: true,
-    },
+    }),
     acceptedAsFinalAnimation: true,
     finalAnimationSourceCandidate: "true_dual_solve",
     artifactRefs: {
@@ -537,7 +583,22 @@ function rejectDualFitReport(
   report: DualFitReportArtifact,
   reason: string,
   artifactRefs: Record<string, string> = {},
+  failureCode?: DualFitGateFailureCode,
 ): DualFitReportArtifact {
+  const metrics = {
+    ...report.metrics,
+    ...(failureCode === "optimized_motion_invalid"
+      ? { optimizedMotionValid: false }
+      : {}),
+    ...(failureCode === "optimized_bvh_invalid" ||
+    failureCode === "optimized_bvh_missing"
+      ? { optimizedBvhValid: false }
+      : {}),
+    ...(failureCode === "optimized_artifacts_missing"
+      ? { optimizedArtifactsPresent: false }
+      : {}),
+    acceptedAsFinalAnimation: false,
+  };
   return {
     ...report,
     status:
@@ -545,10 +606,13 @@ function rejectDualFitReport(
         ? "optimization_failed"
         : report.status,
     reason,
-    metrics: {
-      ...report.metrics,
+    metrics,
+    acceptance: buildDualFitAcceptanceSummary({
+      metrics,
+      gates: report.qualityGates,
       acceptedAsFinalAnimation: false,
-    },
+      additionalBlockingFailures: failureCode ? [failureCode] : [],
+    }),
     acceptedAsFinalAnimation: false,
     finalAnimationSourceCandidate: "primary_wham",
     artifactRefs: {
@@ -651,6 +715,23 @@ export class WorkerJobProcessor {
         enableMultiViewReconstruction: config.worker.enableMultiViewReconstruction,
         allowPrimaryWhamFallback: config.worker.allowPrimaryWhamFallback,
       });
+      const reconstructionBranchEntered =
+        pipelineBranch.kind === "multi_view_reconstruction";
+      const workerRuntime = {
+        nodeEnv: config.nodeEnv,
+        enableMultiViewReconstruction:
+          config.worker.enableMultiViewReconstruction,
+        allowPrimaryWhamFallback: config.worker.allowPrimaryWhamFallback,
+        selectedVideoCount: sources.length,
+      };
+      const pipelineSelection = {
+        captureMode: take.captureMode,
+        selectedVideoCount: sources.length,
+        selectedPipelineBranch: pipelineBranch.kind,
+        pipelineBranchReason: pipelineBranch.reason,
+        reconstructionBranchEntered,
+        workerRuntime,
+      };
       if (pipelineBranch.kind === "multi_view_disabled") {
         throw new WorkerProcessingError(
           "Multi-view reconstruction is disabled and primary WHAM fallback is not allowed.",
@@ -659,6 +740,7 @@ export class WorkerJobProcessor {
             captureMode: take.captureMode,
             selectedVideoCount: sources.length,
             branch: pipelineBranch,
+            pipelineSelection,
             ...(captureMetadataDiagnostics ? { captureMetadataDiagnostics } : {}),
           },
         );
@@ -686,6 +768,7 @@ export class WorkerJobProcessor {
           captureMode: take.captureMode,
           sourceCount: sources.length,
           videoStorageKeys: sources.map((source) => source.videoStorageKey),
+          pipelineSelection,
           ...(captureMetadataDiagnostics ? { captureMetadataDiagnostics } : {}),
         },
       });
@@ -709,7 +792,9 @@ export class WorkerJobProcessor {
         });
 
         const normalizedPath = path.join(deviceDir, "normalized.mp4");
-        const normalizedProbe = await normalizeVideo(inputPath, normalizedPath);
+        const normalizedProbe = await normalizeVideo(inputPath, normalizedPath, {
+          expectedOrientation: captureVideoOrientation(source.captureMetadata),
+        });
         const normalizedKey = artifactStorageKey(
           job.takeId,
           job.id,
@@ -760,6 +845,9 @@ export class WorkerJobProcessor {
         | QualityReportMultiViewDiagnosticInput
         | undefined = captureMetadataDiagnostics
         ? {
+            pipelineBranch: pipelineBranch.kind,
+            reconstructionBranchEntered,
+            workerRuntime,
             reconstructionAvailable: false,
             captureMetadataDiagnostics,
             warnings: captureMetadataDiagnostics.missingMetadataWarnings,
@@ -777,6 +865,7 @@ export class WorkerJobProcessor {
           metrics: {
             captureMode: take.captureMode,
             branch: pipelineBranch,
+            pipelineSelection,
             ...(captureMetadataDiagnostics ? { captureMetadataDiagnostics } : {}),
           },
         });
@@ -868,6 +957,8 @@ export class WorkerJobProcessor {
           });
           multiViewDiagnostic = {
             branch: pipelineBranch.kind,
+            reconstructionBranchEntered,
+            workerRuntime,
             reconstructionAvailable: false,
             usedForWhamConstraints: false,
             primaryWhamContinues: action.shouldContinueWithPrimaryWham,
@@ -879,6 +970,9 @@ export class WorkerJobProcessor {
             errorMessage: action.errorMessage,
           };
           qualityReportMultiViewDiagnostic = {
+            pipelineBranch: pipelineBranch.kind,
+            reconstructionBranchEntered,
+            workerRuntime,
             reconstructionAvailable: false,
             captureMetadataDiagnostics,
             ...(calibrationObservations ? { calibrationObservations } : {}),
@@ -964,6 +1058,7 @@ export class WorkerJobProcessor {
                 captureMode: take.captureMode,
                 branch: pipelineBranch,
                 multiView: multiViewDiagnostic,
+                pipelineSelection,
                 ...(captureMetadataDiagnostics
                   ? { captureMetadataDiagnostics }
                   : {}),
@@ -983,6 +1078,7 @@ export class WorkerJobProcessor {
             metrics: {
               captureMode: take.captureMode,
               multiView: multiViewDiagnostic,
+              pipelineSelection,
               ...(captureMetadataDiagnostics
                 ? { captureMetadataDiagnostics }
                 : {}),
@@ -998,6 +1094,8 @@ export class WorkerJobProcessor {
         if (reconstruction) {
           multiViewDiagnostic = {
             branch: pipelineBranch.kind,
+            reconstructionBranchEntered,
+            workerRuntime,
             reconstructionAvailable: true,
             matchedFrameCount:
               reconstruction.reconstructionArtifact.metrics.matchedFrameCount,
@@ -1011,6 +1109,9 @@ export class WorkerJobProcessor {
               "multi_view_reconstruction_diagnostic_only",
           };
           qualityReportMultiViewDiagnostic = {
+            pipelineBranch: pipelineBranch.kind,
+            reconstructionBranchEntered,
+            workerRuntime,
             reconstructionAvailable: true,
             captureMetadataDiagnostics,
             syncReport: reconstruction.syncReport,
@@ -1143,6 +1244,7 @@ export class WorkerJobProcessor {
             metrics: {
               captureMode: take.captureMode,
               multiView: multiViewDiagnostic,
+              pipelineSelection,
               ...(captureMetadataDiagnostics
                 ? { captureMetadataDiagnostics }
                 : {}),
@@ -1201,6 +1303,7 @@ export class WorkerJobProcessor {
           source: motionSource,
           normalizedVideos: processedSources.map((source) => source.normalizedKey),
           whamInputUsage,
+          pipelineSelection,
           ...(multiViewDiagnostic ? { multiView: multiViewDiagnostic } : {}),
           ...(captureMetadataDiagnostics ? { captureMetadataDiagnostics } : {}),
           ...(persistedMultiViewArtifacts.length
@@ -1350,6 +1453,8 @@ export class WorkerJobProcessor {
               dualFitReport = rejectDualFitReport(
                 dualFitReport,
                 `Optimized solved motion failed validation: ${optimizedValidation.errors.join("; ")}`,
+                {},
+                "optimized_motion_invalid",
               );
             } else {
               const candidateBvh = writeBvh(fittingResult.optimizedMotion);
@@ -1382,112 +1487,135 @@ export class WorkerJobProcessor {
                 dualFitReport = rejectDualFitReport(
                   dualFitReport,
                   `Optimized BVH export was rejected: ${optimizedErrors.join("; ")}`,
+                  {},
+                  "optimized_bvh_invalid",
                 );
               } else {
-                const acceptedOptimizedMotion: SolvedMotionArtifact = {
-                  ...fittingResult.optimizedMotion,
-                  validation: {
-                    ok: true,
-                    warnings: Array.from(
-                      new Set([
-                        ...fittingResult.optimizedMotion.validation.warnings,
-                        ...optimizedWarnings,
-                      ]),
-                    ),
-                    errors: [],
-                  },
-                  optimizedFrom: fittingResult.optimizedMotion.optimizedFrom
-                    ? {
-                        ...fittingResult.optimizedMotion.optimizedFrom,
-                        acceptedAsFinalAnimation: true,
-                      }
-                    : undefined,
-                };
-                optimizedSolvedMotionKey = artifactStorageKey(
-                  job.takeId,
-                  job.id,
-                  "optimized_solved_motion.json",
-                );
-                const optimizedSolvedMotionFile = await this.storage.putJson(
-                  optimizedSolvedMotionKey,
-                  acceptedOptimizedMotion,
-                );
-                await this.exports.create({
-                  userId: job.userId,
-                  projectId: job.projectId,
-                  takeId: job.takeId,
-                  jobId: job.id,
-                  preset: job.preset,
-                  format: "optimized_solved_motion_json",
-                  storageKey: optimizedSolvedMotionFile.storageKey,
-                  artifactName: "optimized_solved_motion_json",
-                  fileSizeBytes: optimizedSolvedMotionFile.sizeBytes,
-                });
-
-                optimizedBvhKey = artifactStorageKey(
-                  job.takeId,
-                  job.id,
-                  "optimized_result.bvh",
-                );
-                const optimizedBvhFile = await this.storage.putText(
-                  optimizedBvhKey,
-                  candidateBvh,
-                  "application/octet-stream",
-                );
-                await this.exports.create({
-                  userId: job.userId,
-                  projectId: job.projectId,
-                  takeId: job.takeId,
-                  jobId: job.id,
-                  preset: job.preset,
-                  format: "optimized_bvh",
-                  storageKey: optimizedBvhFile.storageKey,
-                  artifactName: "optimized_bvh",
-                  fileSizeBytes: optimizedBvhFile.sizeBytes,
-                });
-                optimizedArtifactRefs.optimized_solved_motion_json =
-                  optimizedSolvedMotionKey;
-                optimizedArtifactRefs.optimized_bvh = optimizedBvhKey;
-                optimizedSolvedMotionForFinal = acceptedOptimizedMotion;
-                optimizedBvhText = candidateBvh;
-                acceptedDualCameraFinal = true;
-                primaryWhamFallbackUsed = false;
-                primaryWhamFallbackReason = "none";
-                whamInputUsage = buildWhamInputUsageMetrics({
-                  source: motionSource,
-                  selectedVideos: processedSources.map((source) => ({
-                    deviceIndex: source.video.deviceIndex,
-                    storageKey: source.video.videoStorageKey,
-                  })),
-                  primaryDeviceIndex: primarySource.video.deviceIndex,
-                  multiViewReconstructionAvailable,
-                  multiViewConstraintsUsed: true,
-                  primaryWhamFallbackUsed: false,
-                  primaryWhamFallbackReason: "none",
-                });
-                replaceMotionPipelineStage(
-                  pipelineStages,
-                  buildMotionPipelineStage({
-                    stageName: "primary_wham",
-                    status: "completed",
-                    reason:
-                      "WHAM produced the primary initialization; accepted dual-camera fitting supplies the final animation.",
-                    startedAtMs: primaryWhamStartedAt,
-                    completedAtMs: Date.now(),
-                    artifactRefs: {
-                      smpl_parameters_json: smplParametersKey,
-                      raw_solved_motion_json: rawSolvedKey,
-                      ...(overlayPreviewKey
-                        ? { wham_overlay_preview_mp4: overlayPreviewKey }
-                        : {}),
+                try {
+                  const acceptedOptimizedMotion: SolvedMotionArtifact = {
+                    ...fittingResult.optimizedMotion,
+                    validation: {
+                      ok: true,
+                      warnings: Array.from(
+                        new Set([
+                          ...fittingResult.optimizedMotion.validation.warnings,
+                          ...optimizedWarnings,
+                        ]),
+                      ),
+                      errors: [],
                     },
-                    warnings: [],
-                  }),
-                );
-                dualFitReport = acceptDualFitReport(
-                  dualFitReport,
-                  optimizedArtifactRefs,
-                );
+                    optimizedFrom: fittingResult.optimizedMotion.optimizedFrom
+                      ? {
+                          ...fittingResult.optimizedMotion.optimizedFrom,
+                          acceptedAsFinalAnimation: true,
+                        }
+                      : undefined,
+                  };
+                  const candidateOptimizedBvhKey = artifactStorageKey(
+                    job.takeId,
+                    job.id,
+                    "optimized_result.bvh",
+                  );
+                  const optimizedBvhFile = await this.storage.putText(
+                    candidateOptimizedBvhKey,
+                    candidateBvh,
+                    "application/octet-stream",
+                  );
+                  await this.exports.create({
+                    userId: job.userId,
+                    projectId: job.projectId,
+                    takeId: job.takeId,
+                    jobId: job.id,
+                    preset: job.preset,
+                    format: "optimized_bvh",
+                    storageKey: optimizedBvhFile.storageKey,
+                    artifactName: "optimized_bvh",
+                    fileSizeBytes: optimizedBvhFile.sizeBytes,
+                  });
+
+                  const candidateOptimizedSolvedMotionKey = artifactStorageKey(
+                    job.takeId,
+                    job.id,
+                    "optimized_solved_motion.json",
+                  );
+                  const optimizedSolvedMotionFile = await this.storage.putJson(
+                    candidateOptimizedSolvedMotionKey,
+                    acceptedOptimizedMotion,
+                  );
+                  await this.exports.create({
+                    userId: job.userId,
+                    projectId: job.projectId,
+                    takeId: job.takeId,
+                    jobId: job.id,
+                    preset: job.preset,
+                    format: "optimized_solved_motion_json",
+                    storageKey: optimizedSolvedMotionFile.storageKey,
+                    artifactName: "optimized_solved_motion_json",
+                    fileSizeBytes: optimizedSolvedMotionFile.sizeBytes,
+                  });
+
+                  optimizedBvhKey = candidateOptimizedBvhKey;
+                  optimizedSolvedMotionKey = candidateOptimizedSolvedMotionKey;
+                  optimizedArtifactRefs.optimized_bvh = optimizedBvhKey;
+                  optimizedArtifactRefs.optimized_solved_motion_json =
+                    optimizedSolvedMotionKey;
+                  optimizedSolvedMotionForFinal = acceptedOptimizedMotion;
+                  optimizedBvhText = candidateBvh;
+                  acceptedDualCameraFinal = true;
+                  primaryWhamFallbackUsed = false;
+                  primaryWhamFallbackReason = "none";
+                  whamInputUsage = buildWhamInputUsageMetrics({
+                    source: motionSource,
+                    selectedVideos: processedSources.map((source) => ({
+                      deviceIndex: source.video.deviceIndex,
+                      storageKey: source.video.videoStorageKey,
+                    })),
+                    primaryDeviceIndex: primarySource.video.deviceIndex,
+                    multiViewReconstructionAvailable,
+                    multiViewConstraintsUsed: true,
+                    primaryWhamFallbackUsed: false,
+                    primaryWhamFallbackReason: "none",
+                  });
+                  replaceMotionPipelineStage(
+                    pipelineStages,
+                    buildMotionPipelineStage({
+                      stageName: "primary_wham",
+                      status: "completed",
+                      reason:
+                        "WHAM produced the primary initialization; accepted dual-camera fitting supplies the final animation.",
+                      startedAtMs: primaryWhamStartedAt,
+                      completedAtMs: Date.now(),
+                      artifactRefs: {
+                        smpl_parameters_json: smplParametersKey,
+                        raw_solved_motion_json: rawSolvedKey,
+                        ...(overlayPreviewKey
+                          ? { wham_overlay_preview_mp4: overlayPreviewKey }
+                          : {}),
+                      },
+                      warnings: [],
+                    }),
+                  );
+                  dualFitReport = acceptDualFitReport(
+                    dualFitReport,
+                    optimizedArtifactRefs,
+                  );
+                } catch (error) {
+                  optimizedSolvedMotionKey = undefined;
+                  optimizedBvhKey = undefined;
+                  optimizedSolvedMotionForFinal = undefined;
+                  optimizedBvhText = undefined;
+                  acceptedDualCameraFinal = false;
+                  const message =
+                    error instanceof Error
+                      ? error.message
+                      : "Optimized artifact persistence failed.";
+                  dualFitReport = rejectDualFitReport(
+                    dualFitReport,
+                    `Optimized artifact persistence failed: ${message}`,
+                    {},
+                    "optimized_artifacts_missing",
+                  );
+                }
               }
             }
           }
@@ -1500,10 +1628,13 @@ export class WorkerJobProcessor {
               dualFitReport,
               "Optimized output was not fully persisted; primary WHAM remains final.",
               optimizedArtifactRefs,
+              "optimized_artifacts_missing",
             );
             acceptedDualCameraFinal = false;
             optimizedSolvedMotionForFinal = undefined;
             optimizedBvhText = undefined;
+            optimizedSolvedMotionKey = undefined;
+            optimizedBvhKey = undefined;
           }
           const dualFitValidation =
             validateDualFitReportArtifact(dualFitReport);
@@ -1555,6 +1686,9 @@ export class WorkerJobProcessor {
           );
           qualityReportMultiViewDiagnostic = {
             ...(qualityReportMultiViewDiagnostic ?? {
+              pipelineBranch: pipelineBranch.kind,
+              reconstructionBranchEntered,
+              workerRuntime,
               reconstructionAvailable: multiViewReconstructionAvailable,
               captureMetadataDiagnostics,
             }),
@@ -1614,6 +1748,8 @@ export class WorkerJobProcessor {
         } catch (error) {
           acceptedDualCameraFinal = false;
           optimizedSolvedMotionForFinal = undefined;
+          optimizedSolvedMotionKey = undefined;
+          optimizedBvhKey = undefined;
           optimizedBvhText = undefined;
           primaryWhamFallbackUsed = true;
           primaryWhamFallbackReason = "multi_view_reconstruction_diagnostic_only";
@@ -1635,6 +1771,9 @@ export class WorkerJobProcessor {
               : "Dual fitting foundation failed.";
           qualityReportMultiViewDiagnostic = {
             ...(qualityReportMultiViewDiagnostic ?? {
+              pipelineBranch: pipelineBranch.kind,
+              reconstructionBranchEntered,
+              workerRuntime,
               reconstructionAvailable: multiViewReconstructionAvailable,
               captureMetadataDiagnostics,
             }),
@@ -1740,7 +1879,7 @@ export class WorkerJobProcessor {
       const bvh =
         acceptedDualCameraFinal && optimizedBvhText
           ? optimizedBvhText
-          : writeBvh(solved);
+          : writeBvh(finalSolved);
       const bvhValidation = validateBvhText(bvh, finalSolved.frameCount);
       const bvhPath = path.join(dir, "result.bvh");
       const blenderResultPath = path.join(dir, "blender_smoke_test.json");
@@ -1895,6 +2034,19 @@ export class WorkerJobProcessor {
               ? []
               : [primaryWhamFallbackReason],
         },
+        runtime: {
+          nodeEnv: config.nodeEnv,
+          captureMode: take.captureMode,
+          selectedVideoCount: sources.length,
+          selectedPipelineBranch: pipelineBranch.kind,
+          reconstructionBranchEntered,
+          enableMultiViewReconstruction:
+            config.worker.enableMultiViewReconstruction,
+          allowPrimaryWhamFallback: config.worker.allowPrimaryWhamFallback,
+        },
+        finalAnimationSource: acceptedDualCameraFinal
+          ? "true_dual_solve"
+          : "primary_wham",
         artifacts: {
           smplParameters: smplParametersKey,
           rawSolvedMotion: rawSolvedKey,
@@ -1943,6 +2095,7 @@ export class WorkerJobProcessor {
           qualityScore: quality.score,
           blender,
           whamInputUsage,
+          pipelineSelection,
           ...(captureMetadataDiagnostics ? { captureMetadataDiagnostics } : {}),
           ...(persistedMultiViewArtifacts.length
             ? { multiViewArtifacts: persistedMultiViewArtifacts }

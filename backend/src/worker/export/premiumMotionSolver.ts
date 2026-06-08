@@ -29,6 +29,7 @@ export type PremiumSolveAttempt =
       solver: "wham";
       motion: SolvedMotionArtifact;
       overlayPreviewPath?: string;
+      orientationRetry?: string;
     };
 
 function resolveScript(script: string) {
@@ -314,6 +315,105 @@ function optionalWhamEnv() {
   };
 }
 
+type WhamVideoCandidate = {
+  label: string;
+  videoPaths: string[];
+  filter?: string;
+};
+
+function isNoTrackedSubjectsError(message: string) {
+  return /WHAM returned no tracked subjects/i.test(message);
+}
+
+async function rotateVideo(inputPath: string, outputPath: string, filter: string) {
+  await runCommand(config.worker.ffmpegPath, [
+    "-y",
+    "-i",
+    inputPath,
+    "-map",
+    "0:v:0",
+    "-vf",
+    `${filter},format=yuv420p`,
+    "-an",
+    "-metadata:s:v:0",
+    "rotate=0",
+    "-movflags",
+    "+faststart",
+    outputPath,
+  ]);
+}
+
+async function buildWhamVideoCandidate(
+  input: PremiumSolveInput,
+  label: string,
+  filter: string,
+): Promise<WhamVideoCandidate> {
+  const dir = path.join(input.outputDir, "orientation_candidates", label);
+  await mkdir(dir, { recursive: true });
+  const videoPaths: string[] = [];
+  for (const [index, videoPath] of input.normalizedVideoPaths.entries()) {
+    const outputPath = path.join(dir, `device_${index}.mp4`);
+    await rotateVideo(videoPath, outputPath, filter);
+    videoPaths.push(outputPath);
+  }
+  return { label, filter, videoPaths };
+}
+
+async function runWhamCandidate(
+  input: PremiumSolveInput,
+  candidate: WhamVideoCandidate,
+): Promise<PremiumSolveAttempt> {
+  if (!config.worker.whamSolverScript) {
+    throw new Error("WHAM_SOLVER_SCRIPT is not configured.");
+  }
+
+  const attemptDir = path.join(input.outputDir, `wham_${candidate.label}`);
+  await mkdir(attemptDir, { recursive: true });
+  const posePath = path.join(attemptDir, "premium_solver_pose_frames.json");
+  const outputPath = path.join(attemptDir, "premium_solved_motion.json");
+  const overlayPreviewPath = path.join(attemptDir, "wham_work", "output.mp4");
+  await writeFile(posePath, JSON.stringify(input.poseArtifact), "utf8");
+
+  await runCommand(
+    config.worker.pythonPath,
+    [
+      resolveScript(config.worker.whamSolverScript),
+      "--pose",
+      posePath,
+      "--output",
+      outputPath,
+      "--solver-version",
+      config.worker.whamSolverVersion,
+      "--source",
+      input.source,
+      "--preset",
+      input.presetId ?? "",
+      "--take-id",
+      input.takeId,
+      "--job-id",
+      input.jobId,
+      ...optionalWhamArgs(),
+      ...candidate.videoPaths.flatMap((videoPath) => ["--video", videoPath]),
+    ],
+    {
+      timeoutMs: config.worker.premiumMotionTimeoutMs,
+      env: optionalWhamEnv(),
+    },
+  );
+
+  const raw = JSON.parse(await readFile(outputPath, "utf8"));
+  const overlayPreviewExists = await stat(overlayPreviewPath)
+    .then((item) => item.isFile())
+    .catch(() => false);
+  return {
+    attempted: true,
+    solver: "wham",
+    motion: normalizePremiumMotion(raw, input),
+    overlayPreviewPath: overlayPreviewExists ? overlayPreviewPath : undefined,
+    orientationRetry: candidate.label === "original" ? undefined : candidate.label,
+  };
+}
+
 export async function trySolvePremiumMotion(
   input: PremiumSolveInput,
 ): Promise<PremiumSolveAttempt> {
@@ -322,51 +422,39 @@ export async function trySolvePremiumMotion(
   }
 
   await mkdir(input.outputDir, { recursive: true });
-  const posePath = path.join(input.outputDir, "premium_solver_pose_frames.json");
-  const outputPath = path.join(input.outputDir, "premium_solved_motion.json");
-  const overlayPreviewPath = path.join(input.outputDir, "wham_work", "output.mp4");
-  await writeFile(posePath, JSON.stringify(input.poseArtifact), "utf8");
+
+  const originalCandidate: WhamVideoCandidate = {
+    label: "original",
+    videoPaths: input.normalizedVideoPaths,
+  };
 
   try {
-    await runCommand(
-      config.worker.pythonPath,
-      [
-        resolveScript(config.worker.whamSolverScript),
-        "--pose",
-        posePath,
-        "--output",
-        outputPath,
-        "--solver-version",
-        config.worker.whamSolverVersion,
-        "--source",
-        input.source,
-        "--preset",
-        input.presetId ?? "",
-        "--take-id",
-        input.takeId,
-        "--job-id",
-        input.jobId,
-        ...optionalWhamArgs(),
-        ...input.normalizedVideoPaths.flatMap((videoPath) => ["--video", videoPath]),
-      ],
-      {
-        timeoutMs: config.worker.premiumMotionTimeoutMs,
-        env: optionalWhamEnv(),
-      },
-    );
-    const raw = JSON.parse(await readFile(outputPath, "utf8"));
-    const overlayPreviewExists = await stat(overlayPreviewPath)
-      .then((item) => item.isFile())
-      .catch(() => false);
-    return {
-      attempted: true,
-      solver: "wham",
-      motion: normalizePremiumMotion(raw, input),
-      overlayPreviewPath: overlayPreviewExists ? overlayPreviewPath : undefined,
-    };
+    return await runWhamCandidate(input, originalCandidate);
   } catch (error) {
-    const failedReason =
+    const firstFailure =
       error instanceof Error ? error.message : "Premium WHAM motion solver failed.";
-    throw new Error(failedReason);
+    if (!isNoTrackedSubjectsError(firstFailure)) {
+      throw new Error(firstFailure);
+    }
+
+    const fallbackSpecs = [
+      { label: "rotate_90_clockwise", filter: "transpose=clock" },
+      { label: "rotate_90_counterclockwise", filter: "transpose=cclock" },
+    ];
+    const failures = [firstFailure];
+    for (const spec of fallbackSpecs) {
+      try {
+        const candidate = await buildWhamVideoCandidate(input, spec.label, spec.filter);
+        return await runWhamCandidate(input, candidate);
+      } catch (fallbackError) {
+        failures.push(
+          fallbackError instanceof Error
+            ? fallbackError.message
+            : `WHAM ${spec.label} retry failed.`,
+        );
+      }
+    }
+
+    throw new Error(failures[failures.length - 1] ?? firstFailure);
   }
 }

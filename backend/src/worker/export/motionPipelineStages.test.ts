@@ -375,6 +375,11 @@ function testDualSuccessIncludesAllReconstructionStages() {
   assert.equal(fittingStage?.finalAnimationSource, "primary_wham");
   assert.equal(fittingStage?.artifactRefs.dual_fit_report_json, "takes/take/jobs/job/dual_fit_report.json");
   assert.equal(fittingStage?.qualityGateSummary?.passed, 1);
+  assert.equal(fittingStage?.qualityGateSummary?.accepted, false);
+  assert.equal(
+    fittingStage?.qualityGateSummary?.finalAnimationSourceRecommendation,
+    "primary_wham",
+  );
   assert.equal(
     stages[0].artifactRefs.pose_frames_device_0_json,
     "takes/take/jobs/job/pose_frames_device_0.json",
@@ -475,6 +480,12 @@ function testAcceptedDualFitStageReferencesOptimizedArtifacts() {
   assert.equal(fittingStage?.status, "ready");
   assert.equal(fittingStage?.acceptedAsFinalAnimation, true);
   assert.equal(fittingStage?.finalAnimationSource, "true_dual_solve");
+  assert.equal(fittingStage?.qualityGateSummary?.accepted, true);
+  assert.deepEqual(fittingStage?.qualityGateSummary?.blockingFailures, []);
+  assert.equal(
+    fittingStage?.qualityGateSummary?.finalAnimationSourceRecommendation,
+    "true_dual_solve",
+  );
   assert.equal(
     fittingStage?.artifactRefs.optimized_solved_motion_json,
     "takes/take/jobs/job/optimized_solved_motion.json",
@@ -487,6 +498,192 @@ function testAcceptedDualFitStageReferencesOptimizedArtifacts() {
     artifactStage?.artifactRefs.optimized_bvh,
     "takes/take/jobs/job/optimized_result.bvh",
   );
+}
+
+function testRejectedDualFitStageKeepsPrimaryWham() {
+  const rejectedFitReport: DualFitReportArtifact = {
+    ...dualFitReport(),
+    status: "insufficient_quality",
+    reason: "Triangulated joint coverage is below the fitting threshold.",
+    metrics: {
+      ...dualFitReport().metrics,
+      triangulatedJointRatio: 0.2,
+      acceptedAsFinalAnimation: false,
+    },
+    qualityGates: [
+      {
+        name: "triangulated_joint_ratio",
+        passed: false,
+        value: 0.2,
+        threshold: 0.65,
+        severity: "blocking",
+        code: "triangulated_joint_ratio_low",
+        reason: "Triangulated joint coverage is below the fitting threshold.",
+      },
+    ],
+    acceptedAsFinalAnimation: false,
+    finalAnimationSourceCandidate: "primary_wham",
+    warnings: [
+      "Triangulated joint coverage is below the fitting threshold.",
+      "dual_fit_rejected_primary_wham_final",
+    ],
+  };
+  const stages = buildReconstructionDiagnosticStages({
+    source: "dual_camera",
+    branchKind: "multi_view_reconstruction",
+    reconstructionAvailable: true,
+    reconstructionStatus: "ready",
+    artifactRefs: {
+      dual_fit_report_json: "takes/take/jobs/job/dual_fit_report.json",
+      triangulated_joint_track_json:
+        "takes/take/jobs/job/triangulated_joint_track.json",
+    },
+    triangulatedJointTrack: triangulatedJointTrack(),
+    dualFitReport: rejectedFitReport,
+  });
+  const fittingStage = stages.find(
+    (stage) => stage.stageName === "dual_camera_fitting",
+  );
+
+  assert.equal(fittingStage?.status, "diagnostic_only");
+  assert.equal(fittingStage?.acceptedAsFinalAnimation, false);
+  assert.equal(fittingStage?.finalAnimationSource, "primary_wham");
+  assert.equal(fittingStage?.qualityGateSummary?.accepted, false);
+  assert.deepEqual(fittingStage?.qualityGateSummary?.blockingFailures, [
+    "triangulated_joint_ratio_low",
+  ]);
+  assert.equal(
+    fittingStage?.qualityGateSummary?.finalAnimationSourceRecommendation,
+    "primary_wham",
+  );
+}
+
+function testAcceptedDualFitWithoutOptimizedArtifactsKeepsPrimaryWham() {
+  const acceptedButMissingArtifacts: DualFitReportArtifact = {
+    ...dualFitReport(),
+    status: "ready",
+    reason: "Accepted gates but optimized artifacts are missing.",
+    metrics: {
+      ...dualFitReport().metrics,
+      acceptedAsFinalAnimation: true,
+      reliableConstraintRatio: 0.72,
+      optimizedMotionDelta: 0.03,
+    },
+    acceptedAsFinalAnimation: true,
+    finalAnimationSourceCandidate: "true_dual_solve",
+    artifactRefs: {
+      dual_fit_report_json: "takes/take/jobs/job/dual_fit_report.json",
+    },
+    warnings: ["dual_fit_accepted_true_dual_solve_candidate"],
+  };
+  const stages = buildReconstructionDiagnosticStages({
+    source: "dual_camera",
+    branchKind: "multi_view_reconstruction",
+    reconstructionAvailable: true,
+    reconstructionStatus: "ready",
+    artifactRefs: {
+      dual_fit_report_json: "takes/take/jobs/job/dual_fit_report.json",
+      triangulated_joint_track_json:
+        "takes/take/jobs/job/triangulated_joint_track.json",
+    },
+    triangulatedJointTrack: triangulatedJointTrack(),
+    dualFitReport: acceptedButMissingArtifacts,
+  });
+  const fittingStage = stages.find(
+    (stage) => stage.stageName === "dual_camera_fitting",
+  );
+
+  assert.equal(fittingStage?.status, "diagnostic_only");
+  assert.equal(fittingStage?.acceptedAsFinalAnimation, false);
+  assert.equal(fittingStage?.finalAnimationSource, "primary_wham");
+  assert.equal(fittingStage?.qualityGateSummary?.accepted, false);
+  assert.ok(
+    fittingStage?.qualityGateSummary?.blockingFailures?.includes(
+      "optimized_artifacts_missing",
+    ),
+  );
+}
+
+function testFinalExportStageRecordsTrueFinalSource() {
+  const acceptedStages = sortMotionPipelineStages([
+    buildMotionPipelineStage({
+      stageName: "primary_wham",
+      status: "completed",
+      reason: "WHAM produced the primary initialization.",
+    }),
+    buildMotionPipelineStage({
+      stageName: "dual_camera_fitting",
+      status: "ready",
+      reason: "Dual-camera fitting was accepted.",
+      dualFitStatus: "ready",
+      acceptedAsFinalAnimation: true,
+      finalAnimationSource: "true_dual_solve",
+      qualityGateSummary: {
+        passed: 1,
+        failed: 0,
+        blockingFailed: 0,
+        warningFailed: 0,
+        accepted: true,
+        blockingFailures: [],
+        warnings: [],
+        unavailableMetrics: [],
+        metrics: { acceptedAsFinalAnimation: true },
+        finalAnimationSourceRecommendation: "true_dual_solve",
+      },
+    }),
+    buildMotionPipelineStage({
+      stageName: "final_animation_export",
+      status: "completed",
+      reason: "Final BVH export was generated from the accepted optimized dual-camera solve.",
+      finalAnimationSource: "true_dual_solve",
+    }),
+  ]);
+  assert.deepEqual(
+    acceptedStages.map((stage) => stage.stageName),
+    ["primary_wham", "dual_camera_fitting", "final_animation_export"],
+  );
+  assert.equal(acceptedStages[1].acceptedAsFinalAnimation, true);
+  assert.equal(acceptedStages[2].finalAnimationSource, "true_dual_solve");
+
+  const rejectedStages = sortMotionPipelineStages([
+    buildMotionPipelineStage({
+      stageName: "primary_wham",
+      status: "completed",
+      reason: "WHAM produced the primary final motion.",
+    }),
+    buildMotionPipelineStage({
+      stageName: "dual_camera_fitting",
+      status: "diagnostic_only",
+      reason: "Dual-camera fitting was rejected.",
+      dualFitStatus: "insufficient_quality",
+      acceptedAsFinalAnimation: false,
+      finalAnimationSource: "primary_wham",
+      qualityGateSummary: {
+        passed: 0,
+        failed: 1,
+        blockingFailed: 1,
+        warningFailed: 0,
+        accepted: false,
+        blockingFailures: ["triangulated_joint_ratio_low"],
+        warnings: [],
+        unavailableMetrics: [],
+        metrics: { acceptedAsFinalAnimation: false },
+        finalAnimationSourceRecommendation: "primary_wham",
+      },
+    }),
+    buildMotionPipelineStage({
+      stageName: "final_animation_export",
+      status: "completed",
+      reason: "Final BVH export was generated from the primary WHAM motion path.",
+      finalAnimationSource: "primary_wham",
+    }),
+  ]);
+  assert.deepEqual(
+    rejectedStages.map((stage) => stage.stageName),
+    ["primary_wham", "dual_camera_fitting", "final_animation_export"],
+  );
+  assert.equal(rejectedStages[1].acceptedAsFinalAnimation, false);
+  assert.equal(rejectedStages[2].finalAnimationSource, "primary_wham");
 }
 
 function testDualDiagnosticFailureDoesNotRemovePrimaryWhamStage() {
@@ -575,6 +772,9 @@ function testMotionPipelineStageSortOrder() {
 testSelectedVideoCountAtMostOneSkipsReconstructionBranch();
 testDualSuccessIncludesAllReconstructionStages();
 testAcceptedDualFitStageReferencesOptimizedArtifacts();
+testRejectedDualFitStageKeepsPrimaryWham();
+testAcceptedDualFitWithoutOptimizedArtifactsKeepsPrimaryWham();
+testFinalExportStageRecordsTrueFinalSource();
 testDualDiagnosticFailureDoesNotRemovePrimaryWhamStage();
 testFeatureDisabledStagesAreExplicitlySkipped();
 testMotionPipelineStageSortOrder();

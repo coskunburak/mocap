@@ -1,3 +1,7 @@
+import type {
+  CaptureCameraPosition,
+  CaptureVideoOrientation,
+} from "./CaptureMetadata";
 import type { LandmarkBuffer } from "./Landmark";
 import { LANDMARK_STRIDE } from "./Landmark";
 
@@ -30,6 +34,18 @@ export type PoseFrame = Readonly<{
   sourceDevice?: string;
   /** Whether this frame contains triangulated 3D data */
   triangulated?: boolean;
+  /** Landmark x/y coordinate contract. Defaults to image_normalized for legacy frames. */
+  coordinateSpace?: "image_normalized" | "preview_normalized";
+  /** Upright image dimensions that normalized x/y coordinates refer to. */
+  imageWidth?: number;
+  imageHeight?: number;
+  /** Raw camera buffer dimensions before native orientation correction, when known. */
+  inputImageWidth?: number;
+  inputImageHeight?: number;
+  videoOrientation?: CaptureVideoOrientation;
+  cameraPosition?: CaptureCameraPosition;
+  isMirrored?: boolean;
+  orientationCorrection?: string;
 }>;
 
 function countBuffer(buf?: LandmarkBuffer) {

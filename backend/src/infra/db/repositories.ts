@@ -335,17 +335,17 @@ export class CaptureSessionRepository {
         const nextIndex = await client.query(
           `
             with slots as (
-              select generate_series(0, $3::integer - 1) as device_index
+              select generate_series(0, $2::integer - 1) as device_index
             )
             select slots.device_index
             from slots
             left join capture_devices d
-              on d.capture_session_id = $2 and d.device_index = slots.device_index
+              on d.capture_session_id = $1 and d.device_index = slots.device_index
             where d.id is null
             order by slots.device_index asc
             limit 1
           `,
-          [input.userId, input.captureSessionId, session.expected_device_count],
+          [input.captureSessionId, session.expected_device_count],
         );
         if (!nextIndex.rowCount) {
           throw conflict("No free device slot is available for this capture session", {

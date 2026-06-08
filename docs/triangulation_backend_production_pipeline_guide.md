@@ -91,16 +91,21 @@ Mevcut repo davranışı:
 - `quality_report_json` artık `QualityReport.multiView` altında additive multi-view metric'leri içerebilir.
 - Result screen, single-camera ekranını bozmadan Multi-View Diagnostics bölümünü gösterebilir.
 - Calibration, sync veya keypoint verisi eksikse sistem fake başarı üretmez; status/fallback reason açıkça raporlanır.
-- Final animation hâlâ primary WHAM'dan geliyorsa `quality_report_json` bunu `primaryCameraFallbackUsed: true` ve `finalAnimationSource: "primary_wham"` ile belirtir.
+- Final animation primary WHAM'dan geliyorsa `quality_report_json` bunu `primaryCameraFallbackUsed: true` ve `finalAnimationSource: "primary_wham"` ile belirtir.
+- Accepted optimized dual output final olursa `quality_report_json` `finalAnimationSource: "true_dual_solve"`, `reconstructionUsedForConstraints: true`, `optimizedBvhAvailable: true` ve `optimizedSolvedMotionAvailable: true` alanlarını taşır.
+- `motion_pipeline_report_json.finalAnimationSource` final BVH kaynağını açıkça belirtir.
 
 ## Prototype / Future Remaining Pieces
 
 - Live dual-camera capture ve real-device QA hâlâ fiziksel cihaz doğrulaması ister.
 - Audio/native sync production seviyesine taşınmamıştır.
 - Gerçek calibration clip, AprilTag/checkerboard veya human-pose calibration solver hâlâ sonraki fazdır.
-- Triangulated 3D constraints henüz WHAM/SMPL solve içine production constraint olarak bağlanmamıştır.
-- Direct kinematic/biomechanical fitting ve final BVH from true dual-camera solve henüz tamamlanmamıştır.
-- Mevcut dual/pro stage diagnostic altyapıdır; Move.ai seviyesinde kalite iddiası değildir.
+- Triangulated 3D constraints WHAM'in içine multi-view loss olarak bağlanmamıştır.
+- WHAM primary video initialization / motion prior olarak kalır.
+- Separate `kinematic_post_fit` optimizer triangulated joint track'i constraint/correction layer olarak kullanabilir.
+- Accepted optimized dual solve yalnızca strict gate'ler, optimized solved motion validation, optimized BVH validation ve artifact persistence başarıyla tamamlanınca final BVH olabilir.
+- Current optimizer full SMPL-space değildir ve optimized SMPL parameters üretmez.
+- Mevcut dual/pro stage Move.ai seviyesinde kalite iddiası değildir; real-device QA tamamlanmadan production quality improvement iddia edilmemelidir.
 
 ## Why Backend Multi-Video Reconstruction Is Not Complete Yet
 
@@ -126,8 +131,12 @@ normalized videos
   -> camera calibration/projection matrix generation
   -> DLT triangulation
   -> reconstruction artifacts
-  -> quality_report multi-view metrics
-  -> explicit downstream WHAM/SMPL/export behavior
+  -> triangulated joint track
+  -> WHAM primary-video initialization
+  -> separate kinematic post-fit optimizer
+  -> strict acceptance gates
+  -> optimized final BVH only if accepted
+  -> primary WHAM fallback otherwise
 ```
 
 ## Existing Single-Camera WHAM Pipeline Points To Preserve
@@ -199,9 +208,10 @@ QA:
 
 ## Single-Camera Protection Guards
 
-- Add `ENABLE_MULTI_VIEW_RECONSTRUCTION=false` default unless explicitly enabled.
+- Keep single-camera protected, but set `ENABLE_MULTI_VIEW_RECONSTRUCTION=true` explicitly in the worker runtime when production dual/pro reconstruction QA is being run.
 - If `take.captureMode === "solo"`, run the current WHAM path unchanged.
-- If feature flag is disabled, dual/pro may continue existing primary WHAM fallback, but must say so honestly in reports.
+- If feature flag is disabled, dual/pro must continue primary WHAM fallback and report `multi_view_reconstruction_disabled`.
+- If feature flag is enabled, reports must show the reconstruction branch was entered, even when pose extraction/sync/calibration/triangulation later fails safely.
 - Do not add new mandatory fields to existing single-camera API requests.
 - Keep `QualityReport.schema` as `mocap.quality_report.v1`.
 - Add multi-view metrics as optional/additive fields.
@@ -665,7 +675,8 @@ Riskler:
 3. Add feature flags.
    - `ENABLE_MULTI_VIEW_RECONSTRUCTION`
    - `ALLOW_PRIMARY_WHAM_FALLBACK`
-   - Default should protect the current WHAM path.
+   - Local backend and RunPod worker env must match for production dual QA.
+   - `ALLOW_PRIMARY_WHAM_FALLBACK=true` should remain enabled during QA.
 
 4. Add backend triangulation module with synthetic unit tests.
    - `backend/src/worker/reconstruction/triangulation.ts`
@@ -755,8 +766,9 @@ Valid `pipelineMode` values:
 Default behavior:
 
 - `solo` uses current WHAM path.
-- `dual` or `pro_4_camera` uses reconstruction only when enabled by flag or explicit request.
+- `dual` or `pro_4_camera` uses reconstruction only when enabled in the actual worker runtime.
 - If disabled, behavior remains current primary-WHAM fallback, but reports must state this.
+- If enabled but adapter/calibration/triangulation is not ready, reports must state the concrete failure reason and keep final BVH on primary WHAM unless gates pass.
 
 ### Camera/Video/Metadata Relation
 

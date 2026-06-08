@@ -11,6 +11,9 @@ Feature flags:
 
 - ENABLE_MULTI_VIEW_RECONSTRUCTION:
 - ALLOW_PRIMARY_WHAM_FALLBACK:
+- Worker runtime:
+- Preflight passed:
+- Preflight multi-view flag:
 
 ## Device Matrix
 
@@ -55,16 +58,30 @@ Feature flags:
 ### Run 3 — Dual Camera
 
 - Devices:
+- Take ID:
+- Job ID:
 - expectedVideoCount:
+- selectedVideoCount:
 - branch:
+- reconstructionBranchEntered:
+- poseExtractionStatus:
+- syncStatus:
+- calibrationStatus:
+- triangulationStatus:
+- fittingStatus:
 - reconstructionAvailable:
+- reconstructionUsedForConstraints:
+- finalAnimationSource:
 - primaryWhamFallbackUsed:
 - primaryWhamFallbackReason:
 - matchedFrameCount:
 - averageTimeDeltaMs:
 - reprojectionErrorPx:
+- reprojectionErrorP95:
 - triangulatedLandmarkRatio:
+- reliableConstraintRatio:
 - calibrationQualityScore:
+- gateFailures:
 - Artifacts:
 - Result screen diagnostics:
 - Pass/Fail:
@@ -75,12 +92,17 @@ Feature flags:
 - Devices:
 - expectedVideoCount:
 - branch:
+- reconstructionBranchEntered:
 - timestamp units consistent:
 - orientation consistent:
 - fps/resolution metadata present:
 - captureSessionId consistency:
 - clock offset present or fallback documented:
 - reconstructionAvailable:
+- finalAnimationSource:
+- primaryWhamFallbackUsed:
+- primaryWhamFallbackReason:
+- gateFailures:
 - Artifacts:
 - Result screen diagnostics:
 - Pass/Fail:
@@ -92,7 +114,11 @@ Feature flags:
 - expectedVideoCount:
 - unique roles:
 - branch:
+- reconstructionBranchEntered:
 - reconstructionAvailable:
+- finalAnimationSource:
+- primaryWhamFallbackUsed:
+- primaryWhamFallbackReason:
 - artifactName collision:
 - Artifacts:
 - Result screen diagnostics:
