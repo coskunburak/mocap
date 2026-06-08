@@ -2,30 +2,33 @@
  * useMultiViewCapture – Hook for the Host side of dual-camera capture.
  *
  * Coordinates:
- *   - PeerHost (TCP server for guest connection)
+ *   - Backend WebSocket relay for guest connection
  *   - FrameMatcher (timestamp-based frame pairing)
  *   - Triangulator (DLT 3D reconstruction)
  *   - TimeSync (clock offset management)
  *   - MultiViewStore (UI state)
  */
 
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect } from "react";
 import { Platform } from "react-native";
-import { PeerHost, type PeerHostEvent } from "../../../infra/networking/PeerHost";
-import { PeerGuest, type PeerGuestEvent } from "../../../infra/networking/PeerGuest";
+import type { PeerHostEvent } from "../../../infra/networking/PeerHost";
+import type { PeerGuestEvent } from "../../../infra/networking/PeerGuest";
+import { WebSocketPeerHost } from "../../../infra/networking/WebSocketPeerHost";
+import { WebSocketPeerGuest } from "../../../infra/networking/WebSocketPeerGuest";
 import {
   type DeviceInfo,
-  DEFAULT_PORT,
   base64ToFloat32,
-  float32ToBase64,
 } from "../../../infra/networking/PeerProtocol";
-import { FrameMatcher, type MatchedFramePair } from "../../../domain/mocap/pipeline/triangulation/FrameMatcher";
+import { captureSessionWebSocketUrl } from "../../../infra/networking/WebSocketRelay";
+import { FrameMatcher } from "../../../domain/mocap/pipeline/triangulation/FrameMatcher";
 import {
   triangulateLandmarks,
   type ProjectionMatrix,
 } from "../../../domain/mocap/pipeline/triangulation/Triangulator";
 import type { PoseFrame } from "../../../domain/mocap/models/PoseFrame";
-import type { MultiViewPoseFrame, StereoCalibrationResult } from "../../../domain/mocap/models/MultiViewPoseFrame";
+import type { MultiViewPoseFrame } from "../../../domain/mocap/models/MultiViewPoseFrame";
+import { env } from "../../../app/config/env";
+import { container } from "../../../app/di/container";
 import { useMultiViewStore } from "../state/multiViewStore";
 
 // ─── Types ──────────────────────────────────────────────────────────
@@ -57,8 +60,8 @@ function makeDeviceInfo(role: "host" | "guest"): DeviceInfo {
 
 // ─── Globals (Singleton) ────────────────────────────────────────────
 
-let globalHost: PeerHost | null = null;
-let globalGuest: PeerGuest | null = null;
+let globalHost: WebSocketPeerHost | null = null;
+let globalGuest: WebSocketPeerGuest | null = null;
 let globalMatcher: FrameMatcher | null = null;
 let globalHostCleanup: (() => void) | null = null;
 let globalGuestCleanup: (() => void) | null = null;
@@ -69,6 +72,12 @@ let globalCallbacks: MultiViewCaptureCallbacks | null = null;
 
 export function setMultiViewCallbacks(callbacks: MultiViewCaptureCallbacks) {
   globalCallbacks = callbacks;
+}
+
+async function ensureProjectId() {
+  if (env.defaultProjectId) return env.defaultProjectId;
+  const project = await container.apiClient.createProject("Dual Captures");
+  return project.id;
 }
 
 // ─── Hook ───────────────────────────────────────────────────────────
@@ -84,7 +93,7 @@ export function useMultiViewCapture(callbacks?: MultiViewCaptureCallbacks) {
 
   // ─── Host mode ──────────────────────────────────────────────────
 
-  const startHost = useCallback(async (port = DEFAULT_PORT) => {
+  const startHost = useCallback(async () => {
     if (globalHost) return;
 
     const deviceInfo = makeDeviceInfo("host");
@@ -93,7 +102,43 @@ export function useMultiViewCapture(callbacks?: MultiViewCaptureCallbacks) {
     store.setPeerRole("host");
     store.setConnectionState("connecting");
 
-    const host = new PeerHost(deviceInfo);
+    const projectId = await ensureProjectId();
+    const result = await container.mocapSessionService.createCaptureSession(projectId, {
+      name: `Dual Capture ${new Date().toLocaleTimeString()}`,
+      captureMode: "dual",
+      expectedDeviceCount: 2,
+      hostDevice: {
+        deviceId: deviceInfo.deviceId,
+        deviceRole: "host",
+        platform: Platform.OS,
+        appVersion: deviceInfo.appVersion,
+      },
+      syncMetadata: {
+        transport: "websocket_relay",
+        protocolVersion: 1,
+      },
+    });
+
+    store.setBackendCaptureSession({
+      captureMode: "dual-camera",
+      projectId,
+      takeId: result.captureSession.takeId,
+      captureSessionId: result.captureSession.id,
+      joinToken: result.captureSession.joinToken,
+      deviceRole: "host",
+      deviceId: deviceInfo.deviceId,
+      deviceIndex: 0,
+    });
+
+    const host = new WebSocketPeerHost(
+      deviceInfo,
+      captureSessionWebSocketUrl({
+        captureSessionId: result.captureSession.id,
+        role: "host",
+        deviceId: deviceInfo.deviceId,
+      }),
+      result.captureSession.id,
+    );
     globalHost = host;
 
     const matcher = new FrameMatcher({ toleranceMs: 20, maxBufferSize: 30 });
@@ -172,8 +217,7 @@ export function useMultiViewCapture(callbacks?: MultiViewCaptureCallbacks) {
     globalHostCleanup = cleanup;
 
     try {
-      const result = await host.start(port);
-      store.setHostAddress(result.ip, result.port);
+      await host.start();
     } catch (err: any) {
       globalHostCleanup?.();
       globalHostCleanup = null;
@@ -187,7 +231,7 @@ export function useMultiViewCapture(callbacks?: MultiViewCaptureCallbacks) {
       globalMatcher = null;
       store.setConnectionState("error", err?.message);
     }
-  }, [callbacks, store]);
+  }, [store]);
 
   const stopHost = useCallback(async () => {
     globalHostCleanup?.();
@@ -204,17 +248,42 @@ export function useMultiViewCapture(callbacks?: MultiViewCaptureCallbacks) {
 
   // ─── Guest mode ─────────────────────────────────────────────────
 
-  const startGuest = useCallback(async (hostIp: string, hostPort = DEFAULT_PORT) => {
+  const startGuest = useCallback(async (joinToken: string) => {
     if (globalGuest) return;
 
     const deviceInfo = makeDeviceInfo("guest");
     store.setLocalDevice(deviceInfo);
     store.setCaptureMode("dual-camera");
     store.setPeerRole("guest");
-    store.setHostAddress(hostIp, hostPort);
     store.setConnectionState("connecting");
 
-    const guest = new PeerGuest(deviceInfo);
+    const result = await container.mocapSessionService.joinCaptureSession({
+      joinToken: joinToken.trim().toUpperCase(),
+      deviceId: deviceInfo.deviceId,
+      deviceRole: "guest",
+      platform: Platform.OS,
+      appVersion: deviceInfo.appVersion,
+    });
+
+    store.setBackendCaptureSession({
+      captureMode: "dual-camera",
+      projectId: result.captureSession.projectId,
+      takeId: result.captureSession.takeId,
+      captureSessionId: result.captureSession.id,
+      joinToken: result.captureSession.joinToken,
+      deviceRole: "guest",
+      deviceId: deviceInfo.deviceId,
+      deviceIndex: result.device.deviceIndex,
+    });
+
+    const guest = new WebSocketPeerGuest(
+      deviceInfo,
+      captureSessionWebSocketUrl({
+        captureSessionId: result.captureSession.id,
+        role: "guest",
+        deviceId: deviceInfo.deviceId,
+      }),
+    );
     globalGuest = guest;
 
     const cleanup = guest.addListener((event: PeerGuestEvent) => {
@@ -262,7 +331,7 @@ export function useMultiViewCapture(callbacks?: MultiViewCaptureCallbacks) {
     globalGuestCleanup = cleanup;
 
     try {
-      await guest.connect(hostIp, hostPort);
+      await guest.connect();
     } catch (err: any) {
       globalGuestCleanup?.();
       globalGuestCleanup = null;

@@ -1,5 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import { userIdFromRequest } from "./auth";
+import { CaptureSessionRelayService } from "../services/captureSessionRelayService";
 import { ExportService } from "../services/exportService";
 import { CaptureSessionService } from "../services/captureSessionService";
 import { ProcessingService } from "../services/processingService";
@@ -20,6 +21,7 @@ export async function registerRoutes(app: FastifyInstance) {
   const uploads = new UploadService();
   const processing = new ProcessingService();
   const exports = new ExportService();
+  const relay = new CaptureSessionRelayService();
 
   app.get("/health", async () => ({ ok: true }));
 
@@ -66,6 +68,17 @@ export async function registerRoutes(app: FastifyInstance) {
         userIdFromRequest(request),
         request.params.captureSessionId,
       );
+    },
+  );
+
+  app.get<{
+    Params: CaptureSessionParams;
+    Querystring: { role?: string; deviceId?: string; token?: string };
+  }>(
+    "/api/capture-sessions/:captureSessionId/ws",
+    { websocket: true },
+    (socket, request) => {
+      relay.handleSocket(socket, request);
     },
   );
 

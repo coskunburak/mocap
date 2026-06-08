@@ -4,6 +4,7 @@
  * Sends 2D landmark frames, responds to time-sync and commands.
  */
 
+import { Buffer } from "buffer";
 import TcpSocket from "react-native-tcp-socket";
 import type TcpSocketType from "react-native-tcp-socket/lib/types/Socket";
 import {

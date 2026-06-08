@@ -22,7 +22,6 @@ import { routes } from "../../../app/navigation/routes";
 import { Button } from "../../../ui/components/Button";
 import { Screen } from "../../../ui/components/Screen";
 import { colors, radii, spacing, typography } from "../../../ui/theme";
-import { DEFAULT_PORT } from "../../../infra/networking/PeerProtocol";
 import { useMultiViewCapture } from "../hooks/useMultiViewCapture";
 import { useMultiViewStore } from "../state/multiViewStore";
 import type { ProCameraRole } from "../state/multiViewStore";
@@ -176,8 +175,6 @@ export default function MultiViewSetupScreen() {
   const [selectedRole, setSelectedRole] = useState<"host" | "guest">("host");
   const [selectedProRole, setSelectedProRole] = useState<ProCameraRole>("front");
   const [joinToken, setJoinToken] = useState("");
-  const [hostIp, setHostIp] = useState("");
-  const [hostPort, setHostPort] = useState(String(DEFAULT_PORT));
   const [connecting, setConnecting] = useState(false);
   const [sessionBusy, setSessionBusy] = useState(false);
   const [sessionError, setSessionError] = useState<string | null>(null);
@@ -205,20 +202,20 @@ export default function MultiViewSetupScreen() {
     setConnecting(true);
     try {
       if (selectedRole === "host") {
-        await startHost(parseInt(hostPort, 10) || DEFAULT_PORT);
+        await startHost();
       } else {
-        if (!hostIp.trim()) {
-          Alert.alert("IP Required", "Enter the Host phone's IP address.");
+        if (!joinToken.trim()) {
+          Alert.alert("Join token required", "Enter the Host session token.");
           return;
         }
-        await startGuest(hostIp.trim(), parseInt(hostPort, 10) || DEFAULT_PORT);
+        await startGuest(joinToken.trim());
       }
     } catch (err: any) {
       Alert.alert("Connection Error", err?.message ?? "Failed to connect");
     } finally {
       setConnecting(false);
     }
-  }, [selectedRole, hostIp, hostPort, startHost, startGuest]);
+  }, [selectedRole, joinToken, startHost, startGuest]);
 
   const handleDisconnect = useCallback(async () => {
     const activeRole =
@@ -466,35 +463,28 @@ export default function MultiViewSetupScreen() {
 
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>
-              {selectedRole === "host" ? "Host endpoint" : "Guest endpoint"}
+              {selectedRole === "host" ? "Host session" : "Guest join"}
             </Text>
             <View style={styles.setupCard}>
               {selectedRole === "guest" && (
                 <View style={styles.inputGroup}>
-                  <Text style={styles.inputLabel}>Host IP Address</Text>
+                  <Text style={styles.inputLabel}>Join token</Text>
                   <TextInput
                     style={styles.input}
-                    placeholder="192.168.1.xxx"
+                    placeholder="ABCD1234"
                     placeholderTextColor={colors.textMuted}
-                    value={hostIp}
-                    onChangeText={setHostIp}
-                    keyboardType="numeric"
-                    autoCapitalize="none"
+                    value={joinToken}
+                    onChangeText={setJoinToken}
+                    autoCapitalize="characters"
                     autoCorrect={false}
                   />
                 </View>
               )}
-              <View style={styles.inputGroup}>
-                <Text style={styles.inputLabel}>Port</Text>
-                <TextInput
-                  style={styles.input}
-                  placeholder={String(DEFAULT_PORT)}
-                  placeholderTextColor={colors.textMuted}
-                  value={hostPort}
-                  onChangeText={setHostPort}
-                  keyboardType="numeric"
-                />
-              </View>
+              {selectedRole === "host" ? (
+                <Text style={styles.meta}>
+                  A backend session will be created and the Guest will join with a token.
+                </Text>
+              ) : null}
             </View>
           </View>
 
@@ -509,13 +499,11 @@ export default function MultiViewSetupScreen() {
           <Text style={styles.sectionTitle}>Live session</Text>
           <ConnectionBadge />
 
-          {state.peerRole === "host" && state.hostIp ? (
+          {state.peerRole === "host" && state.backendJoinToken ? (
             <View style={styles.hostAddressCard}>
-              <Text style={styles.ipLabel}>Host address</Text>
-              <Text style={styles.ipValue}>
-                {state.hostIp}:{state.hostPort ?? DEFAULT_PORT}
-              </Text>
-              <Text style={styles.ipHint}>Use this address on the Guest phone.</Text>
+              <Text style={styles.ipLabel}>Join token</Text>
+              <Text style={styles.ipValue}>{state.backendJoinToken}</Text>
+              <Text style={styles.ipHint}>Use this token on the Guest phone.</Text>
             </View>
           ) : null}
 

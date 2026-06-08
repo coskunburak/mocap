@@ -26,6 +26,7 @@ function readBoolean(name: string, fallback: boolean) {
 
 export const env = {
   apiBaseUrl: readString("EXPO_PUBLIC_MOCAP_API_BASE_URL", "http://127.0.0.1:4010"),
+  websocketBaseUrl: readString("EXPO_PUBLIC_MOCAP_WS_BASE_URL", ""),
   devToken: readString("EXPO_PUBLIC_MOCAP_DEV_TOKEN", "dev-user-id"),
   defaultProjectId: readProcessEnv("EXPO_PUBLIC_MOCAP_DEFAULT_PROJECT_ID"),
   apiTimeoutMs: readNumber("EXPO_PUBLIC_MOCAP_API_TIMEOUT_MS", 20_000),

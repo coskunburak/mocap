@@ -507,7 +507,15 @@ object PoseCameraSession {
         }
 
         try {
-          completion(readVideoResult(file, options, snapshot.startedAtMs), null)
+          completion(
+            readVideoResult(
+              file,
+              options,
+              snapshot.startedAtMs,
+              snapshot.startedAtMonotonicMs,
+            ),
+            null,
+          )
         } catch (error: Throwable) {
           completion(null, error)
         }
@@ -581,6 +589,7 @@ object PoseCameraSession {
     file: File,
     options: RecordingOptions,
     startedAtMs: Long,
+    startedAtMonotonicMs: Long,
   ): RecordingResult {
     val endedAtMs = System.currentTimeMillis()
     val retriever = MediaMetadataRetriever()

@@ -1,4 +1,5 @@
 import cors from "@fastify/cors";
+import websocket from "@fastify/websocket";
 import fastify from "fastify";
 import { ApiError } from "./domain/errors";
 import { registerRoutes } from "./http/routes";
@@ -12,6 +13,12 @@ export async function buildServer() {
   await app.register(cors, {
     origin: true,
     credentials: true,
+  });
+
+  await app.register(websocket, {
+    options: {
+      maxPayload: 512 * 1024,
+    },
   });
 
   app.setErrorHandler((error, request, reply) => {
@@ -41,4 +48,3 @@ export async function buildServer() {
   await registerRoutes(app);
   return app;
 }
-
