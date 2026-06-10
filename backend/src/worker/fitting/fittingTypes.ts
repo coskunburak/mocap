@@ -42,6 +42,7 @@ export type DualFitOptions = {
   requireOptimizedBvhValidation?: boolean;
   requireOptimizedArtifactsForAcceptance?: boolean;
   acceptOptimizedOutput?: boolean;
+  acceptApproximateCalibration?: boolean;
 };
 
 export type NormalizedDualFitOptions = Required<DualFitOptions>;
@@ -123,5 +124,6 @@ export function normalizeDualFitOptions(
     requireOptimizedArtifactsForAcceptance:
       options?.requireOptimizedArtifactsForAcceptance ?? false,
     acceptOptimizedOutput: options?.acceptOptimizedOutput ?? false,
+    acceptApproximateCalibration: options?.acceptApproximateCalibration ?? false,
   };
 }

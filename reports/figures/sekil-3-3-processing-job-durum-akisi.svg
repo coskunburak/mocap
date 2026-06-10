@@ -1,0 +1,74 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="440" viewBox="0 0 1400 440" role="img" aria-labelledby="sekil-3-3-title sekil-3-3-desc">
+  <title id="sekil-3-3-title">Processing Job Durum Akışı</title>
+  <desc id="sekil-3-3-desc">Job terminal state&#x27;e ulaştığında kullanıcı başarı, hata veya iptal sonucunu takip eder.</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 12 12" refX="10" refY="6" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M 0 0 L 12 6 L 0 12 z" fill="#334E68"/>
+    </marker>
+    <style>
+      .title { font-family: Arial, "Helvetica Neue", sans-serif; font-size: 31px; font-weight: 700; fill: #1F2937; }
+      .label { font-family: Arial, "Helvetica Neue", sans-serif; font-size: 20px; font-weight: 700; fill: #1F2937; }
+      .cardTitle { font-family: Arial, "Helvetica Neue", sans-serif; font-size: 19px; font-weight: 700; fill: #1F2937; }
+      .cardSub { font-family: Arial, "Helvetica Neue", sans-serif; font-size: 16px; font-weight: 500; fill: #526375; }
+      .badge { font-family: Arial, "Helvetica Neue", sans-serif; font-size: 16px; font-weight: 700; fill: #FFFFFF; }
+      .miniLabel { font-family: Arial, "Helvetica Neue", sans-serif; font-size: 15px; font-weight: 700; fill: #1F2937; }
+      .small { font-family: Arial, "Helvetica Neue", sans-serif; font-size: 14px; font-weight: 600; fill: #526375; }
+      .chip { font-family: Arial, "Helvetica Neue", sans-serif; font-size: 14px; font-weight: 700; fill: #1F2937; }
+      .note { font-family: Arial, "Helvetica Neue", sans-serif; font-size: 17px; font-weight: 500; fill: #526375; }
+      .lane { font-family: Arial, "Helvetica Neue", sans-serif; font-size: 16px; font-weight: 700; fill: #FFFFFF; }
+    </style>
+  </defs>
+  <rect x="0" y="0" width="1400" height="440" fill="#FFFFFF"/>
+  <text x="700.0" y="56" text-anchor="middle" class="title">Processing Job Durum Akışı</text>
+<rect x="42" y="126" width="142" height="92" rx="8" fill="#EAF2F8" stroke="#2E5D7D" stroke-width="2"/>
+<circle cx="73" cy="157" r="18" fill="#24475F"/>
+<text x="73" y="163" text-anchor="middle" class="badge">1</text>
+<text text-anchor="middle" class="cardTitle"><tspan x="113.0" y="167.4">Queued</tspan></text>
+<text text-anchor="middle" class="cardSub"><tspan x="113.0" y="192.24">sırada</tspan></text>
+<line x1="192" y1="172" x2="208" y2="172" stroke="#334E68" stroke-width="3.2" stroke-linecap="round" marker-end="url(#arrow)"/>
+<rect x="216" y="126" width="142" height="92" rx="8" fill="#FFF7E8" stroke="#D18A1E" stroke-width="2"/>
+<circle cx="247" cy="157" r="18" fill="#9A6514"/>
+<text x="247" y="163" text-anchor="middle" class="badge">2</text>
+<text text-anchor="middle" class="cardTitle"><tspan x="287.0" y="167.4">Ingesting</tspan></text>
+<text text-anchor="middle" class="cardSub"><tspan x="287.0" y="192.24">kaynak alınır</tspan></text>
+<line x1="366" y1="172" x2="382" y2="172" stroke="#334E68" stroke-width="3.2" stroke-linecap="round" marker-end="url(#arrow)"/>
+<rect x="390" y="126" width="142" height="92" rx="8" fill="#EAF7F0" stroke="#2C8B5F" stroke-width="2"/>
+<circle cx="421" cy="157" r="18" fill="#1F6746"/>
+<text x="421" y="163" text-anchor="middle" class="badge">3</text>
+<text text-anchor="middle" class="cardTitle"><tspan x="461.0" y="155.9">Extracting</tspan><tspan x="461.0" y="178.9">Frames</tspan></text>
+<text text-anchor="middle" class="cardSub"><tspan x="461.0" y="192.24">normalize</tspan></text>
+<line x1="540" y1="172" x2="556" y2="172" stroke="#334E68" stroke-width="3.2" stroke-linecap="round" marker-end="url(#arrow)"/>
+<rect x="564" y="126" width="142" height="92" rx="8" fill="#EEF0FF" stroke="#5056D6" stroke-width="2"/>
+<circle cx="595" cy="157" r="18" fill="#383DA8"/>
+<text x="595" y="163" text-anchor="middle" class="badge">4</text>
+<text text-anchor="middle" class="cardTitle"><tspan x="635.0" y="155.9">Solving</tspan><tspan x="635.0" y="178.9">Motion</tspan></text>
+<text text-anchor="middle" class="cardSub"><tspan x="635.0" y="192.24">WHAM / SMPL</tspan></text>
+<line x1="714" y1="172" x2="730" y2="172" stroke="#334E68" stroke-width="3.2" stroke-linecap="round" marker-end="url(#arrow)"/>
+<rect x="738" y="126" width="142" height="92" rx="8" fill="#FDECEC" stroke="#D33C3C" stroke-width="2"/>
+<circle cx="769" cy="157" r="18" fill="#9F2D2D"/>
+<text x="769" y="163" text-anchor="middle" class="badge">5</text>
+<text text-anchor="middle" class="cardTitle"><tspan x="809.0" y="167.4">Cleaning</tspan></text>
+<text text-anchor="middle" class="cardSub"><tspan x="809.0" y="192.24">temizleme</tspan></text>
+<line x1="888" y1="172" x2="904" y2="172" stroke="#334E68" stroke-width="3.2" stroke-linecap="round" marker-end="url(#arrow)"/>
+<rect x="912" y="126" width="142" height="92" rx="8" fill="#F5F7FA" stroke="#526173" stroke-width="2"/>
+<circle cx="943" cy="157" r="18" fill="#3B4654"/>
+<text x="943" y="163" text-anchor="middle" class="badge">6</text>
+<text text-anchor="middle" class="cardTitle"><tspan x="983.0" y="167.4">Exporting</tspan></text>
+<text text-anchor="middle" class="cardSub"><tspan x="983.0" y="192.24">BVH + rapor</tspan></text>
+<line x1="1062" y1="172" x2="1078" y2="172" stroke="#334E68" stroke-width="3.2" stroke-linecap="round" marker-end="url(#arrow)"/>
+<rect x="1086" y="126" width="142" height="92" rx="8" fill="#E8F7F8" stroke="#1B7F8C" stroke-width="2"/>
+<circle cx="1117" cy="157" r="18" fill="#155D66"/>
+<text x="1117" y="163" text-anchor="middle" class="badge">7</text>
+<text text-anchor="middle" class="cardTitle"><tspan x="1157.0" y="167.4">Succeeded</tspan></text>
+<text text-anchor="middle" class="cardSub"><tspan x="1157.0" y="192.24">tamamlandı</tspan></text>
+<rect x="1060" y="300" width="190" height="78" rx="8" fill="#EAF7F0" stroke="#2C8B5F" stroke-width="2"/>
+<text text-anchor="middle" class="cardTitle"><tspan x="1155.0" y="323.6">ExportResult</tspan><tspan x="1155.0" y="346.6">Screen</tspan></text>
+<text text-anchor="middle" class="cardSub"><tspan x="1155.0" y="356.15999999999997">mobil sonuç</tspan></text>
+<line x1="1157" y1="220" x2="1157" y2="292" stroke="#334E68" stroke-width="4" stroke-linecap="round" marker-end="url(#arrow)"/>
+<rect x="545" y="300" width="280" height="78" rx="8" fill="#FDECEC" stroke="#D33C3C" stroke-width="2"/>
+<text text-anchor="middle" class="cardTitle"><tspan x="685.0" y="335.1">Failed / Canceled</tspan></text>
+<text text-anchor="middle" class="cardSub"><tspan x="685.0" y="356.15999999999997">hata veya iptal</tspan></text>
+<path d="M 640 224 C 635 260 650 282 685 294" fill="none" stroke="#334E68" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="8 8" marker-end="url(#arrow)"/>
+<path d="M 985 224 C 960 270 860 295 825 330" fill="none" stroke="#334E68" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="8 8" marker-end="url(#arrow)"/>
+<text text-anchor="middle" class="note"><tspan x="700.0" y="402.0">Job terminal state&#x27;e ulaştığında kullanıcı başarı, hata veya iptal sonucunu takip eder.</tspan></text>
+</svg>

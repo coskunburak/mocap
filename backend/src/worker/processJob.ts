@@ -1441,6 +1441,12 @@ export class WorkerJobProcessor {
             artifactRefs: artifactRefsFromPersistedMultiViewArtifacts(
               persistedMultiViewArtifacts,
             ),
+            options: {
+              acceptOptimizedOutput: true,
+              requireOptimizedBvhValidation: true,
+              requireOptimizedArtifactsForAcceptance: true,
+              acceptApproximateCalibration: true,
+            },
           });
           let dualFitReport = fittingResult.report;
           const optimizedArtifactRefs: Record<string, string> = {};

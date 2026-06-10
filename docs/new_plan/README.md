@@ -1,5 +1,9 @@
 # New Plan Dokuman Haritasi
 
+> [!IMPORTANT]
+> **TAMAMLANDI:** Bu klasördeki dökümanlar, projenin eski sprint planlarını ve mimari dönüşüm kararlarını içeren **tarihi referans (historical reference) belgeleridir.** 
+> Proje, burada hedeflenen **True Dual Solve** (Çoklu kamera birleştirme ve kinematik optimizasyon) dâhil tüm ana üretim (production) mimarisine başarıyla kavuşmuştur.
+
 Bu klasor, backend-core production MoCap donusum planinin calisma dokumanlarini icerir.
 
 Ana plan aynen korunur:

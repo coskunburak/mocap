@@ -239,15 +239,17 @@ function calibrationReadinessGate(
     };
   }
   if (status === "approximate" || status === "diagnostic_only") {
+    const isBlocking = options.acceptOptimizedOutput && !options.acceptApproximateCalibration;
     return {
       name: "calibration_readiness",
       passed: false,
       value: status,
       threshold: "ready",
-      severity: options.acceptOptimizedOutput ? "blocking" : "warning",
+      severity: isBlocking ? "blocking" : "warning",
       code: "calibration_not_ready",
-      reason:
-        "Calibration is not production-grade; true dual solve acceptance is blocked.",
+      reason: isBlocking
+        ? "Calibration is not production-grade; true dual solve acceptance is blocked."
+        : "Calibration is approximate, but dual solve acceptance is permitted by configuration.",
     };
   }
   return {

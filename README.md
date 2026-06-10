@@ -8,9 +8,8 @@ Bu repo private tutulur. Kod repo'da, gerçek environment değerleri ve lisansl�
 
 - Single-camera akışı production için korunması gereken ana WHAM yoludur.
 - Final animasyon/BVH şu anda primary camera WHAM solve'dan gelir.
-- Dual/pro multi-view pipeline video gruplama, sync, calibration, triangulation, artifact persistence, result diagnostics ve QA için hazırdır.
-- Multi-view reconstruction şu anda WHAM constraint olarak kullanılmaz.
-- Dual/pro şu anda final motion kalitesini tek kameraya göre otomatik iyileştirmez; daha çok diagnostic ve gelecek solve entegrasyonu için altyapı sağlar.
+- Dual/pro multi-view pipeline; video gruplama, sync, calibration, triangulation, kinematic optimization ve artifact persistence için tam aktiftir.
+- Dual/pro hattı final motion kalitesini tek kameraya göre otomatik iyileştirir ve kinematic fitting (dualCameraOptimizer) aracılığıyla "True Dual Solve" üretir.
 - Real WHAM çalışması için WHAM repo, checkpoint ve lisanslı SMPL asset'leri gerekir. Bunlar repo'ya commit edilmez.
 
 ## Mimari
@@ -41,22 +40,23 @@ Result screen
 
 ## Dual Camera Reconstruction Durumu
 
-Bu bölüm mevcut repo davranışını anlatır; hedeflenen gelecek mimariyle karıştırılmamalıdır.
+Bu bölüm mevcut repo davranışını anlatır.
 
 1. Tek kamera WHAM yapısı korunmuştur. `selectedVideoCount <= 1` ve solo capture akışı single-camera WHAM yolunda kalır.
-2. Final animasyon/BVH için güvenli production yol hâlâ primary camera WHAM solve'dur.
-3. Dual camera tarafında backend reconstruction ve ayrı kinematic post-fit stage eklenmiştir. Bu stage WHAM içine multi-view loss eklemez; WHAM primary video initialization olarak kalır.
-4. Dual camera diagnostic hattı:
-   - per-camera 2D pose extraction
+2. Dual/pro capture akışında, backend reconstruction ve ayrı kinematic post-fit stage tam aktiftir. RTMPose kullanılarak 2D noktalar elde edilir, bunlar DLT ile 3D triangulate edilir.
+3. Node.js backend üzerindeki `dualCameraOptimizer.ts`, WHAM'ın primary video initialization sonucunu alır ve bu triangulate edilmiş 3D hedeflere göre kinematically fit ederek "True Dual Solve" (optimize edilmiş motion ve BVH) oluşturur.
+4. Dual camera pipeline hattı:
+   - per-camera 2D pose extraction (RTMPose)
    - frame sync
-   - camera calibration
+   - camera calibration (approximate/FOV fallback destekli)
    - DLT triangulation
+   - kinematic optimization (Dual Fit)
    - `dual_reconstruction.json`
    - `multi_view_reconstruction.json`
    - `quality_report.multiView` metric'leri
    - `motion_pipeline_report_json` reconstruction stage kayıtları
-5. Calibration, sync veya keypoint verisi eksikse sistem fake başarı üretmez. Artifact ve report'larda `missing_calibration`, `missing_sync`, `missing_pose_frames`, `diagnostic_only` veya ilgili fallback reason açıkça görünmelidir.
-6. Final animation primary WHAM'dan geliyorsa `quality_report_json` bunu `primaryCameraFallbackUsed: true` ve `finalAnimationSource: "primary_wham"` ile belirtir. Accepted optimized output final olursa yalnızca valid optimized solved motion, valid optimized BVH, başarılı artifact persistence ve blocking gate olmaması durumunda `finalAnimationSource: "true_dual_solve"` raporlanır.
+5. Calibration, sync veya keypoint verisi eksikse sistem fake başarı üretmez. Artifact ve report'larda fallback reason açıkça görünür. Telefon kameralarındaki standart FOV fallback senaryosu artık desteklenmektedir (`acceptApproximateCalibration: true`).
+6. Final animation başarıyla optimize edilirse, `finalAnimationSource: "true_dual_solve"` olarak raporlanır ve optimize edilmiş sonuçlar kullanılır. Sadece optimizasyon kalite kapılarını (gates) geçemezse `primary_wham`'a fallback yapılır.
 7. Yeni dual/multi-view artifact'leri:
    - `pose_frames_device_0.json`
    - `pose_frames_device_1.json`
@@ -80,13 +80,6 @@ Bu bölüm mevcut repo davranışını anlatır; hedeflenen gelecek mimariyle ka
    - `intrinsicsFallbackUsed`
    - `primaryCameraFallbackUsed`
    - `finalAnimationSource`
-9. Sonraki faz:
-   - audio/native sync
-   - gerçek calibration clip
-   - AprilTag/checkerboard/human-pose calibration
-   - triangulated 3D constraints into WHAM/SMPL
-   - direct kinematic/biomechanical fitting
-   - final BVH from true dual-camera solve
 
 ## Repoda Olanlar
 
@@ -96,11 +89,11 @@ Bu bölüm mevcut repo davranışını anlatır; hedeflenen gelecek mimariyle ka
 - S3-compatible upload/download flow.
 - WHAM worker adapter wrapper.
 - RunPod Serverless dispatch/worker handler.
-- Multi-view diagnostic reconstruction foundation:
-  - pose extraction test adapter
+- Multi-view reconstruction:
+  - pose extraction (RTMPose)
   - frame sync
-  - camera calibration
-  - triangulation
+  - camera calibration & triangulation
+  - kinematic optimization (True Dual Solve)
   - reconstruction artifacts
   - `quality_report.multiView`
   - mobile Multi-View Diagnostics result surface
@@ -112,8 +105,6 @@ Bu bölüm mevcut repo davranışını anlatır; hedeflenen gelecek mimariyle ka
 - WHAM checkpoints.
 - SMPL / SMPLify licensed assets.
 - Production user authentication.
-- Real production-grade multi-view pose detector.
-- WHAM constraint integration from triangulated reconstruction.
 - Real-device QA results.
 
 ## Takım Arkadaşı İçin Hızlı Başlangıç
@@ -543,7 +534,7 @@ Multi-view section score formülünü değiştirmez.
 
 ## Real-Device QA
 
-Synthetic testlerin geçmesi real-device QA'nın tamamlandığı anlamına gelmez.
+Synthetic testlerin geçmesi real-device QA'nın tamamlandığı anlamına gelmez. True Dual Solve motorunun kararlılığı için aşağıdaki QA planı takip edilmelidir.
 
 Docs:
 
@@ -551,7 +542,7 @@ Docs:
 - `docs/qa/real-device-qa-report-template.md`
 - `backend/qa/real-device-qa.example.json`
 
-Dual/pro readiness iddiasından önce minimum manuel QA:
+Dual/pro testleri için minimum manuel QA:
 
 1. iOS single-camera WHAM regression.
 2. Android single-camera WHAM regression.

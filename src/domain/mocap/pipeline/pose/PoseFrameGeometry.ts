@@ -146,7 +146,7 @@ export function evaluatePoseFrameQuality(frame?: PoseFrame): PoseFrameQuality {
     };
   }
 
-  if (torsoArea < 0.006 || torsoArea > 0.45) {
+  if (torsoArea < 0.003 || torsoArea > 0.45) {
     return {
       reliable: false,
       reason: "torso_scale_invalid",

@@ -1,0 +1,45 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="485" viewBox="0 0 1400 485" role="img" aria-labelledby="sekil-4-2-title sekil-4-2-desc">
+  <title id="sekil-4-2-title">Upload Akışı ve Signed URL Yönetimi</title>
+  <desc id="sekil-4-2-desc">Metadata ve video API üzerinden değil, imzalı PUT URL ile doğrudan nesne depolamaya gider.</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 12 12" refX="10" refY="6" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M 0 0 L 12 6 L 0 12 z" fill="#334E68"/>
+    </marker>
+    <style>
+      .title { font-family: Arial, "Helvetica Neue", sans-serif; font-size: 31px; font-weight: 700; fill: #1F2937; }
+      .label { font-family: Arial, "Helvetica Neue", sans-serif; font-size: 20px; font-weight: 700; fill: #1F2937; }
+      .cardTitle { font-family: Arial, "Helvetica Neue", sans-serif; font-size: 19px; font-weight: 700; fill: #1F2937; }
+      .cardSub { font-family: Arial, "Helvetica Neue", sans-serif; font-size: 16px; font-weight: 500; fill: #526375; }
+      .badge { font-family: Arial, "Helvetica Neue", sans-serif; font-size: 16px; font-weight: 700; fill: #FFFFFF; }
+      .miniLabel { font-family: Arial, "Helvetica Neue", sans-serif; font-size: 15px; font-weight: 700; fill: #1F2937; }
+      .small { font-family: Arial, "Helvetica Neue", sans-serif; font-size: 14px; font-weight: 600; fill: #526375; }
+      .chip { font-family: Arial, "Helvetica Neue", sans-serif; font-size: 14px; font-weight: 700; fill: #1F2937; }
+      .note { font-family: Arial, "Helvetica Neue", sans-serif; font-size: 17px; font-weight: 500; fill: #526375; }
+      .lane { font-family: Arial, "Helvetica Neue", sans-serif; font-size: 16px; font-weight: 700; fill: #FFFFFF; }
+    </style>
+  </defs>
+  <rect x="0" y="0" width="1400" height="485" fill="#FFFFFF"/>
+  <text x="700.0" y="56" text-anchor="middle" class="title">Upload Akışı ve Signed URL Yönetimi</text>
+<rect x="80" y="105" width="200" height="54" rx="8" fill="#EAF2F8" stroke="#2E5D7D" stroke-width="2"/>
+<text x="180" y="140" text-anchor="middle" class="label">Mobil Uygulama</text>
+<line x1="180" y1="165" x2="180" y2="420" stroke="#2E5D7D" stroke-width="2" stroke-dasharray="7 8"/>
+<rect x="600" y="105" width="200" height="54" rx="8" fill="#EAF7F0" stroke="#2C8B5F" stroke-width="2"/>
+<text x="700" y="140" text-anchor="middle" class="label">Backend API</text>
+<line x1="700" y1="165" x2="700" y2="420" stroke="#2C8B5F" stroke-width="2" stroke-dasharray="7 8"/>
+<rect x="1070" y="105" width="200" height="54" rx="8" fill="#FFF7E8" stroke="#D18A1E" stroke-width="2"/>
+<text x="1170" y="140" text-anchor="middle" class="label">S3 / MinIO</text>
+<line x1="1170" y1="165" x2="1170" y2="420" stroke="#D18A1E" stroke-width="2" stroke-dasharray="7 8"/>
+<line x1="280" y1="205" x2="600" y2="205" stroke="#334E68" stroke-width="4" stroke-linecap="round" marker-end="url(#arrow)"/>
+<text x="440" y="192" text-anchor="middle" class="small">POST /uploads/init</text>
+<line x1="600" y1="235" x2="280" y2="235" stroke="#334E68" stroke-width="4" stroke-linecap="round" marker-end="url(#arrow)"/>
+<text x="440" y="259" text-anchor="middle" class="small">signed PUT URL&#x27;leri</text>
+<line x1="280" y1="300" x2="1070" y2="300" stroke="#334E68" stroke-width="4" stroke-linecap="round" marker-end="url(#arrow)"/>
+<text x="675" y="287" text-anchor="middle" class="small">PUT metadata.json -&gt; object key</text>
+<line x1="280" y1="350" x2="1070" y2="350" stroke="#334E68" stroke-width="4" stroke-linecap="round" marker-end="url(#arrow)"/>
+<text x="675" y="337" text-anchor="middle" class="small">PUT source_video -&gt; object key</text>
+<line x1="280" y1="405" x2="600" y2="405" stroke="#334E68" stroke-width="4" stroke-linecap="round" marker-end="url(#arrow)"/>
+<text x="440" y="392" text-anchor="middle" class="small">POST /uploads/complete</text>
+<path d="M 785 405 C 920 405 965 388 1070 368" fill="none" stroke="#334E68" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<text x="925" y="426" text-anchor="middle" class="small">object size doğrulama</text>
+<text text-anchor="middle" class="note"><tspan x="700.0" y="447.0">Metadata ve video API üzerinden değil, imzalı PUT URL ile doğrudan nesne depolamaya gider.</tspan></text>
+</svg>

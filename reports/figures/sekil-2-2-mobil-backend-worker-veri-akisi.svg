@@ -1,0 +1,75 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="480" viewBox="0 0 1400 480" role="img" aria-labelledby="sekil-2-2-title sekil-2-2-desc">
+  <title id="sekil-2-2-title">Mobil, Backend ve Worker Veri Akışı</title>
+  <desc id="sekil-2-2-desc">Her katman kendi sorumluluğunda kalır; sözleşme verisi bir sonraki katmana kontrollü aktarılır.</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 12 12" refX="10" refY="6" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M 0 0 L 12 6 L 0 12 z" fill="#334E68"/>
+    </marker>
+    <style>
+      .title { font-family: Arial, "Helvetica Neue", sans-serif; font-size: 31px; font-weight: 700; fill: #1F2937; }
+      .label { font-family: Arial, "Helvetica Neue", sans-serif; font-size: 20px; font-weight: 700; fill: #1F2937; }
+      .cardTitle { font-family: Arial, "Helvetica Neue", sans-serif; font-size: 19px; font-weight: 700; fill: #1F2937; }
+      .cardSub { font-family: Arial, "Helvetica Neue", sans-serif; font-size: 16px; font-weight: 500; fill: #526375; }
+      .badge { font-family: Arial, "Helvetica Neue", sans-serif; font-size: 16px; font-weight: 700; fill: #FFFFFF; }
+      .miniLabel { font-family: Arial, "Helvetica Neue", sans-serif; font-size: 15px; font-weight: 700; fill: #1F2937; }
+      .small { font-family: Arial, "Helvetica Neue", sans-serif; font-size: 14px; font-weight: 600; fill: #526375; }
+      .chip { font-family: Arial, "Helvetica Neue", sans-serif; font-size: 14px; font-weight: 700; fill: #1F2937; }
+      .note { font-family: Arial, "Helvetica Neue", sans-serif; font-size: 17px; font-weight: 500; fill: #526375; }
+      .lane { font-family: Arial, "Helvetica Neue", sans-serif; font-size: 16px; font-weight: 700; fill: #FFFFFF; }
+    </style>
+  </defs>
+  <rect x="0" y="0" width="1400" height="480" fill="#FFFFFF"/>
+  <text x="700.0" y="56" text-anchor="middle" class="title">Mobil, Backend ve Worker Veri Akışı</text>
+<rect x="46" y="119" width="112" height="44" rx="22" fill="#334E68" stroke="#334E68" stroke-width="0"/>
+<text x="102" y="148" text-anchor="middle" class="lane">Mobil</text>
+<rect x="190" y="105" width="210" height="72" rx="8" fill="#EAF2F8" stroke="#2E5D7D" stroke-width="2"/>
+<text text-anchor="middle" class="cardTitle"><tspan x="295.0" y="137.4">Screens</tspan></text>
+<text text-anchor="middle" class="cardSub"><tspan x="295.0" y="156.84">UI girişleri</tspan></text>
+<line x1="408" y1="141" x2="440" y2="141" stroke="#334E68" stroke-width="3.5" stroke-linecap="round" marker-end="url(#arrow)"/>
+<rect x="450" y="105" width="210" height="72" rx="8" fill="#FFF7E8" stroke="#D18A1E" stroke-width="2"/>
+<text text-anchor="middle" class="cardTitle"><tspan x="555.0" y="137.4">Hooks / State</tspan></text>
+<text text-anchor="middle" class="cardSub"><tspan x="555.0" y="156.84">durum yönetimi</tspan></text>
+<line x1="668" y1="141" x2="700" y2="141" stroke="#334E68" stroke-width="3.5" stroke-linecap="round" marker-end="url(#arrow)"/>
+<rect x="710" y="105" width="210" height="72" rx="8" fill="#EAF7F0" stroke="#2C8B5F" stroke-width="2"/>
+<text text-anchor="middle" class="cardTitle"><tspan x="815.0" y="137.4">Domain Models</tspan></text>
+<text text-anchor="middle" class="cardSub"><tspan x="815.0" y="156.84">Take + metadata</tspan></text>
+<line x1="928" y1="141" x2="960" y2="141" stroke="#334E68" stroke-width="3.5" stroke-linecap="round" marker-end="url(#arrow)"/>
+<rect x="970" y="105" width="210" height="72" rx="8" fill="#EEF0FF" stroke="#5056D6" stroke-width="2"/>
+<text text-anchor="middle" class="cardTitle"><tspan x="1075.0" y="137.4">Infra Adapters</tspan></text>
+<text text-anchor="middle" class="cardSub"><tspan x="1075.0" y="156.84">API + storage</tspan></text>
+<rect x="46" y="234" width="112" height="44" rx="22" fill="#334E68" stroke="#334E68" stroke-width="0"/>
+<text x="102" y="263" text-anchor="middle" class="lane">Backend</text>
+<rect x="190" y="220" width="210" height="72" rx="8" fill="#FFF7E8" stroke="#D18A1E" stroke-width="2"/>
+<text text-anchor="middle" class="cardTitle"><tspan x="295.0" y="252.4">Routes</tspan></text>
+<text text-anchor="middle" class="cardSub"><tspan x="295.0" y="271.84">HTTP sözleşmesi</tspan></text>
+<line x1="408" y1="256" x2="440" y2="256" stroke="#334E68" stroke-width="3.5" stroke-linecap="round" marker-end="url(#arrow)"/>
+<rect x="450" y="220" width="210" height="72" rx="8" fill="#EAF7F0" stroke="#2C8B5F" stroke-width="2"/>
+<text text-anchor="middle" class="cardTitle"><tspan x="555.0" y="252.4">Services</tspan></text>
+<text text-anchor="middle" class="cardSub"><tspan x="555.0" y="271.84">iş mantığı</tspan></text>
+<line x1="668" y1="256" x2="700" y2="256" stroke="#334E68" stroke-width="3.5" stroke-linecap="round" marker-end="url(#arrow)"/>
+<rect x="710" y="220" width="210" height="72" rx="8" fill="#EEF0FF" stroke="#5056D6" stroke-width="2"/>
+<text text-anchor="middle" class="cardTitle"><tspan x="815.0" y="252.4">Repositories</tspan></text>
+<text text-anchor="middle" class="cardSub"><tspan x="815.0" y="271.84">veri erişimi</tspan></text>
+<line x1="928" y1="256" x2="960" y2="256" stroke="#334E68" stroke-width="3.5" stroke-linecap="round" marker-end="url(#arrow)"/>
+<rect x="970" y="220" width="210" height="72" rx="8" fill="#FDECEC" stroke="#D33C3C" stroke-width="2"/>
+<text text-anchor="middle" class="cardTitle"><tspan x="1075.0" y="252.4">PostgreSQL</tspan></text>
+<text text-anchor="middle" class="cardSub"><tspan x="1075.0" y="271.84">kalıcılık</tspan></text>
+<rect x="46" y="349" width="112" height="44" rx="22" fill="#334E68" stroke="#334E68" stroke-width="0"/>
+<text x="102" y="378" text-anchor="middle" class="lane">Worker</text>
+<rect x="190" y="335" width="210" height="72" rx="8" fill="#EAF7F0" stroke="#2C8B5F" stroke-width="2"/>
+<text text-anchor="middle" class="cardTitle"><tspan x="295.0" y="367.4">Worker</tspan></text>
+<text text-anchor="middle" class="cardSub"><tspan x="295.0" y="386.84">job consumer</tspan></text>
+<line x1="408" y1="371" x2="440" y2="371" stroke="#334E68" stroke-width="3.5" stroke-linecap="round" marker-end="url(#arrow)"/>
+<rect x="450" y="335" width="210" height="72" rx="8" fill="#EEF0FF" stroke="#5056D6" stroke-width="2"/>
+<text text-anchor="middle" class="cardTitle"><tspan x="555.0" y="367.4">Video Pipeline</tspan></text>
+<text text-anchor="middle" class="cardSub"><tspan x="555.0" y="386.84">normalize</tspan></text>
+<line x1="668" y1="371" x2="700" y2="371" stroke="#334E68" stroke-width="3.5" stroke-linecap="round" marker-end="url(#arrow)"/>
+<rect x="710" y="335" width="210" height="72" rx="8" fill="#FDECEC" stroke="#D33C3C" stroke-width="2"/>
+<text text-anchor="middle" class="cardTitle"><tspan x="815.0" y="367.4">WHAM / SMPL</tspan></text>
+<text text-anchor="middle" class="cardSub"><tspan x="815.0" y="386.84">motion solve</tspan></text>
+<line x1="928" y1="371" x2="960" y2="371" stroke="#334E68" stroke-width="3.5" stroke-linecap="round" marker-end="url(#arrow)"/>
+<rect x="970" y="335" width="210" height="72" rx="8" fill="#F5F7FA" stroke="#526173" stroke-width="2"/>
+<text text-anchor="middle" class="cardTitle"><tspan x="1075.0" y="367.4">Export Validation</tspan></text>
+<text text-anchor="middle" class="cardSub"><tspan x="1075.0" y="386.84">BVH + rapor</tspan></text>
+<text text-anchor="middle" class="note"><tspan x="700.0" y="442.0">Her katman kendi sorumluluğunda kalır; sözleşme verisi bir sonraki katmana kontrollü aktarılır.</tspan></text>
+</svg>

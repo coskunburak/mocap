@@ -1,5 +1,9 @@
 # MocapExpo Backend-Core Production MoCap Donusum Plani
 
+> [!IMPORTANT]
+> **TAMAMLANDI:** Bu belge, projenin geçmişteki mimari dönüşüm vizyonunu yansıtan **tarihi bir referans belgesidir.**
+> Belgede "Hedef" veya "Plan" olarak geçen Single Camera ve Multi-View/True Dual Solve dâhil olmak üzere üretim (production) mimarisinin tamamı başarıyla kodlanmış, test edilmiş ve entegre edilmiştir.
+
 ## 0. Dokumanin Amaci
 
 Bu dokumanin amaci MocapExpo projesini mevcut "mobilde pose frame kaydet, mobilde export uret" yapisindan, Move.ai benzeri production-level markerless motion capture platformuna evirmek icin uygulanabilir bir teknik yol haritasi tanimlamaktir.
